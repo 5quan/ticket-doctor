@@ -45,6 +45,8 @@ export interface FeishuConfig {
   botOpenId?: string;
   /** 群聊是否必须 @机器人（默认 true，符合最小权限原则）。 */
   requireMention: boolean;
+  /** 飞书 SDK 日志级别：error | warn | info | debug（排查事件订阅时用 debug）。 */
+  logLevel?: string;
 }
 
 export interface SourcesConfig {
@@ -121,6 +123,7 @@ export function loadConfig(opts: { envFile?: string } = {}): AppConfig {
       appSecret: process.env.FEISHU_APP_SECRET,
       botOpenId: process.env.FEISHU_BOT_OPEN_ID,
       requireMention: process.env.FEISHU_REQUIRE_MENTION !== "false",
+      logLevel: process.env.FEISHU_LOG_LEVEL,
     },
     sources: {
       logDir: process.env.TD_LOG_DIR ?? join(PROJECT_ROOT, "fixtures", "samples"),

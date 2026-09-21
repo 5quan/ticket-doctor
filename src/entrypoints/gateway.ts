@@ -18,6 +18,7 @@ const client = new FeishuClient({
   appId: config.feishu.appId,
   appSecret: config.feishu.appSecret,
   botOpenId: config.feishu.botOpenId,
+  logLevel: config.feishu.logLevel,
 });
 
 await client.refreshBotOpenId();
@@ -40,7 +41,8 @@ const deliveryTimer = setInterval(() => {
 }, config.scheduler.pollIntervalMs);
 
 await client.start(async (event) => {
-  await gateway.handleEvent(event);
+  const outcome = await gateway.handleEvent(event);
+  console.log(`[ticket-doctor] 事件处理结果：${JSON.stringify(outcome)}`);
 });
 console.log(
   `[ticket-doctor] gateway 已启动：worker=${runWorkersInGateway ? config.scheduler.workerCount : "外部"}，引擎=${config.diagnosis.engine}`,

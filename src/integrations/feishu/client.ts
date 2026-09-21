@@ -16,6 +16,8 @@ export interface FeishuClientOptions {
   appId: string;
   appSecret: string;
   botOpenId?: string;
+  /** 飞书 SDK 日志级别，排查事件订阅时设为 debug。 */
+  logLevel?: string;
 }
 
 // 明确的限流/频率错误码（未穷举，命中前缀即可）
@@ -55,10 +57,17 @@ export class FeishuClient implements DeliverySender {
     await this.refreshBotOpenId();
     const dispatcher = new Lark.EventDispatcher({}).register({
       "im.message.receive_v1": async (data: unknown) => {
+        // 探针：只要飞书把事件投过来，这里一定会打印（无论后面是否被路由）
+        const preview = JSON.stringify(data).slice(0, 300);
+        console.log(`[feishu] 收到 im.message.receive_v1: ${preview}`);
         await onMessage(data as FeishuReceiveEvent);
       },
     });
-    this.ws = new Lark.WSClient({ appId: this.opts.appId, appSecret: this.opts.appSecret });
+    this.ws = new Lark.WSClient({
+      appId: this.opts.appId,
+      appSecret: this.opts.appSecret,
+      ...(this.opts.logLevel ? { loggerLevel: this.opts.logLevel as never } : {}),
+    });
     await this.ws.start({ eventDispatcher: dispatcher });
   }
 
