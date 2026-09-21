@@ -9,7 +9,9 @@
     "skipLibCheck": true,
     "types": ["node"],
     "resolveJsonModule": true,
-    "verbatimModuleSyntax": true
+    "verbatimModuleSyntax": true,
+    // Node --experimental-strip-types 只支持“可擦除语法”：禁止 enum/namespace/构造器参数属性等
+    "erasableSyntaxOnly": true
   },
   "include": ["src/**/*.ts", "tests/**/*.ts"]
 }

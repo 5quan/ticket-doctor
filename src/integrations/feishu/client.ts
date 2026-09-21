@@ -25,8 +25,10 @@ export class FeishuClient implements DeliverySender {
   private client: Lark.Client;
   private ws?: Lark.WSClient;
   private botOpenId: string | undefined;
+  private readonly opts: FeishuClientOptions;
 
-  constructor(private readonly opts: FeishuClientOptions) {
+  constructor(opts: FeishuClientOptions) {
+    this.opts = opts;
     this.client = new Lark.Client({ appId: opts.appId, appSecret: opts.appSecret });
     this.botOpenId = opts.botOpenId;
   }
