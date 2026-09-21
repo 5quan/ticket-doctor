@@ -1,0 +1,8 @@
+node_modules/
+data/
+.env
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+# demo 用的本地 git 仓库由 scripts/init-demo-repo.mjs 在运行时创建
+fixtures/demo-repo/.git/

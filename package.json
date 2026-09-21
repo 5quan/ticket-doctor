@@ -1,0 +1,25 @@
+{
+  "name": "ticket-doctor",
+  "version": "0.1.0",
+  "private": true,
+  "description": "飞书 Bug 消息自动预检 Agent：只读日志与源码诊断，同一线程多轮追问",
+  "type": "module",
+  "scripts": {
+    "demo": "node --experimental-strip-types src/entrypoints/demo.ts",
+    "predemo": "node scripts/init-demo-repo.mjs",
+    "gateway": "node --experimental-strip-types src/entrypoints/gateway.ts",
+    "worker": "node --experimental-strip-types src/entrypoints/worker.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test tests/unit/*.test.ts tests/integration/*.test.ts",
+    "pretest": "node scripts/init-demo-repo.mjs"
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "0.84.2",
+    "@earendil-works/pi-coding-agent": "0.84.2",
+    "@larksuiteoapi/node-sdk": "^1.74.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "typescript": "^7.0.2"
+  }
+}
