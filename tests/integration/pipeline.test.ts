@@ -8,6 +8,7 @@ import { FakeDiagnosisEngine } from "../../src/agent/fake-engine.ts";
 import { processDeliveriesOnce } from "../../src/delivery/delivery.ts";
 import { executeRun } from "../../src/diagnosis/orchestrator.ts";
 import { FakeFeishuClient } from "../../src/integrations/feishu/fake-client.ts";
+import type { DiagnosisEngine } from "../../src/agent/types.ts";
 import { extractSessionCode } from "../../src/domain/session.ts";
 import type { InboundMessage } from "../../src/domain/types.ts";
 import { routeInbound } from "../../src/intake/router.ts";
@@ -57,6 +58,36 @@ test("完整链路：新建调查 → 诊断 → 报告 → 投递，且报告�
   assert.match(report, /【预检报告】/);
   assert.match(report, /已确认事实/);
   assert.equal(extractSessionCode(report), routed.sessionCode);
+});
+
+test("非诊断回复：不产生报告，直接把文本投递出去", async () => {
+  const store = memoryStore();
+  const cfg = config();
+  const engine: DiagnosisEngine = {
+    name: "stub",
+    async run() {
+      return {
+        kind: "reply",
+        reason: "chat",
+        text: "你好，请问有什么问题？",
+        toolCalls: 0,
+        modelTurns: 1,
+        model: "stub",
+      };
+    },
+  };
+  const feishu = new FakeFeishuClient();
+
+  const routed = routeInbound(store, cfg, msg({ externalMessageId: "om_chat", text: "你好" }));
+  assert.equal(routed.decision.kind, "new_investigation");
+  const claimed = store.claimNextRun("w1", 60_000)!;
+  await executeRun({ store, config: cfg, engine }, claimed);
+  assert.equal(store.getRun(claimed.run.id)!.status, "succeeded");
+  assert.equal(store.getReportByRun(claimed.run.id), undefined);
+
+  while ((await processDeliveriesOnce(store, cfg, feishu)) > 0) {}
+  assert.equal(feishu.sent.length, 1);
+  assert.equal(feishu.sent[0].text, "你好，请问有什么问题？");
 });
 
 test("同一调查多轮：第二轮通过会话标号续接并保留上下文", async () => {

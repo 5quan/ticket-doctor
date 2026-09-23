@@ -28,12 +28,25 @@ export interface Toolbox {
   readCode(args: CodeReadArgs): Promise<string>;
 }
 
-export interface EngineResult {
+export interface EngineReportResult {
+  kind: "report";
   draft: ReportDraft;
   toolCalls: number;
   modelTurns: number;
   model?: string;
 }
+
+/** 非诊断回复：闲聊或向用户追问缺失信息（反问）。 */
+export interface EngineReplyResult {
+  kind: "reply";
+  reason: "chat" | "clarify";
+  text: string;
+  toolCalls: number;
+  modelTurns: number;
+  model?: string;
+}
+
+export type EngineResult = EngineReportResult | EngineReplyResult;
 
 export interface DiagnosisEngine {
   readonly name: string;

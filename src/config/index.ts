@@ -34,7 +34,10 @@ export interface DiagnosisConfig {
   apiKey?: string;
   timeoutMs: number;
   maxToolCalls: number;
+  /** 单条证据最大字符数。 */
   maxResultChars: number;
+  /** 单次工具调用返回给模型的总字符数上限（防信息爆炸）。 */
+  maxToolResultChars: number;
   maxModelTurns: number;
   defaultTimeWindowMs: number;
 }
@@ -115,6 +118,7 @@ export function loadConfig(opts: { envFile?: string } = {}): AppConfig {
       timeoutMs: num("TD_DIAGNOSIS_TIMEOUT_MS", 180_000),
       maxToolCalls: num("TD_MAX_TOOL_CALLS", 12),
       maxResultChars: num("TD_MAX_RESULT_CHARS", 4_000),
+      maxToolResultChars: num("TD_MAX_TOOL_RESULT_CHARS", 8_000),
       maxModelTurns: num("TD_MAX_MODEL_TURNS", 10),
       defaultTimeWindowMs: num("TD_DEFAULT_TIME_WINDOW_MS", 6 * 60 * 60 * 1000),
     },

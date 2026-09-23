@@ -107,6 +107,6 @@ export class FakeDiagnosisEngine implements DiagnosisEngine {
       nextSteps,
       missingMaterial,
     };
-    return { draft, toolCalls: toolbox.toolCalls, modelTurns: 1, model: "fake" };
+    return { kind: "report", draft, toolCalls: toolbox.toolCalls, modelTurns: 1, model: "fake" };
   }
 }

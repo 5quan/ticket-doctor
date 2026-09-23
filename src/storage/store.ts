@@ -496,6 +496,63 @@ export class Store {
     });
   }
 
+  /**
+   * 非诊断回复的成功提交（闲聊 / 向用户追问）：不产生报告，只落一条回复投递，
+   * 与诊断路径一样“终态 + 投递”同事务提交，并带代次守卫。
+   */
+  finalizeReply(input: {
+    runId: string;
+    generation: number;
+    investigationId: string;
+    round: number;
+    text: string;
+    targetMessageId?: string;
+    contextSummary: string;
+    now?: number;
+  }): { ok: boolean } {
+    const now = input.now ?? Date.now();
+    return transaction(this.db, () => {
+      const guard = this.db
+        .prepare("SELECT id FROM runs WHERE id = ? AND generation = ? AND status = 'running'")
+        .get(input.runId, input.generation) as { id: string } | undefined;
+      if (!guard) return { ok: false };
+      this.db
+        .prepare(
+          `UPDATE runs SET status = 'succeeded', lease_expires_at = NULL,
+             error_code = NULL, error_message = NULL, finished_at = ?, updated_at = ?
+           WHERE id = ? AND generation = ? AND status = 'running'`,
+        )
+        .run(now, now, input.runId, input.generation);
+      this.db
+        .prepare(
+          "UPDATE attempts SET status = 'succeeded', finished_at = ? WHERE run_id = ? AND generation = ?",
+        )
+        .run(now, input.runId, input.generation);
+      this.db
+        .prepare(
+          `INSERT OR IGNORE INTO deliveries
+             (id, investigation_id, run_id, report_id, kind, target_message_id, content, idempotency_key,
+              status, attempt, available_at, created_at, updated_at)
+           VALUES (?, ?, ?, NULL, 'reply', ?, ?, ?, 'pending', 0, ?, ?, ?)`,
+        )
+        .run(
+          randomUUID(),
+          input.investigationId,
+          input.runId,
+          input.targetMessageId ?? null,
+          input.text,
+          `reply:${input.runId}`,
+          now,
+          now,
+          now,
+        );
+      this.db
+        .prepare("UPDATE investigations SET context_summary = ?, total_rounds = ?, updated_at = ? WHERE id = ?")
+        .run(input.contextSummary, input.round, now, input.investigationId);
+      return { ok: true };
+    });
+  }
+
   /** 失败/中断提交：由状态机决定回 queued 还是 failed。 */
   finishFailure(
     runId: string,

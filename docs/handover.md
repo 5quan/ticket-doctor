@@ -16,6 +16,10 @@
 3. 作为可展示的个人项目：体现的是**Agent 系统工程的 harness（工具/权限/证据/状态/投递）**，
    而不仅是“调了一次大模型”。
 
+**推进优先级（已确立）**
+1. 第一阶段（当前）：完成「外部触发 → 只读功能 → 结论写回」的闭环；保证会话管理、对话记录保存合理，满足治理与观测需求。
+2. 第二阶段：优化使用效果——提示词、工具、skill 描述、经验案例等。
+
 ## 二、当前实现情况
 
 **已实现（可运行、有测试）**
@@ -27,6 +31,8 @@
 | 持久化 | SQLite(`node:sqlite`) schema：inbound/investigation/messages/runs/attempts/run_events/evidence/reports/deliveries | ✅ |
 | 调度 | worker 池、同调查串行 / 不同调查并行、租约 + 代次守卫、过期回收 | ✅ |
 | 诊断引擎 | 端口 + 假引擎（离线）+ pi 引擎（真实，SDK 隔离在单文件） | ✅ 真机两轮跑通 |
+| 交互回复 | 闲聊直接回复、必要时 `request_info` 反问追问；`submit_report` 提交即结束（`terminate`） | ✅ 新增 |
+| 机械回复 | 仅 `-help` 走程序固定回复（不建调查、不走模型）；其余消息一律交 LLM | ✅ 新增 |
 | 工具 | `query_logs / search_code / read_code / submit_report`，限次/限长/白名单 | ✅ |
 | 证据 | 程序签发 `E#`、报告只引用 ID、校验引用与版本、无证据强制降级 | ✅ |
 | 投递 | 待发送记录、退避重试、**不确定态**、平台消息 ID | ✅ 真机回复成功 |
@@ -98,6 +104,9 @@ npm run worker           # 只跑 worker
 | 飞书交互 | 最小权限 `im:message.group_at_msg:readonly`，**每次回复 @机器人** |
 | 存储 | 单机 SQLite(WAL) + `node:sqlite`，暂不引入 PostgreSQL |
 | 引擎 | 默认 `fake`（离线）；真实模型切 `TD_ENGINE=pi` |
+| 里程碑优先级 | 先完成「外部触发→只读取证→结论写回」闭环 + 会话/对话记录满足治理观测；再优化效果（提示词/工具/skill 描述/经验案例） |
+| 闲聊/追问 | 一律走 LLM；闲聊直接回复；必要时 `request_info` 向用户追问后结束本轮；仅 `-help` 由程序机械回复（不建调查） |
+| 工具结果上限 | 单条证据按 `maxResultChars` 截断 + 单次工具调用总量按 `maxToolResultChars` 截断并提示 |
 
 ## 五、待办
 

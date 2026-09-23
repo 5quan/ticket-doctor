@@ -19,6 +19,8 @@ export interface ToolboxDeps {
   evidence: EvidenceRegistry;
   scope: MaterialScope;
   maxToolCalls: number;
+  /** 单次工具返回给模型的总字符数上限（防信息爆炸）。 */
+  maxToolResultChars: number;
   /** 本轮运行的取消信号，穿透到所有材料查询。 */
   signal: AbortSignal;
 }
@@ -52,24 +54,37 @@ export class DiagnosisToolbox implements Toolbox {
     }
   }
 
+  /** 按总量预算拼装多行结果，超出即截断并提示，避免单次结果撑爆上下文。 */
+  private assemble(header: string, lines: string[]): string {
+    const budget = this.deps.maxToolResultChars;
+    const kept: string[] = [];
+    let used = header.length + 1;
+    for (const line of lines) {
+      if (kept.length > 0 && used + line.length + 1 > budget) break;
+      kept.push(line);
+      used += line.length + 1;
+    }
+    if (kept.length === lines.length) return `${header}\n${kept.join("\n")}`;
+    return `${header}\n${kept.join("\n")}\n（结果已截断：共 ${lines.length} 条，展示前 ${kept.length} 条；请缩小时间窗/关键词或指定文件范围）`;
+  }
+
   async queryLogs(args: LogQueryArgs): Promise<string> {
     this.spend();
     const intent = { service: args.service, from: args.from, to: args.to, keywords: args.keywords };
     const entries = await this.deps.logs.query(intent, this.deps.signal);
     if (entries.length === 0) return "（时间窗内没有匹配的日志条目）";
     const provenance = `${this.deps.logs.name} service=${args.service} window=[${iso(args.from)}~${iso(args.to)}] keywords=[${args.keywords.join(",")}]`;
-    return entries
-      .map((e) => {
-        const record = this.deps.evidence.register({
-          kind: "log",
-          source: provenance,
-          excerpt: e.message,
-          time: e.time,
-          level: e.level,
-        });
-        return `[${record.evidenceId}] ${iso(e.time)}\t${e.level}\t${record.excerpt}`;
-      })
-      .join("\n");
+    const lines = entries.map((e) => {
+      const record = this.deps.evidence.register({
+        kind: "log",
+        source: provenance,
+        excerpt: e.message,
+        time: e.time,
+        level: e.level,
+      });
+      return `[${record.evidenceId}] ${iso(e.time)}\t${e.level}\t${record.excerpt}`;
+    });
+    return this.assemble(`命中 ${entries.length} 条日志：`, lines);
   }
 
   async searchCode(args: CodeSearchArgs): Promise<string> {
@@ -79,16 +94,15 @@ export class DiagnosisToolbox implements Toolbox {
     const sha = target.revision!;
     const snippets = await target.search(args, this.deps.signal);
     if (snippets.length === 0) return "（没有匹配的代码片段）";
-    return snippets
-      .map((s) => {
-        const record = this.deps.evidence.register({
-          kind: "code",
-          excerpt: s.text,
-          codeRef: { repoId: target.repoId, sha, path: s.path, startLine: s.line, endLine: s.line },
-        });
-        return `[${record.evidenceId}] ${s.path}:${s.line}: ${record.excerpt}`;
-      })
-      .join("\n");
+    const lines = snippets.map((s) => {
+      const record = this.deps.evidence.register({
+        kind: "code",
+        excerpt: s.text,
+        codeRef: { repoId: target.repoId, sha, path: s.path, startLine: s.line, endLine: s.line },
+      });
+      return `[${record.evidenceId}] ${s.path}:${s.line}: ${record.excerpt}`;
+    });
+    return this.assemble(`命中 ${snippets.length} 处代码：`, lines);
   }
 
   async readCode(args: CodeReadArgs): Promise<string> {
@@ -105,7 +119,7 @@ export class DiagnosisToolbox implements Toolbox {
       excerpt: snippets.map((s) => `${s.line}\t${s.text}`).join("\n"),
       codeRef: { repoId: target.repoId, sha, path: snippets[0].path, startLine: first, endLine: last },
     });
-    const body = snippets.map((s) => `${s.line}\t${s.text}`).join("\n");
-    return `[${record.evidenceId}] ${snippets[0].path}:${first}-${last}\n${body}`;
+    // 只回已登记（并按 maxResultChars 截断）的正文，别再回一份未截断的 200 行原文。
+    return `[${record.evidenceId}] ${snippets[0].path}:${first}-${last}\n${record.excerpt}`;
   }
 }

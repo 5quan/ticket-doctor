@@ -19,8 +19,16 @@ export interface GatewayDeps {
 
 export type GatewayOutcome =
   | { kind: "ignored"; reason: string }
-  | { kind: "hint_sent"; text: string }
+  | { kind: "mechanical_reply_sent"; text: string }
   | { kind: "routed"; result: IntakeResult };
+
+/** 机械回复（不建调查、不走模型）。目前只有 `-help` 命令使用。 */
+const HELP_TEXT = [
+  "【ticket-doctor 使用说明】",
+  "• 提交 Bug：在群里 @我，尽量带上「服务名、发生时间、现象/报错」。",
+  "• 继续追问：回复我的报告，保留末尾的 [TD-xxxxxxxx] 标号即可续接。",
+  "• 我只做只读预检（查日志 + 读源码），不会修改任何东西。",
+].join("\n");
 
 function conversationActive(store: Store, msg: InboundMessage): boolean {
   const code = extractSessionCode(msg.text);
@@ -43,7 +51,24 @@ export function createFeishuGateway(deps: GatewayDeps) {
   const accountId = deps.accountId ?? "default";
   const logger = deps.logger ?? ((m: string) => console.log(m));
 
+  /** 机械回复：不创建调查、不调用模型，直接回一条固定文本（通知/帮助）。 */
+  async function sendMechanical(
+    chatId: string,
+    targetMessageId: string | undefined,
+    text: string,
+  ): Promise<GatewayOutcome> {
+    try {
+      await sender.send({ chatId, targetMessageId, text });
+      return { kind: "mechanical_reply_sent", text };
+    } catch (err) {
+      logger(`[feishu] 机械回复发送失败：${err instanceof Error ? err.message : String(err)}`);
+      return { kind: "ignored", reason: "mechanical_reply_failed" };
+    }
+  }
+
   async function handleEvent(event: FeishuReceiveEvent): Promise<GatewayOutcome> {
+    // 机械命令：只有 -help，不走模型、不建调查。
+    // （先归一化再判命令，保证只有真实消息能触发。）
     const normalized = normalizeFeishuEvent(event, accountId, config.feishu.botOpenId);
     if (!normalized.ok) return { kind: "ignored", reason: normalized.reason };
     const msg = normalized.message;
@@ -62,17 +87,20 @@ export function createFeishuGateway(deps: GatewayDeps) {
       return { kind: "ignored", reason: gate.reason };
     }
 
+    // 机械回复命令：-help 展示使用方法。
+    if (msg.text.trim().toLowerCase() === "-help") {
+      return sendMechanical(msg.chatId, msg.externalMessageId, HELP_TEXT);
+    }
+
     const result = routeInbound(store, config, msg);
     if (result.decision.kind === "unroutable") {
       // 只在“确实是在回复机器人但关联不上”时提示，避免对普通群聊刷屏
       if (msg.parentId) {
-        const text = `无法把这条消息关联到已有调查：${result.decision.reason}`;
-        try {
-          await sender.send({ chatId: msg.chatId, targetMessageId: msg.externalMessageId, text });
-          return { kind: "hint_sent", text };
-        } catch (err) {
-          logger(`[feishu] 提示发送失败：${err instanceof Error ? err.message : String(err)}`);
-        }
+        return sendMechanical(
+          msg.chatId,
+          msg.externalMessageId,
+          `无法把这条消息关联到已有调查：${result.decision.reason}`,
+        );
       }
       return { kind: "ignored", reason: result.decision.reason };
     }

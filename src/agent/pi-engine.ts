@@ -22,15 +22,25 @@ import { getBuiltinModel } from "@earendil-works/pi-ai/providers/all";
 import type { DiagnosisInput, ReportDraft } from "../domain/types.ts";
 import type { DiagnosisEngine, EngineResult, Toolbox } from "./types.ts";
 
-const SYSTEM_PROMPT = `你是 bug 工单的预检诊断员。目标：用尽可能少的查询，尽快给出可核验的初步结论。
-规则：
-1. 需要日志就调用 query_logs（服务名不确定时可先用工单里的服务名或常见服务名试一次）；
-   需要代码就调用 search_code / read_code（仅当本次运行提供了源码）。
-2. 只读：没有 shell，没有写操作，不要尝试执行命令或修改任何东西。
-3. 证据引用是硬规则：submit_report 中每条假设只能用 evidenceIds 引用工具返回的 [E#] 编号；
-   禁止编造编号。没有证据的猜测请把 status 设为 candidate、confidence 设为 low。
-4. 材料不完整（查询失败、服务/版本拿不到）时 completeness 必须是 partial 并逐条写 missingMaterial。
-5. 最后必须调用 submit_report 提交结构化报告，不要用普通文本代替。`;
+const SYSTEM_PROMPT = `你是飞书群里的 Bug 预检助手，像一名耐心、务实的同事一样和用户交流。
+
+先判断用户意图：
+- 如果只是打招呼、闲聊，或看不出明确的排查/查询需求：直接用自然语言友好回复，不要调用任何工具，
+  也不要提交报告。
+- 如果用户提出了报错、问题或查询需求：优先检索取证，再给结论。
+
+排查规则：
+1. 先取证，后结论：在拿到足够日志/源码证据前，必须先调用 query_logs / search_code / read_code；
+   禁止不取证就直接下结论。证据足够就停，不要为了凑数继续查询。
+2. 只读：没有 shell、没有写操作，不要尝试执行命令或修改任何东西。
+3. 证据引用是硬规则：submit_report 中每条假设只能用 evidenceIds 引用工具返回的 [E#] 编号，
+   禁止编造。没有证据的猜测把 status 设为 candidate、confidence 设为 low。
+4. 材料不完整（查询失败、服务/版本拿不到）时 completeness 必须是 partial，并逐条写 missingMaterial。
+5. 必要时（例如无法确定可读取的源码仓库/版本，或缺少服务名/现象等关键信息）调用 request_info
+   向用户追问缺失信息，不要臆测；追问后本次运行即结束，等用户补充后继续，无需再提交报告。
+6. 排查完成时调用 submit_report 提交结构化报告，不要用普通文本代替。
+
+只有排查/查询场景才调用工具；闲聊请直接回复文字。`;
 
 const queryLogsSchema = Type.Object({
   service: Type.String({ description: "服务名，决定查询哪个日志源" }),
@@ -71,6 +81,10 @@ const reportSchema = Type.Object({
   missingMaterial: Type.Array(Type.String()),
 });
 
+const requestInfoSchema = Type.Object({
+  question: Type.String({ description: "要向用户追问的问题，尽量具体（缺哪个仓库/版本/服务名/现象）" }),
+});
+
 export interface PiEngineOptions {
   provider: string;
   modelId: string;
@@ -80,15 +94,32 @@ export interface PiEngineOptions {
   systemPrompt?: string;
 }
 
+type SessionMessages = AgentSession["messages"];
+
+/** 取最后一条 assistant 文本，用于闲聊场景的自然回复。 */
+function lastAssistantText(messages: SessionMessages): string | undefined {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (!message || message.role !== "assistant") continue;
+    const text = message.content
+      .filter((part): part is { type: "text"; text: string } => part.type === "text")
+      .map((part) => part.text)
+      .join("\n")
+      .trim();
+    if (text) return text;
+  }
+  return undefined;
+}
+
 function renderInput(input: DiagnosisInput): string {
-  const lines = [`工单问题：${input.question}`];
+  const lines = [`用户消息：${input.question}`];
   if (input.service) lines.push(`服务：${input.service}`);
   if (input.occurredAt) lines.push(`发生时间：${new Date(input.occurredAt).toISOString()}`);
   if (input.repositories?.length) {
     lines.push(`代码仓库：${input.repositories.map((r) => `${r.repoId}@${r.rev ?? "HEAD"}`).join("、")}`);
   }
   if (input.contextSummary) lines.push(`此前轮次上下文：${input.contextSummary}`);
-  lines.push("请按系统提示完成预检，并用 submit_report 提交报告。");
+  lines.push("请遵循系统提示：闲聊直接回复；有排查需求先取证，完成时用 submit_report 提交报告。");
   return lines.join("\n");
 }
 
@@ -131,6 +162,7 @@ export class PiDiagnosisEngine implements DiagnosisEngine {
     });
 
     let submitted: ReportDraft | undefined;
+    let requested: string | undefined;
     let turns = 0;
 
     const queryLogsTool = defineTool({
@@ -177,17 +209,39 @@ export class PiDiagnosisEngine implements DiagnosisEngine {
     const submitReportTool = defineTool({
       name: "submit_report",
       label: "submit_report",
-      description: "提交最终结构化报告。假设用 evidenceIds 引用 [E#]；随后程序会做确定性校验。",
+      description: "提交最终结构化报告并结束本次运行。假设用 evidenceIds 引用 [E#]；随后程序会做确定性校验。",
       parameters: reportSchema,
       execute: async (_id, params: Static<typeof reportSchema>) => {
         submitted = params as ReportDraft;
-        return { content: [{ type: "text" as const, text: "报告已收到。" }], details: {} };
+        return {
+          content: [{ type: "text" as const, text: "报告已收到。" }],
+          details: {},
+          terminate: true,
+        };
       },
     });
 
+    const requestInfoTool = defineTool({
+      name: "request_info",
+      label: "request_info",
+      description:
+        "必要时向用户追问缺失信息（例如：无法确定要读取的源码仓库/版本，或缺少服务名、现象、复现步骤等关键信息）。" +
+        "不要用它做普通寒暄。调用后本次运行结束，等待用户补充后继续。",
+      parameters: requestInfoSchema,
+      execute: async (_id, params: Static<typeof requestInfoSchema>) => {
+        requested = params.question;
+        return {
+          content: [{ type: "text" as const, text: "已向用户追问，本次运行结束。" }],
+          details: {},
+          terminate: true,
+        };
+      },
+    });
+
+    // request_info 常驻，是否调用交给模型判断（描述里写了必要条件）。
     const customTools = toolbox.hasCode
-      ? [queryLogsTool, searchCodeTool, readCodeTool, submitReportTool]
-      : [queryLogsTool, submitReportTool];
+      ? [queryLogsTool, searchCodeTool, readCodeTool, requestInfoTool, submitReportTool]
+      : [queryLogsTool, requestInfoTool, submitReportTool];
 
     const created = await createAgentSession({
       cwd: process.cwd(),
@@ -210,7 +264,25 @@ export class PiDiagnosisEngine implements DiagnosisEngine {
     try {
       await session.prompt(renderInput(input));
       if (signal.aborted) throw new Error("诊断被取消");
+
+      // 反问：向用户要缺失信息，本次运行结束，等用户补充后进入下一轮。
+      if (requested) {
+        return {
+          kind: "reply",
+          reason: "clarify",
+          text: requested,
+          toolCalls: toolbox.toolCalls,
+          modelTurns: turns,
+          model: this.opts.modelId,
+        };
+      }
+
       if (!submitted) {
+        // 没有调用任何工具、也没有提交报告：视为闲聊，直接返回自然语言回复。
+        const text = lastAssistantText(session.messages);
+        if (toolbox.toolCalls === 0 && text) {
+          return { kind: "reply", reason: "chat", text, toolCalls: 0, modelTurns: turns, model: this.opts.modelId };
+        }
         const draft: ReportDraft = {
           completeness: "partial",
           summary: input.question.slice(0, 200),
@@ -220,9 +292,9 @@ export class PiDiagnosisEngine implements DiagnosisEngine {
           nextSteps: [],
           missingMaterial: ["模型未在预算内提交结构化报告"],
         };
-        return { draft, toolCalls: toolbox.toolCalls, modelTurns: turns, model: this.opts.modelId };
+        return { kind: "report", draft, toolCalls: toolbox.toolCalls, modelTurns: turns, model: this.opts.modelId };
       }
-      return { draft: submitted, toolCalls: toolbox.toolCalls, modelTurns: turns, model: this.opts.modelId };
+      return { kind: "report", draft: submitted, toolCalls: toolbox.toolCalls, modelTurns: turns, model: this.opts.modelId };
     } finally {
       signal.removeEventListener("abort", onAbort);
       unsubscribe();

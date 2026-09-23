@@ -19,7 +19,7 @@ import { buildCodeSource, type MultiRepoCodeSource } from "../sources/code.ts";
 import { FileLogSource } from "../sources/logs.ts";
 import type { Store, ClaimedRun } from "../storage/store.ts";
 import { DiagnosisToolbox, ToolBudgetExceeded } from "../agent/toolbox.ts";
-import type { DiagnosisEngine } from "../agent/types.ts";
+import type { DiagnosisEngine, EngineResult } from "../agent/types.ts";
 import { EvidenceRegistry } from "./evidence.ts";
 import { validateDraft } from "./validate.ts";
 
@@ -35,6 +35,11 @@ function buildContextSummary(report: DiagnosisReport): string {
   const hypothesis = report.hypotheses[0]?.cause ?? "无明确假设";
   const missing = report.missingMaterial.length > 0 ? `；缺失：${report.missingMaterial.join("、")}` : "";
   return `材料${report.completeness === "complete" ? "完整" : "不完整"}；首要假设：${hypothesis}${missing}`;
+}
+
+function buildReplyContextSummary(reason: "chat" | "clarify", text: string): string {
+  const label = reason === "clarify" ? "已向用户追问" : "助手已回复";
+  return `${label}：${text.replace(/\s+/g, " ").slice(0, 200)}`;
 }
 
 export async function executeRun(deps: OrchestratorDeps, claimed: ClaimedRun): Promise<void> {
@@ -108,14 +113,15 @@ export async function executeRun(deps: OrchestratorDeps, claimed: ClaimedRun): P
       evidence: registry,
       scope,
       maxToolCalls: config.diagnosis.maxToolCalls,
+      maxToolResultChars: config.diagnosis.maxToolResultChars,
       signal: controller.signal,
     });
 
-    let draft;
+    let result: EngineResult;
     try {
-      const result = await engine.run(input, toolbox, controller.signal);
-      draft = result.draft;
+      result = await engine.run(input, toolbox, controller.signal);
       store.appendRunEvent(run.id, claimed.attemptId, "engine_finished", {
+        kind: result.kind,
         toolCalls: result.toolCalls,
         modelTurns: result.modelTurns,
         model: result.model,
@@ -128,6 +134,28 @@ export async function executeRun(deps: OrchestratorDeps, claimed: ClaimedRun): P
       throw err;
     }
 
+    const round = investigation.total_rounds + 1;
+
+    // 非诊断回复（闲聊 / 追问）：不产生报告，只回一条消息。
+    if (result.kind === "reply") {
+      const replied = store.finalizeReply({
+        runId: run.id,
+        generation: claimed.generation,
+        investigationId: investigation.id,
+        round,
+        text: result.text,
+        targetMessageId: message.external_message_id,
+        contextSummary: buildReplyContextSummary(result.reason, result.text),
+      });
+      if (!replied.ok) {
+        store.appendRunEvent(run.id, claimed.attemptId, "commit_rejected", { reason: "lease_lost" });
+        return;
+      }
+      store.appendRunEvent(run.id, claimed.attemptId, "reply_saved", { reason: result.reason });
+      return;
+    }
+
+    const draft = result.draft;
     for (const item of missingMaterial) draft.missingMaterial.push(item);
     const { report } = validateDraft(draft, {
       registry,
@@ -138,7 +166,6 @@ export async function executeRun(deps: OrchestratorDeps, claimed: ClaimedRun): P
       ],
     });
 
-    const round = investigation.total_rounds + 1;
     const content = renderReportText(report, {
       investigationId: investigation.id,
       sessionCode: investigation.session_code,

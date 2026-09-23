@@ -25,6 +25,7 @@ export function testConfig(overrides: Partial<AppConfig> = {}): AppConfig {
       timeoutMs: 5_000,
       maxToolCalls: 5,
       maxResultChars: 2_000,
+      maxToolResultChars: 8_000,
       maxModelTurns: 5,
       defaultTimeWindowMs: 6 * 60 * 60 * 1000,
     },
