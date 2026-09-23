@@ -107,6 +107,7 @@ npm run worker           # 只跑 worker
 | 里程碑优先级 | 先完成「外部触发→只读取证→结论写回」闭环 + 会话/对话记录满足治理观测；再优化效果（提示词/工具/skill 描述/经验案例） |
 | 闲聊/追问 | 一律走 LLM；闲聊直接回复；必要时 `request_info` 向用户追问后结束本轮；仅 `-help` 由程序机械回复（不建调查） |
 | 工具结果上限 | 单条证据按 `maxResultChars` 截断 + 单次工具调用总量按 `maxToolResultChars` 截断并提示 |
+| 上下文兜底 | 开启 pi compaction 作为总量兜底（`TD_COMPACTION_ENABLED`，默认 true）；单次工具结果仍有界 |
 
 ## 五、待办
 

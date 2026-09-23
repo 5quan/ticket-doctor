@@ -28,6 +28,7 @@ export function testConfig(overrides: Partial<AppConfig> = {}): AppConfig {
       maxToolResultChars: 8_000,
       maxModelTurns: 5,
       defaultTimeWindowMs: 6 * 60 * 60 * 1000,
+      compactionEnabled: true,
     },
     feishu: { botOpenId: "ou_bot", requireMention: true },
     sources: { logDir: join(ROOT, "fixtures", "samples"), repoDir: ROOT, allowedServices: [], allowedRepos: [], repos: [] },

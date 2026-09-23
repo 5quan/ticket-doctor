@@ -91,6 +91,8 @@ export interface PiEngineOptions {
   apiKey?: string;
   maxToolCalls: number;
   maxModelTurns: number;
+  /** 上下文压缩兜底：接近上下文窗口时自动总结旧内容（TD_COMPACTION_ENABLED）。 */
+  compactionEnabled: boolean;
   systemPrompt?: string;
 }
 
@@ -157,7 +159,7 @@ export class PiDiagnosisEngine implements DiagnosisEngine {
       reload: async () => {},
     };
     const settingsManager = SettingsManager.inMemory({
-      compaction: { enabled: false },
+      compaction: { enabled: this.opts.compactionEnabled },
       retry: { enabled: true, maxRetries: 2 },
     });
 

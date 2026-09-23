@@ -15,6 +15,7 @@ export function buildEngine(config: AppConfig): DiagnosisEngine {
       apiKey: config.diagnosis.apiKey,
       maxToolCalls: config.diagnosis.maxToolCalls,
       maxModelTurns: config.diagnosis.maxModelTurns,
+      compactionEnabled: config.diagnosis.compactionEnabled,
     });
   }
   return new FakeDiagnosisEngine({ defaultService: "checkout-service" });
