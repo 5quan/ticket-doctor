@@ -33,16 +33,22 @@
 | 诊断引擎 | 端口 + 假引擎（离线）+ pi 引擎（真实，SDK 隔离在单文件） | ✅ 真机两轮跑通 |
 | 交互回复 | 闲聊直接回复、必要时 `request_info` 反问追问；`submit_report` 提交即结束（`terminate`） | ✅ 新增 |
 | 机械回复 | 仅 `-help` 走程序固定回复（不建调查、不走模型）；其余消息一律交 LLM | ✅ 新增 |
-| 工具 | `query_logs / search_code / read_code / submit_report`，限次/限长/白名单 | ✅ |
+| 工具 | `query_logs / search_code / read_code / request_info / submit_report`，限次/限长/白名单 | ✅ |
+| 上下文防护 | 单条证据 + 单次工具结果双重截断，pi compaction 兜底 | ✅ |
 | 证据 | 程序签发 `E#`、报告只引用 ID、校验引用与版本、无证据强制降级 | ✅ |
 | 投递 | 待发送记录、退避重试、**不确定态**、平台消息 ID | ✅ 真机回复成功 |
-| 测试 | 27 个（单元 + 集成），`npm test` 全绿 | ✅ |
+| 测试 | 32 个（单元 + 集成），`npm test` 全绿 | ✅ |
 
 **未实现 / 明确边界**
 
 - 真实日志平台（SLS/ELK）适配器；当前为本地文件日志源。
 - 逐次工具调用、模型对话、token 用量的落盘（只存了材料与聚合计数）。
 - 脱敏。
+- 发生时间解析与版本按时间推断（当前用接收时间 / 当前 HEAD）。
+- 图片/截图处理（当前只处理 `text`）。
+- 路径层工具 `list_files`（照搬 pi `ls`/`find` 分层）。
+- 独立上下文审计 Agent（证据充分性审查，见 `open-questions.md` OQ-30）。
+- 仓库同步器（本地只读镜像由外部更新）。
 - pi 会话持久化（当前用 `contextSummary` 传多轮）。
 - 出站消息映射（已决定暂缓）；跨轮证据复用。
 
@@ -50,7 +56,7 @@
 
 ```bash
 npm install
-npm test                 # 27 个测试
+npm test                 # 32 个测试
 npm run demo             # 离线端到端（假引擎）
 TD_ENGINE=pi npm run demo
 npm run gateway          # 飞书接入 + 投递 + 内嵌 4 worker（常驻）
@@ -111,4 +117,7 @@ npm run worker           # 只跑 worker
 
 ## 五、待办
 
-见 `docs/backlog.md`（按类别编号：F 飞书、T 工具、O 可观测、P 持久化、S 安全、M 材料、R 可靠性、E 工程、Q 专项）。
+- `docs/roadmap.md`：路线图与阶段目标。
+- `docs/backlog.md`：可优化清单（F 飞书、T 工具、O 可观测、P 持久化、S 安全、M 材料、R 可靠性、E 工程、Q 专项、N 输入与版本、D 部署）。
+- `docs/open-questions.md`：问题与讨论记录（OQ）。
+- `docs/interface.md`：接口与格式约束（业务场景、部署、输入输出、数据交互）。
