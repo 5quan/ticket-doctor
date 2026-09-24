@@ -230,7 +230,8 @@ deliveries.kind = report | reply | notice
 
 - **证据 ID**：`E#`，程序签发；模型只能引用；无证据的 `supported` 强制降为 `candidate/low`。
 - **版本**：`repoId@SHA`，程序绑定；引用版本与本次运行不一致即剔除。
-- **时间**：存储统一 epoch ms；展示 +08:00。
+- **时间**：存储统一 epoch ms；展示本地时区（含偏移）。明确区分**上报时间**（平台事实）与**故障发生时间**（从输入提取）；
+  提取器**宁漏勿错**（拿不准返回未知，绝不回退成上报时间），提取不到时按上报时间回溯宽窗并在报告中标注。
 - **截断**：单条证据 ≤ `maxResultChars`；单次工具 ≤ `maxToolResultChars`，超出必须标注总量。
 - **预算**：工具调用 ≤ `maxToolCalls`；接近上下文窗口由 compaction 兜底。
 - **会话标号**：`[TD-xxxxxxxx]`。

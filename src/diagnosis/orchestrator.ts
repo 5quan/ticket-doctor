@@ -6,6 +6,7 @@
 //   * 报告、终态、待发送记录、上下文指针在同一事务里落库。
 import type { AppConfig } from "../config/index.ts";
 import { stripSessionMarker } from "../domain/session.ts";
+import { extractOccurredAt } from "../domain/time.ts";
 import { renderReportText } from "../domain/report.ts";
 import { onFailure } from "../domain/run-state.ts";
 import type {
@@ -72,17 +73,27 @@ export async function executeRun(deps: OrchestratorDeps, claimed: ClaimedRun): P
     store.appendRunEvent(run.id, claimed.attemptId, "run_started", { worker: claimed.attemptId });
 
     const question = stripSessionMarker(message.text);
-    const occurredAt = message.received_at;
+    const receivedAt = message.received_at;
+    // 宁漏勿错：只信从输入提取到的发生时间；提取不到就是未知，绝不回退成上报时间。
+    const parsed = extractOccurredAt(message.text, receivedAt);
+    const occurredAt = parsed?.ms;
+    const timeWindowBasis: "occurred" | "reported" = occurredAt !== undefined ? "occurred" : "reported";
+    const anchor = occurredAt ?? receivedAt;
+    const windowMs =
+      occurredAt !== undefined ? config.diagnosis.defaultTimeWindowMs : config.diagnosis.fallbackTimeWindowMs;
+    const from = anchor - windowMs;
+    const to = anchor + 60 * 60 * 1000;
     const repositories: RepositoryRef[] = config.sources.repos.map((r) => ({ repoId: r.repoId }));
 
     const repoDirs = new Map(config.sources.repos.map((r) => [r.repoId, r.dir]));
     const { source: codeSource, missing: codeMissing } = await buildCodeSource(repositories, repoDirs);
 
-    const from = occurredAt - config.diagnosis.defaultTimeWindowMs;
-    const to = occurredAt + 60 * 60 * 1000;
     const scope: MaterialScope = {
       services: investigation.service ? [investigation.service] : [],
       environment: investigation.environment ?? undefined,
+      reportedAt: receivedAt,
+      occurredAt,
+      timeWindowBasis,
       timeWindow: { from, to },
       repos: codeSource
         ? codeSource.scopes().map((s) => ({ repoId: s.repoId, rev: s.sha, sha: s.sha, resolved: true }))
@@ -90,6 +101,11 @@ export async function executeRun(deps: OrchestratorDeps, claimed: ClaimedRun): P
     };
 
     const missingMaterial = [...codeMissing];
+    if (occurredAt === undefined) {
+      missingMaterial.push(
+        `未从输入获取具体发生时间，已按上报时间回溯 ${Math.round(config.diagnosis.fallbackTimeWindowMs / 3_600_000)} 小时检索（可能遗漏）`,
+      );
+    }
     const input: DiagnosisInput = {
       investigationId: investigation.id,
       runId: run.id,
@@ -97,7 +113,9 @@ export async function executeRun(deps: OrchestratorDeps, claimed: ClaimedRun): P
       contextSummary: investigation.context_summary ?? undefined,
       service: investigation.service ?? undefined,
       environment: investigation.environment ?? undefined,
+      receivedAt,
       occurredAt,
+      occurredSource: parsed?.source,
       repositories,
       allowedServices: config.sources.allowedServices,
       allowedRepos: config.sources.allowedRepos,

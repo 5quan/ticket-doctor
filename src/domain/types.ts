@@ -81,7 +81,12 @@ export interface DiagnosisInput {
   contextSummary?: string;
   service?: string;
   environment?: string;
+  /** 上报时间（平台事实，一定存在）。 */
+  receivedAt: number;
+  /** 故障发生时间（从输入提取，提取不到则 undefined——宁可未知也不猜测）。 */
   occurredAt?: number;
+  /** 发生时间的解析来源，供报告如实标注。 */
+  occurredSource?: string;
   repositories?: RepositoryRef[];
   /** 权限范围内的服务/仓库白名单。 */
   allowedServices?: string[];
@@ -92,6 +97,12 @@ export interface DiagnosisInput {
 export interface MaterialScope {
   services: string[];
   environment?: string;
+  /** 上报时间（平台事实）。 */
+  reportedAt?: number;
+  /** 故障发生时间（提取到时）；未提取到则 undefined。 */
+  occurredAt?: number;
+  /** 时间窗依据：按发生时间（occurred）或按上报时间回溯（reported）。 */
+  timeWindowBasis?: "occurred" | "reported";
   timeWindow?: { from: number; to: number };
   repos: Array<{ repoId: string; rev: string; sha?: string; resolved: boolean }>;
 }

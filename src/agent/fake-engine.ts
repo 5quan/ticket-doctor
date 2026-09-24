@@ -48,7 +48,7 @@ export class FakeDiagnosisEngine implements DiagnosisEngine {
   async run(input: DiagnosisInput, toolbox: Toolbox, signal: AbortSignal): Promise<EngineResult> {
     signal.throwIfAborted();
     const service = input.service ?? guessService(input.question, this.defaultService);
-    const occurred = input.occurredAt ?? Date.now();
+    const occurred = input.occurredAt ?? input.receivedAt;
     const from = occurred - this.windowMs;
     const to = occurred + 60 * 60 * 1000;
 

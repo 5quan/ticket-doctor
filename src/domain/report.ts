@@ -17,6 +17,16 @@ export interface ReportView {
   question: string;
 }
 
+/** 本地时区展示（含偏移），避免读成 UTC 产生歧义。 */
+function fmtLocal(ms: number): string {
+  const d = new Date(ms);
+  const p = (n: number) => String(n).padStart(2, "0");
+  const offset = -d.getTimezoneOffset();
+  const sign = offset >= 0 ? "+" : "-";
+  const abs = Math.abs(offset);
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())} ${sign}${p(Math.floor(abs / 60))}:${p(abs % 60)}`;
+}
+
 function fmtScope(scope: MaterialScope): string {
   const repos =
     scope.repos.length === 0
@@ -27,11 +37,16 @@ function fmtScope(scope: MaterialScope): string {
   const window =
     scope.timeWindow === undefined
       ? "未限定"
-      : `${new Date(scope.timeWindow.from).toISOString()} ~ ${new Date(scope.timeWindow.to).toISOString()}`;
+      : `${fmtLocal(scope.timeWindow.from)} ~ ${fmtLocal(scope.timeWindow.to)}`;
+  const reported = scope.reportedAt !== undefined ? fmtLocal(scope.reportedAt) : "未记录";
+  const occurred = scope.occurredAt !== undefined ? fmtLocal(scope.occurredAt) : "未从输入获取";
+  const basis = scope.timeWindowBasis === "reported" ? "（按上报时间回溯，可能遗漏）" : "";
   return [
     `- 服务：${scope.services.length > 0 ? scope.services.join("、") : "未指定"}`,
     `- 环境：${scope.environment ?? "未指定"}`,
-    `- 时间窗：${window}`,
+    `- 上报时间：${reported}`,
+    `- 发生时间：${occurred}`,
+    `- 时间窗：${window}${basis}`,
     `- 源码：${repos}`,
   ].join("\n");
 }

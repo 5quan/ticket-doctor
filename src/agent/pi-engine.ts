@@ -116,7 +116,12 @@ function lastAssistantText(messages: SessionMessages): string | undefined {
 function renderInput(input: DiagnosisInput): string {
   const lines = [`用户消息：${input.question}`];
   if (input.service) lines.push(`服务：${input.service}`);
-  if (input.occurredAt) lines.push(`发生时间：${new Date(input.occurredAt).toISOString()}`);
+  lines.push(`上报时间：${new Date(input.receivedAt).toISOString()}`);
+  lines.push(
+    input.occurredAt !== undefined
+      ? `故障发生时间：${new Date(input.occurredAt).toISOString()}（来源：${input.occurredSource ?? "输入"}）`
+      : "故障发生时间：未从输入获取（时间窗按上报时间回溯，可能遗漏）",
+  );
   if (input.repositories?.length) {
     lines.push(`代码仓库：${input.repositories.map((r) => `${r.repoId}@${r.rev ?? "HEAD"}`).join("、")}`);
   }

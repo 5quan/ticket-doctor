@@ -40,6 +40,8 @@ export interface DiagnosisConfig {
   maxToolResultChars: number;
   maxModelTurns: number;
   defaultTimeWindowMs: number;
+  /** 未获取到发生时间时，按上报时间回溯的兜底窗口（宁可宽，不可错窄）。 */
+  fallbackTimeWindowMs: number;
   /** pi 会话上下文压缩兜底：开启后接近上下文窗口时自动总结旧内容。 */
   compactionEnabled: boolean;
 }
@@ -123,6 +125,7 @@ export function loadConfig(opts: { envFile?: string } = {}): AppConfig {
       maxToolResultChars: num("TD_MAX_TOOL_RESULT_CHARS", 8_000),
       maxModelTurns: num("TD_MAX_MODEL_TURNS", 10),
       defaultTimeWindowMs: num("TD_DEFAULT_TIME_WINDOW_MS", 6 * 60 * 60 * 1000),
+      fallbackTimeWindowMs: num("TD_FALLBACK_TIME_WINDOW_MS", 24 * 60 * 60 * 1000),
       compactionEnabled: process.env.TD_COMPACTION_ENABLED !== "false",
     },
     feishu: {
