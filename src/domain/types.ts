@@ -68,8 +68,10 @@ export type IntakeDecision =
 
 export interface RepositoryRef {
   repoId: string;
-  /** 引用（commit / 分支）。第一版不强制；缺省时使用仓库当前解析出的版本并如实标注。 */
+  /** 显式引用（commit / 分支）。优先级最高。 */
   rev?: string;
+  /** 发生时间：未给 rev 时，按此时间解析仓库当时的提交。 */
+  at?: number;
 }
 
 export interface DiagnosisInput {
@@ -104,7 +106,14 @@ export interface MaterialScope {
   /** 时间窗依据：按发生时间（occurred）或按上报时间回溯（reported）。 */
   timeWindowBasis?: "occurred" | "reported";
   timeWindow?: { from: number; to: number };
-  repos: Array<{ repoId: string; rev: string; sha?: string; resolved: boolean }>;
+  repos: Array<{
+    repoId: string;
+    rev: string;
+    sha?: string;
+    resolved: boolean;
+    /** 版本钉死依据：显式 / 按发生时间 / 当前 HEAD / 未解析。 */
+    pinnedBy?: "explicit" | "time" | "head" | "unresolved";
+  }>;
 }
 
 // ---------- 证据 ----------

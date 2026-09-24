@@ -58,21 +58,62 @@ export async function resolveRepoSha(repoDir: string, rev: string): Promise<stri
   }
 }
 
+/**
+ * 按时间解析版本：取 ref 上“提交时间不晚于 at”的最近提交。
+ * 找不到返回 undefined（由调用方按“缺失材料”处理，而不是默默用错版本）。
+ */
+export async function resolveRepoShaAt(repoDir: string, atMs: number, ref = "HEAD"): Promise<string | undefined> {
+  const before = new Date(atMs).toISOString();
+  try {
+    const { stdout } = await execFileP("git", ["-C", repoDir, "rev-list", "-1", `--before=${before}`, ref], {
+      encoding: "utf8",
+      maxBuffer: 1024 * 1024,
+    });
+    const sha = stdout.trim();
+    return /^[0-9a-f]{40}$/.test(sha) ? sha : undefined;
+  } catch (err) {
+    const e = err as { stderr?: string; message?: string };
+    const tail = (e.stderr ?? "").trim().split("\n").slice(-1)[0] ?? "";
+    throw new CodeAccessError(`无法按时间解析 ${repoDir} 的版本：${tail || e.message || "git 失败"}`);
+  }
+}
+
+/** 版本钉死的依据：显式指定 / 按发生时间 / 当前 HEAD。 */
+export type CodePinBasis = "explicit" | "time" | "head";
+
 export class GitCodeSource implements CodeSource {
   readonly repoId: string;
+  readonly pinnedBy: CodePinBasis;
   private readonly repoDir: string;
   private sha: string;
 
-  private constructor(repoDir: string, repoId: string, sha: string) {
+  private constructor(repoDir: string, repoId: string, sha: string, pinnedBy: CodePinBasis) {
     this.repoDir = repoDir;
     this.repoId = repoId;
     this.sha = sha;
+    this.pinnedBy = pinnedBy;
   }
 
-  /** 解析并钉死版本。resolveRev 失败时抛出 CodeAccessError（调用方记为缺失材料）。 */
-  static async create(repoDir: string, ref: { repoId: string; rev?: string }): Promise<GitCodeSource> {
-    const sha = await resolveRepoSha(repoDir, ref.rev ?? "HEAD");
-    return new GitCodeSource(repoDir, ref.repoId, sha);
+  /**
+   * 钉版本：显式 rev 优先；否则按 at（发生时间）解析；都没有则当前 HEAD。
+   * 按时间解析不到时抛错（记为缺失），**不默默回退到 HEAD 读错版本**。
+   */
+  static async create(repoDir: string, ref: { repoId: string; rev?: string; at?: number }): Promise<GitCodeSource> {
+    if (ref.rev) {
+      const sha = await resolveRepoSha(repoDir, ref.rev);
+      return new GitCodeSource(repoDir, ref.repoId, sha, "explicit");
+    }
+    if (ref.at !== undefined) {
+      const sha = await resolveRepoShaAt(repoDir, ref.at);
+      if (sha === undefined) {
+        throw new CodeAccessError(
+          `仓库 ${ref.repoId} 在 ${new Date(ref.at).toISOString()} 之前没有可用提交，无法钉版本`,
+        );
+      }
+      return new GitCodeSource(repoDir, ref.repoId, sha, "time");
+    }
+    const sha = await resolveRepoSha(repoDir, "HEAD");
+    return new GitCodeSource(repoDir, ref.repoId, sha, "head");
   }
 
   get name(): string {
@@ -197,9 +238,9 @@ export class MultiRepoCodeSource implements CodeSource {
     return this.pick(intent.repoId).read(intent, signal);
   }
 
-  /** 各仓解析后的版本，供报告"材料范围"使用。 */
-  scopes(): Array<{ repoId: string; sha: string }> {
-    return [...this.sources.values()].map((s) => ({ repoId: s.repoId, sha: s.revision }));
+  /** 各仓解析后的版本与钉版本依据，供报告“材料范围”使用。 */
+  scopes(): Array<{ repoId: string; sha: string; pinnedBy: CodePinBasis }> {
+    return [...this.sources.values()].map((s) => ({ repoId: s.repoId, sha: s.revision, pinnedBy: s.pinnedBy }));
   }
 }
 

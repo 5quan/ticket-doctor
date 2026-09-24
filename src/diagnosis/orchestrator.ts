@@ -83,10 +83,18 @@ export async function executeRun(deps: OrchestratorDeps, claimed: ClaimedRun): P
       occurredAt !== undefined ? config.diagnosis.defaultTimeWindowMs : config.diagnosis.fallbackTimeWindowMs;
     const from = anchor - windowMs;
     const to = anchor + 60 * 60 * 1000;
-    const repositories: RepositoryRef[] = config.sources.repos.map((r) => ({ repoId: r.repoId }));
+    const repositories: RepositoryRef[] = config.sources.repos.map((r) => ({
+      repoId: r.repoId,
+      // 未显式给 rev 时，按事件发生时间钉版本；未获取到发生时间则回退当前 HEAD（在报告标注）。
+      ...(occurredAt !== undefined ? { at: occurredAt } : {}),
+    }));
 
     const repoDirs = new Map(config.sources.repos.map((r) => [r.repoId, r.dir]));
     const { source: codeSource, missing: codeMissing } = await buildCodeSource(repositories, repoDirs);
+    // 解析后的实际版本（含按时间钉的 SHA），供模型上下文使用。
+    const resolvedRepos: RepositoryRef[] = codeSource
+      ? codeSource.scopes().map((s) => ({ repoId: s.repoId, rev: s.sha }))
+      : repositories;
 
     const scope: MaterialScope = {
       services: investigation.service ? [investigation.service] : [],
@@ -96,8 +104,10 @@ export async function executeRun(deps: OrchestratorDeps, claimed: ClaimedRun): P
       timeWindowBasis,
       timeWindow: { from, to },
       repos: codeSource
-        ? codeSource.scopes().map((s) => ({ repoId: s.repoId, rev: s.sha, sha: s.sha, resolved: true }))
-        : repositories.map((r) => ({ repoId: r.repoId, rev: r.rev ?? "HEAD", resolved: false })),
+        ? codeSource
+            .scopes()
+            .map((s) => ({ repoId: s.repoId, rev: s.sha, sha: s.sha, resolved: true, pinnedBy: s.pinnedBy }))
+        : repositories.map((r) => ({ repoId: r.repoId, rev: r.rev ?? "HEAD", resolved: false, pinnedBy: "unresolved" as const })),
     };
 
     const missingMaterial = [...codeMissing];
@@ -116,7 +126,7 @@ export async function executeRun(deps: OrchestratorDeps, claimed: ClaimedRun): P
       receivedAt,
       occurredAt,
       occurredSource: parsed?.source,
-      repositories,
+      repositories: resolvedRepos,
       allowedServices: config.sources.allowedServices,
       allowedRepos: config.sources.allowedRepos,
     };

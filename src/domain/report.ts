@@ -32,7 +32,12 @@ function fmtScope(scope: MaterialScope): string {
     scope.repos.length === 0
       ? "未使用源码"
       : scope.repos
-          .map((r) => `${r.repoId}@${r.sha ? r.sha.slice(0, 10) : r.rev}${r.resolved ? "" : "(未钉死)"}`)
+          .map((r) => {
+            if (!r.resolved) return `${r.repoId}@${r.rev}(未钉死)`;
+            const label = r.sha ? r.sha.slice(0, 10) : r.rev;
+            const basis = r.pinnedBy === "time" ? "(按发生时间)" : r.pinnedBy === "head" ? "(当前HEAD)" : "";
+            return `${r.repoId}@${label}${basis}`;
+          })
           .join("、");
   const window =
     scope.timeWindow === undefined
