@@ -5,23 +5,14 @@
 //   * 终态提交带代次守卫：租约过期后写不进任何东西。
 //   * 报告、终态、待发送记录、上下文指针在同一事务里落库。
 import type { AppConfig } from "../config/index.ts";
-import { stripSessionMarker } from "../domain/session.ts";
-import { extractOccurredAt } from "../domain/time.ts";
 import { renderReportText } from "../domain/report.ts";
 import { onFailure } from "../domain/run-state.ts";
-import type {
-  DiagnosisInput,
-  DiagnosisReport,
-  MaterialScope,
-  RepositoryRef,
-  RunErrorCode,
-} from "../domain/types.ts";
-import { buildCodeSource, type MultiRepoCodeSource } from "../sources/code.ts";
-import { FileLogSource } from "../sources/logs.ts";
+import type { DiagnosisReport, RunErrorCode } from "../domain/types.ts";
+import type { FileLogSource } from "../sources/logs.ts";
 import type { Store, ClaimedRun } from "../storage/store.ts";
-import { DiagnosisToolbox, ToolBudgetExceeded } from "../agent/toolbox.ts";
+import { ToolBudgetExceeded } from "../agent/toolbox.ts";
 import type { DiagnosisEngine, EngineResult } from "../agent/types.ts";
-import { EvidenceRegistry } from "./evidence.ts";
+import { prepareDiagnosis } from "./prepare.ts";
 import { SessionLog } from "./session-log.ts";
 import { validateDraft } from "./validate.ts";
 
@@ -73,70 +64,6 @@ export async function executeRun(deps: OrchestratorDeps, claimed: ClaimedRun): P
   try {
     store.appendRunEvent(run.id, claimed.attemptId, "run_started", { worker: claimed.attemptId });
 
-    const question = stripSessionMarker(message.text);
-    const receivedAt = message.received_at;
-    // 宁漏勿错：只信从输入提取到的发生时间；提取不到就是未知，绝不回退成上报时间。
-    const parsed = extractOccurredAt(message.text, receivedAt);
-    const occurredAt = parsed?.ms;
-    const timeWindowBasis: "occurred" | "reported" = occurredAt !== undefined ? "occurred" : "reported";
-    const anchor = occurredAt ?? receivedAt;
-    const windowMs =
-      occurredAt !== undefined ? config.diagnosis.defaultTimeWindowMs : config.diagnosis.fallbackTimeWindowMs;
-    const from = anchor - windowMs;
-    const to = anchor + 60 * 60 * 1000;
-    const repositories: RepositoryRef[] = config.sources.repos.map((r) => ({
-      repoId: r.repoId,
-      // 未显式给 rev 时，按事件发生时间钉版本；未获取到发生时间则回退当前 HEAD（在报告标注）。
-      ...(occurredAt !== undefined ? { at: occurredAt } : {}),
-    }));
-
-    const repoDirs = new Map(config.sources.repos.map((r) => [r.repoId, r.dir]));
-    const { source: codeSource, missing: codeMissing } = await buildCodeSource(repositories, repoDirs);
-    // 解析后的实际版本（含按时间钉的 SHA），供模型上下文使用。
-    const resolvedRepos: RepositoryRef[] = codeSource
-      ? codeSource.scopes().map((s) => ({ repoId: s.repoId, rev: s.sha }))
-      : repositories;
-
-    const scope: MaterialScope = {
-      services: investigation.service ? [investigation.service] : [],
-      environment: investigation.environment ?? undefined,
-      reportedAt: receivedAt,
-      occurredAt,
-      timeWindowBasis,
-      timeWindow: { from, to },
-      repos: codeSource
-        ? codeSource
-            .scopes()
-            .map((s) => ({ repoId: s.repoId, rev: s.sha, sha: s.sha, resolved: true, pinnedBy: s.pinnedBy }))
-        : repositories.map((r) => ({ repoId: r.repoId, rev: r.rev ?? "HEAD", resolved: false, pinnedBy: "unresolved" as const })),
-    };
-
-    const missingMaterial = [...codeMissing];
-    if (occurredAt === undefined) {
-      missingMaterial.push(
-        `未从输入获取具体发生时间，已按上报时间回溯 ${Math.round(config.diagnosis.fallbackTimeWindowMs / 3_600_000)} 小时检索（可能遗漏）`,
-      );
-    }
-    const input: DiagnosisInput = {
-      investigationId: investigation.id,
-      runId: run.id,
-      question,
-      contextSummary: investigation.context_summary ?? undefined,
-      service: investigation.service ?? undefined,
-      environment: investigation.environment ?? undefined,
-      receivedAt,
-      occurredAt,
-      occurredSource: parsed?.source,
-      repositories: resolvedRepos,
-      allowedServices: config.sources.allowedServices,
-      allowedRepos: config.sources.allowedRepos,
-    };
-
-    const registry = new EvidenceRegistry(run.id, config.diagnosis.maxResultChars);
-    const logSource =
-      deps.logSource ??
-      new FileLogSource({ dir: config.sources.logDir, allowedServices: config.sources.allowedServices });
-
     // 会话日志：模型层逐条事件（消息/工具/用量/压缩）的 append-only 真相源。
     const sessionLog = SessionLog.open({
       dir: config.sessionDir,
@@ -145,18 +72,22 @@ export async function executeRun(deps: OrchestratorDeps, claimed: ClaimedRun): P
       investigationId: investigation.id,
       cwd: process.cwd(),
     });
-    sessionLog.append("message", { role: "user", content: question });
 
-    const toolbox = new DiagnosisToolbox({
-      logs: logSource,
-      code: codeSource as MultiRepoCodeSource | undefined,
-      evidence: registry,
-      scope,
-      maxToolCalls: config.diagnosis.maxToolCalls,
-      maxToolResultChars: config.diagnosis.maxToolResultChars,
+    // 材料准备与生产同一路径：时间窗 → 钉版本 → 工具箱（含会话日志埋点）。
+    const { input, scope, registry, toolbox, missingMaterial } = await prepareDiagnosis(config, {
+      investigationId: investigation.id,
+      runId: run.id,
+      text: message.text,
+      receivedAt: message.received_at,
+      service: investigation.service ?? undefined,
+      environment: investigation.environment ?? undefined,
+      contextSummary: investigation.context_summary ?? undefined,
       signal: controller.signal,
       log: sessionLog,
+      logSource: deps.logSource,
     });
+    const question = input.question;
+    sessionLog.append("message", { role: "user", content: question });
 
     let result: EngineResult;
     try {

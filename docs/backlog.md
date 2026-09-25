@@ -78,7 +78,7 @@
 | Q3 | 上下文拼装优化 | 只把上一轮报告摘要（`contextSummary`）带入下一轮；证据 ID 每轮从 E1 重开 | 设计跨轮上下文与历史证据引用格式（与 P3 合并做） | 待探讨 | P2 |
 | Q4 | 评估接入 Codex 作为可选引擎 | 引擎端口 `DiagnosisEngine` 已可插拔，当前有 `fake` / `pi` 两个实现 | 新增 `codex-engine.ts` 实现 `run(input, toolbox, signal)`；给出端口适配清单：工具映射、预算（次数/时间/token）、中止传播、证据登记、会话传递。不改飞书/调度/证据/投递 | 待办 | P2 |
 | Q5 | 独立上下文审计 Agent | 判定“证据是否充分”目前混在主诊断 Agent 内 | 剥离为独立上下文审计 Agent，结构化输出已确认事实/疑似原因/补证请求，程序结合预算收敛；参考 Evaluator-Optimizer / LLM-as-Judge（见 `open-questions.md` 附录） | 待办 | P1 |
-| Q6 | 评测 Benchmark（RSI） | 尚无评测集与指标；逐次落盘是前提（T3/O1/P1） | 构建 Benchmark：标准答案 + 支撑证据 + 干扰证据；指标=证据召回率 / 决策正确率；保持记忆引擎不变，迭代场景记忆规则（目标显著提升特定场景成功率） | 待办 | P1 |
+| Q6 | 评测 Benchmark（RSI） | ✅ M1 已落：harness + `checkout-timeout` 5 case + 打分器（`npm run eval`）；真实模型基线：召回 90% / 精确 30.7% / 正确率 80% | M2 扩充样本、judge 正确率、独立 test 集、CI 门禁；迭代 `rules.md` | 进行中 | P1 |
 | Q7 | 生产诊断 MCP Server | 工具目前内嵌在 `DiagnosisToolbox`，未外化为标准接口 | 封装 `query_logs/search_code/read_code` 为 MCP tools；结构化参数限定服务/时间窗/范围，只读凭据 + 超时 + 结果规模控制，返回带来源与版本证据；供诊断与审计 Agent 复用 | 待办 | P2 |
 
 ---

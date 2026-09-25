@@ -43,6 +43,17 @@ const SYSTEM_PROMPT = `你是飞书群里的 Bug 预检助手，像一名耐心�
 
 只有排查/查询场景才调用工具；闲聊请直接回复文字。`;
 
+/**
+ * 组装系统提示词。
+ * 传入场景记忆规则（rules.md）时追加到末尾，作为该场景“什么该记 / 什么不该记”的显式约束。
+ * 生产默认不传，行为与以前完全一致；评测用它注入 rules.md。
+ */
+export function buildSystemPrompt(rules?: string): string {
+  const extra = rules?.trim();
+  if (!extra) return SYSTEM_PROMPT;
+  return `${SYSTEM_PROMPT}\n\n## 场景记忆规则（仅本场景生效）\n${extra}`;
+}
+
 const queryLogsSchema = Type.Object({
   service: Type.String({ description: "服务名，决定查询哪个日志源" }),
   from: Type.String({ description: "起始时间，ISO8601" }),

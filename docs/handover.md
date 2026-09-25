@@ -51,8 +51,9 @@
 | 版本钉死 | 有发生时间时按 `git rev-list --before` 钉当时 SHA（显式 rev 优先；钉不到记为缺失，不回退 HEAD） | ✅ |
 | 证据 | 程序签发 `E#`、报告只引用 ID、校验引用与版本、无证据强制降级 | ✅ |
 | 投递 | 待发送记录、退避重试、**不确定态**、平台消息 ID | ✅ 真机回复成功 |
-| 会话日志落盘 | 每次尝试一个 JSONL（append-only）：`message / usage / compaction / tool_started / tool_completed`；`runs` 存指针与 token 汇总 | ✅ 新增 |
-| 测试 | 48 个（单元 + 集成），`npm test` 全绿 | ✅ |
+| 会话日志落盘 | 每次尝试一个 JSONL（append-only）：`message / usage / compaction / tool_started / tool_completed`；`runs` 存指针与 token 汇总 | ✅ |
+| 评测 harness（离线） | `npm run eval`：加载 benchmark → 复用生产链路跑诊断 → 打分（证据召回率/引用精确率/决策正确率）→ 结果 JSONL | ✅ M1 |
+| 测试 | 55 个（单元 + 集成），`npm test` 全绿 | ✅ |
 
 **未实现 / 明确边界**
 
@@ -115,14 +116,14 @@ npm run worker           # 只跑 worker
 
 ## 六、当前进度与下一步
 
-**阶段一剩余 P0（本轮继续）**
+**阶段一剩余 P0**
 
 1. 落盘前**脱敏**（S1）——你已决定暂缓。
 2. 时区展示统一（报告材料范围已本地化）。
 
-**已落地**：逐次工具调用 / 模型对话 / token 落盘（会话 JSONL + `runs` 指针/汇总，backlog T3/O1/O2/O3/P1）。
+**已落地**：逐次落盘（T3/O1/O2/O3/P1）；评测 Benchmark **M1**（harness + `checkout-timeout` 场景 5 case + 打分器，`npm run eval`）。
 
-**之后（阶段二）**：评测 Benchmark（RSI）→ 独立审计 Agent → 提示词调优 / 路径层工具 `list_files` / skill 经验案例。
+**阶段二下一步**：用真实模型迭代 `rules.md`（基线已出：召回 90% / 精确 30.7% / 正确率 80%），修掉「材料不足仍给 supported 结论」与「引用干扰证据」；随后独立审计 Agent。详见 `docs/eval-design.md`。
 
 **阶段三**：生产诊断 MCP Server（工具外化）、真实日志平台、图片等。
 

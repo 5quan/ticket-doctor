@@ -6,3 +6,5 @@ data/
 *.sqlite-shm
 # demo 用的本地 git 仓库由 scripts/init-demo-repo.mjs 在运行时创建
 fixtures/demo-repo/.git/
+# 评测 fixture 仓库的 .git 由 scripts/init-eval-fixture.mjs 在运行时创建
+fixtures/evals/*/repo/.git/

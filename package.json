@@ -7,11 +7,13 @@
   "scripts": {
     "demo": "node --experimental-strip-types src/entrypoints/demo.ts",
     "predemo": "node scripts/init-demo-repo.mjs",
+    "eval": "node --experimental-strip-types src/evals/cli.ts",
+    "preeval": "node scripts/init-eval-fixture.mjs",
     "gateway": "node --experimental-strip-types src/entrypoints/gateway.ts",
     "worker": "node --experimental-strip-types src/entrypoints/worker.ts",
     "typecheck": "tsc --noEmit",
     "test": "node --experimental-strip-types --test tests/unit/*.test.ts tests/integration/*.test.ts",
-    "pretest": "node scripts/init-demo-repo.mjs"
+    "pretest": "node scripts/init-demo-repo.mjs && node scripts/init-eval-fixture.mjs"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "0.84.2",
