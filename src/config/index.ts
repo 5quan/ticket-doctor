@@ -67,6 +67,8 @@ export interface SourcesConfig {
 
 export interface AppConfig {
   dbPath: string;
+  /** 会话日志（JSONL）目录：逐次消息/工具/用量/压缩事件的真相源。 */
+  sessionDir: string;
   scheduler: SchedulerConfig;
   diagnosis: DiagnosisConfig;
   feishu: FeishuConfig;
@@ -106,6 +108,7 @@ export function loadConfig(opts: { envFile?: string } = {}): AppConfig {
   return {
     projectRoot: PROJECT_ROOT,
     dbPath: process.env.TD_DB_PATH ?? join(dataDir, "ticket-doctor.sqlite"),
+    sessionDir: process.env.TD_SESSION_DIR ?? join(dataDir, "sessions"),
     scheduler: {
       workerCount: num("TD_WORKER_COUNT", 4),
       pollIntervalMs: num("TD_POLL_INTERVAL_MS", 1_000),

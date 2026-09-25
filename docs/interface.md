@@ -7,7 +7,7 @@
 
 ## 一、业务场景与要解决的问题
 
-**场景**：某电商交易 / 支付团队，测试在飞书群提交线上或测试环境的 Bug。
+**场景**：测试在飞书群提交线上或测试环境的 Bug（行业无关，不限定具体业务）。
 
 **要解决的问题**：
 
@@ -222,7 +222,9 @@ deliveries.kind = report | reply | notice
 | 内容（按需） | `read` | `read_code`（`git show`） |
 | — | `bash`（输出溢出到文件） | （不适用，只读） |
 
-原则：**先路径 → 再定位 → 再内容**；每个结果有界；结果里明确"总量 vs 已展示"和"如何继续"。
+原则：**先路径 → 再定位 → 再内容**；每个结果有界；结果里明确“总量 vs 已展示”和“如何继续”。
+
+> 外化计划：这套工具后续封装为**生产诊断 MCP Server**（阶段三），结构化参数限定服务/时间窗/范围，只读凭据 + 超时 + 结果规模控制，返回带来源与版本证据（backlog Q7）。
 
 ---
 
@@ -269,7 +271,7 @@ Worker claimNextRun() → executeRun()            src/diagnosis/orchestrator.ts
 | `query_logs` | ✅ | 查服务时间窗内日志 | 服务白名单、时间窗、关键词、条数、总量上限 |
 | `search_code` | 仅有源码时 | 钉死 SHA 上 `git grep` | 子串、glob、≤50 条、总量上限 |
 | `read_code` | 仅有源码时 | 钉死 SHA 上 `git show` 读区间 | 路径白名单、默认 200 行、截断 |
-| `request_info` | ✅ | 向用户追问（反问），调用即结束本轮 | - |
+| `request_info` | ✅ | 向用户追问（反问），调用即结束本轮 | 补证渠道；后续支持 @ 相关人员补背景/文档（backlog T6） |
 | `submit_report` | ✅ | 提交结构化报告，调用即结束（`terminate`） | 引用/版本校验 |
 
 **不能调用**：pi 内置工具全关（`noTools:"builtin"`）——无 shell、无 `read`/`write`/`edit`/`bash`。

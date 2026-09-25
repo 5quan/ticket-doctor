@@ -17,6 +17,7 @@ export function testConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   const base: AppConfig = {
     projectRoot: ROOT,
     dbPath: ":memory:",
+    sessionDir: join(ROOT, "data", "sessions"),
     scheduler: { workerCount: 1, pollIntervalMs: 5, heartbeatMs: 10, leaseMs: 60_000, maxAttempts: 2, retryDelayMs: 5 },
     diagnosis: {
       engine: "fake",

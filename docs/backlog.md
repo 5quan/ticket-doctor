@@ -19,24 +19,25 @@
 |---|---|---|---|---|---|
 | T1 | 工具使用范围和效果待优化，不确定是否最优解 | 当前 4 个：`query_logs / search_code / read_code / submit_report` | 是否需要更多材料工具（如按 traceId 查、查部署记录、查历史相似 Bug）；哪些工具实际被模型高频使用、哪些形同虚设 | 待探讨 | P1 |
 | T2 | 访问路径和权限需要探讨 | 工具在代码里做白名单与路径校验；pi 内置工具被全部关闭 | 权限边界到底划在哪：按服务/环境/仓库/群聊？是否需要审批？是否需要按人授权？ | 待探讨 | P1 |
-| T3 | **每个工具的信息都需要能够保存下来** | 目前只保存“材料”（`evidence`）与聚合计数；**不保存每次工具调用的入参、结果、耗时、成败、调用 ID** | 落盘粒度与留存期；是否含完整返回内容（体积/敏感） | 待办 | P0 |
+| T3 | **每个工具的信息都需要能够保存下来** | ✅ 已落：每次工具调用的入参、结果、耗时、成败、调用 ID 写入会话 JSONL（`tool_started / tool_completed`） | 留存期与脱敏另议（S1） | 已完成 | P0 |
 | T4 | pi 内置 `read` 是否应该开放 | 当前 `noTools:"builtin"` 全关；用 `read_code` 代替 | 见文末“关于 pi 内置 read” | 待探讨 | P2 |
 | T5 | 工具缺少“路径层” | 当前只有 `search_code`(grep 形状)/`read_code`(read 形状)，缺 pi 的 `ls`/`find` 层 | 新增 `list_files`（在钉死 SHA 上 `git ls-tree`），组成 路径→定位→内容 完整分层 | 待办 | P1 |
+| T6 | 证据不足时 @ 相关人员补证 | `request_info` 只向触发者追问 | 支持在飞书话题 @ 指定人员补充业务背景/文档，作为补证渠道（注意权限与 scope） | 待办 | P2 |
 
 ## 三、可观测性与审计
 
 | # | 问题 | 现状 | 建议 | 状态 | 优先级 |
 |---|---|---|---|---|---|
-| O1 | 逐次工具调用未落盘 | `run_events` 只有 `run_started / engine_finished / report_saved / run_error` | 与 T3 合并：增加 `tool_started / tool_completed / observation_added` | 待办 | P0 |
-| O2 | 模型对话未落盘 | 内存会话，run 结束即 `dispose`；不可回放 | 见 P1：先定持久化模型 | 待办 | P1 |
-| O3 | token / 成本用量未记录 | 只记 `toolCalls / modelTurns / model` | 从 pi usage 汇总写入事件，并纳入预算 | 待办 | P1 |
+| O1 | 逐次工具调用未落盘 | ✅ 已落：会话 JSONL（`tool_started / tool_completed`）；`run_events` 保留生命周期事件 | 与 T3 合并完成 | 已完成 | P0 |
+| O2 | 模型对话未落盘 | ✅ 已落：pi `entry_appended` → 会话 JSONL（`message / usage / compaction`），可回放 | 见 P1 | 已完成 | P1 |
+| O3 | token / 成本用量未记录 | ✅ 已落：usage 事件 + `runs` 表 token 汇总列 | 纳入预算待做（阶段二评测用） | 已完成 | P1 |
 | O4 | 进度未反馈 | 只在最终报告回复 | 补“已接收 / 开始执行”轻量回复 | 待办 | P2 |
 
 ## 四、持久化与存储
 
 | # | 问题 | 现状 / 判断 | 建议 | 状态 | 优先级 |
 |---|---|---|---|---|---|
-| P1 | 模型对话 / 工具调用 / token 的持久化模型 | 目前只持久化“任务事实”（消息/证据/报告/投递） | **先定“存什么、存多久、存哪”**，这不依赖数据库选型；可直接在当前 SQLite 落地 | 待办 | P0 |
+| P1 | 模型对话 / 工具调用 / token 的持久化模型 | ✅ 已定：会话 JSONL（真相源）+ `runs` 指针/汇总 | 见 `docs/handover.md`；脱敏另议（S1） | 已完成 | P0 |
 | P2 | 是否引入 PostgreSQL | 当前单机 SQLite(WAL)，4 worker，写入量很小 | **单机阶段不必上**：PG 解决的是多进程/多机写入并发与运维，不是“持久化能力”；代价是 Store 全异步、迁移全部调用点。**触发条件**：多机部署、或单机写入成为瓶颈时再评估 | 待探讨 | P3 |
 | P3 | 跨轮上下文与证据传递 | 目前只把上一轮报告的**摘要字符串**带给下一轮（有损）；证据 ID 每次运行从 `E1` 重开，**跨轮不复用** | 定义“历史证据引用”格式，保留原轮次/版本/时间；方案原要求历史证据沿用时保留原轮信息 | 待探讨 | P2 |
 
@@ -76,7 +77,9 @@
 | Q2 | 技术栈讨论 | Node 原生 TS + `node:sqlite` + pi SDK + 官方飞书 SDK | 是否引入 PostgreSQL/ORM/任务框架；是否替换引擎；是否需要前端；各白的触发条件与代价 | 待探讨 | P2 |
 | Q3 | 上下文拼装优化 | 只把上一轮报告摘要（`contextSummary`）带入下一轮；证据 ID 每轮从 E1 重开 | 设计跨轮上下文与历史证据引用格式（与 P3 合并做） | 待探讨 | P2 |
 | Q4 | 评估接入 Codex 作为可选引擎 | 引擎端口 `DiagnosisEngine` 已可插拔，当前有 `fake` / `pi` 两个实现 | 新增 `codex-engine.ts` 实现 `run(input, toolbox, signal)`；给出端口适配清单：工具映射、预算（次数/时间/token）、中止传播、证据登记、会话传递。不改飞书/调度/证据/投递 | 待办 | P2 |
-| Q5 | 独立上下文审计 Agent | 判定“证据是否充分”目前混在主诊断 Agent 内 | 剥离为独立上下文审计 Agent，输出结构化补证项 + 终止建议，程序结合预算收敛；参考 Evaluator-Optimizer / LLM-as-Judge（见 `open-questions.md` 附录） | 待探讨 | P1 |
+| Q5 | 独立上下文审计 Agent | 判定“证据是否充分”目前混在主诊断 Agent 内 | 剥离为独立上下文审计 Agent，结构化输出已确认事实/疑似原因/补证请求，程序结合预算收敛；参考 Evaluator-Optimizer / LLM-as-Judge（见 `open-questions.md` 附录） | 待办 | P1 |
+| Q6 | 评测 Benchmark（RSI） | 尚无评测集与指标；逐次落盘是前提（T3/O1/P1） | 构建 Benchmark：标准答案 + 支撑证据 + 干扰证据；指标=证据召回率 / 决策正确率；保持记忆引擎不变，迭代场景记忆规则（目标显著提升特定场景成功率） | 待办 | P1 |
+| Q7 | 生产诊断 MCP Server | 工具目前内嵌在 `DiagnosisToolbox`，未外化为标准接口 | 封装 `query_logs/search_code/read_code` 为 MCP tools；结构化参数限定服务/时间窗/范围，只读凭据 + 超时 + 结果规模控制，返回带来源与版本证据；供诊断与审计 Agent 复用 | 待办 | P2 |
 
 ---
 

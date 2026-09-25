@@ -1,5 +1,6 @@
 // 集成测试：走真实编排（假引擎 + 文件日志源 + git 代码源），验证一轮与多轮。
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -49,6 +50,12 @@ test("完整链路：新建调查 → 诊断 → 报告 → 投递，且报告�
   assert.ok(claimed);
   await executeRun({ store, config: cfg, engine }, claimed);
   assert.equal(store.getRun(claimed.run.id)!.status, "succeeded");
+
+  // 会话日志：run 行应记录 JSONL 指针与事件序号，文件真实落盘。
+  const runRow = store.getRun(claimed.run.id)!;
+  assert.ok(runRow.session_file, "run 应记录会话日志文件路径");
+  assert.ok(runRow.session_seq >= 3, `至少用户消息 + 一次工具调用，实际 seq=${runRow.session_seq}`);
+  assert.ok(existsSync(runRow.session_file), "会话日志文件应真实存在");
 
   while ((await processDeliveriesOnce(store, cfg, feishu)) > 0) {
     // drain

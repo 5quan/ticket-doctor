@@ -48,6 +48,12 @@ export interface RunRow {
   error_code: string | null;
   error_message: string | null;
   report_id: string | null;
+  session_file: string | null;
+  session_seq: number;
+  usage_input_tokens: number;
+  usage_output_tokens: number;
+  usage_cache_tokens: number;
+  usage_total_tokens: number;
   created_at: number;
 }
 
@@ -631,6 +637,36 @@ export class Store {
         .run(runId, attemptId, sequence, type, payload === undefined ? null : JSON.stringify(payload), Date.now());
       return sequence;
     });
+  }
+
+  /** 记录会话日志指针与 token 汇总（JSONL 文件是真相源，这里只存定位信息）。 */
+  recordSessionLog(
+    runId: string,
+    summary: {
+      path: string;
+      lastSeq: number;
+      inputTokens: number;
+      outputTokens: number;
+      cacheTokens: number;
+      totalTokens: number;
+    },
+  ): void {
+    this.db
+      .prepare(
+        `UPDATE runs SET session_file = ?, session_seq = ?, usage_input_tokens = ?,
+           usage_output_tokens = ?, usage_cache_tokens = ?, usage_total_tokens = ?, updated_at = ?
+         WHERE id = ?`,
+      )
+      .run(
+        summary.path,
+        summary.lastSeq,
+        summary.inputTokens,
+        summary.outputTokens,
+        summary.cacheTokens,
+        summary.totalTokens,
+        Date.now(),
+        runId,
+      );
   }
 
   // ---------- evidence ----------

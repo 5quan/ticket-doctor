@@ -16,11 +16,12 @@ import {
   SettingsManager,
   type AgentSession,
   type ResourceLoader,
+  type SessionEntry,
 } from "@earendil-works/pi-coding-agent";
 import { Type, type Static } from "@earendil-works/pi-ai";
 import { getBuiltinModel } from "@earendil-works/pi-ai/providers/all";
 import type { DiagnosisInput, ReportDraft } from "../domain/types.ts";
-import type { DiagnosisEngine, EngineResult, Toolbox } from "./types.ts";
+import type { DiagnosisEngine, EngineResult, RunSessionLog, Toolbox } from "./types.ts";
 
 const SYSTEM_PROMPT = `你是飞书群里的 Bug 预检助手，像一名耐心、务实的同事一样和用户交流。
 
@@ -130,6 +131,89 @@ function renderInput(input: DiagnosisInput): string {
   return lines.join("\n");
 }
 
+/** 把一次 LLM 用量记账进会话日志（0.84.x 的 usage 挂在 assistant 消息 / compaction 上，无独立 usage entry）。 */
+function logUsage(
+  log: RunSessionLog,
+  usage: { input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens: number },
+  extra: { provider?: string; model?: string; note?: string; parentId?: string | null },
+): void {
+  log.recordUsage({
+    inputTokens: usage.input,
+    outputTokens: usage.output,
+    cacheTokens: usage.cacheRead + usage.cacheWrite,
+    totalTokens: usage.totalTokens,
+    provider: extra.provider,
+    model: extra.model,
+    note: extra.note,
+    parentId: extra.parentId,
+  });
+}
+
+/** 把 pi 的 SessionEntry 转成可回放的会话日志事件。 */
+function logSessionEntry(log: RunSessionLog, entry: SessionEntry): void {
+  switch (entry.type) {
+    case "message": {
+      const msg = entry.message;
+      if (msg.role === "user") return; // 用户输入已由编排层记录，避免重复
+      log.append(
+        "message",
+        { role: msg.role, content: compactMessage(msg) },
+        { parentId: entry.parentId },
+      );
+      if (msg.role === "assistant" && msg.usage) {
+        logUsage(log, msg.usage, { provider: msg.provider, model: msg.model, parentId: entry.parentId });
+      }
+      return;
+    }
+    case "compaction": {
+      log.append(
+        "compaction",
+        {
+          summary: entry.summary,
+          firstKeptEntryId: entry.firstKeptEntryId,
+          tokensBefore: entry.tokensBefore,
+          fromHook: entry.fromHook,
+        },
+        { parentId: entry.parentId },
+      );
+      if (entry.usage) logUsage(log, entry.usage, { note: "compaction", parentId: entry.parentId });
+      return;
+    }
+    case "branch_summary": {
+      log.append("branch_summary", { fromId: entry.fromId, summary: entry.summary }, { parentId: entry.parentId });
+      if (entry.usage) logUsage(log, entry.usage, { note: "branch_summary", parentId: entry.parentId });
+      return;
+    }
+    case "model_change": {
+      log.append("model_change", { provider: entry.provider, modelId: entry.modelId });
+      return;
+    }
+    default: {
+      // 其余状态类 entry（thinking_level_change / custom / label 等）做 best-effort 记录。
+      log.append("entry", { entryType: entry.type });
+    }
+  }
+}
+
+/** 只保留文本与结构化骨架，不落图片字节，避免会话日志膨胀。 */
+function compactMessage(message: unknown): unknown {
+  const obj = message as { role?: string; content?: unknown };
+  if (!obj || typeof obj !== "object") return message;
+  return { role: obj.role, content: compactContent(obj.content) };
+}
+
+function compactContent(content: unknown): unknown {
+  if (!Array.isArray(content)) return content;
+  return content.map((part) => {
+    if (!part || typeof part !== "object") return part;
+    const p = part as { type?: string; text?: string; thinking?: string };
+    if (p.type === "text") return { type: "text", text: p.text };
+    if (p.type === "image") return { type: "image" }; // 不存图片字节
+    if (p.type === "thinking") return { type: "thinking", thinking: (p.thinking ?? "").slice(0, 2_000) };
+    return part;
+  });
+}
+
 export class PiDiagnosisEngine implements DiagnosisEngine {
   readonly name = "pi";
   private readonly opts: PiEngineOptions;
@@ -138,7 +222,12 @@ export class PiDiagnosisEngine implements DiagnosisEngine {
     this.opts = opts;
   }
 
-  async run(input: DiagnosisInput, toolbox: Toolbox, signal: AbortSignal): Promise<EngineResult> {
+  async run(
+    input: DiagnosisInput,
+    toolbox: Toolbox,
+    signal: AbortSignal,
+    log?: RunSessionLog,
+  ): Promise<EngineResult> {
     const agentDir = join(tmpdir(), "ticket-doctor-agent");
     mkdirSync(agentDir, { recursive: true });
 
@@ -264,6 +353,7 @@ export class PiDiagnosisEngine implements DiagnosisEngine {
     const session: AgentSession = created.session;
     const unsubscribe = session.subscribe((event) => {
       if (event.type === "tool_execution_start") turns += 1;
+      if (event.type === "entry_appended" && log) logSessionEntry(log, event.entry);
     });
     const onAbort = () => void session.abort();
     signal.addEventListener("abort", onAbort, { once: true });

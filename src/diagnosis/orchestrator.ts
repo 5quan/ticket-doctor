@@ -22,6 +22,7 @@ import type { Store, ClaimedRun } from "../storage/store.ts";
 import { DiagnosisToolbox, ToolBudgetExceeded } from "../agent/toolbox.ts";
 import type { DiagnosisEngine, EngineResult } from "../agent/types.ts";
 import { EvidenceRegistry } from "./evidence.ts";
+import { SessionLog } from "./session-log.ts";
 import { validateDraft } from "./validate.ts";
 
 export interface OrchestratorDeps {
@@ -135,6 +136,17 @@ export async function executeRun(deps: OrchestratorDeps, claimed: ClaimedRun): P
     const logSource =
       deps.logSource ??
       new FileLogSource({ dir: config.sources.logDir, allowedServices: config.sources.allowedServices });
+
+    // 会话日志：模型层逐条事件（消息/工具/用量/压缩）的 append-only 真相源。
+    const sessionLog = SessionLog.open({
+      dir: config.sessionDir,
+      runId: run.id,
+      attemptId: claimed.attemptId,
+      investigationId: investigation.id,
+      cwd: process.cwd(),
+    });
+    sessionLog.append("message", { role: "user", content: question });
+
     const toolbox = new DiagnosisToolbox({
       logs: logSource,
       code: codeSource as MultiRepoCodeSource | undefined,
@@ -143,24 +155,29 @@ export async function executeRun(deps: OrchestratorDeps, claimed: ClaimedRun): P
       maxToolCalls: config.diagnosis.maxToolCalls,
       maxToolResultChars: config.diagnosis.maxToolResultChars,
       signal: controller.signal,
+      log: sessionLog,
     });
 
     let result: EngineResult;
     try {
-      result = await engine.run(input, toolbox, controller.signal);
-      store.appendRunEvent(run.id, claimed.attemptId, "engine_finished", {
-        kind: result.kind,
-        toolCalls: result.toolCalls,
-        modelTurns: result.modelTurns,
-        model: result.model,
-      });
+      result = await engine.run(input, toolbox, controller.signal, sessionLog);
     } catch (err) {
+      // 无论成败都先落会话日志指针，保证失败尝试也可回放。
+      store.recordSessionLog(run.id, sessionLog.summary());
       if (err instanceof ToolBudgetExceeded) {
         await failRun(deps, claimed, "budget_tools", err.message);
         return;
       }
       throw err;
     }
+    store.recordSessionLog(run.id, sessionLog.summary());
+    store.appendRunEvent(run.id, claimed.attemptId, "engine_finished", {
+      kind: result.kind,
+      toolCalls: result.toolCalls,
+      modelTurns: result.modelTurns,
+      model: result.model,
+      session: sessionLog.summary(),
+    });
 
     const round = investigation.total_rounds + 1;
 

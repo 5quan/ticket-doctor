@@ -28,6 +28,21 @@ export interface Toolbox {
   readCode(args: CodeReadArgs): Promise<string>;
 }
 
+/** 会话日志端口：引擎/工具箱用它追加可回放的 typed 事件，不感知落盘介质。 */
+export interface RunSessionLog {
+  append(type: string, data: Record<string, unknown>, opts?: { parentId?: string | null }): number;
+  recordUsage(usage: {
+    inputTokens?: number;
+    outputTokens?: number;
+    cacheTokens?: number;
+    totalTokens?: number;
+    provider?: string;
+    model?: string;
+    note?: string;
+    parentId?: string | null;
+  }): number;
+}
+
 export interface EngineReportResult {
   kind: "report";
   draft: ReportDraft;
@@ -50,5 +65,5 @@ export type EngineResult = EngineReportResult | EngineReplyResult;
 
 export interface DiagnosisEngine {
   readonly name: string;
-  run(input: DiagnosisInput, toolbox: Toolbox, signal: AbortSignal): Promise<EngineResult>;
+  run(input: DiagnosisInput, toolbox: Toolbox, signal: AbortSignal, log?: RunSessionLog): Promise<EngineResult>;
 }
