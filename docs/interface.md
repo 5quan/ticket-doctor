@@ -236,3 +236,71 @@ deliveries.kind = report | reply | notice
 - **截断**：单条证据 ≤ `maxResultChars`；单次工具 ≤ `maxToolResultChars`，超出必须标注总量。
 - **预算**：工具调用 ≤ `maxToolCalls`；接近上下文窗口由 compaction 兜底。
 - **会话标号**：`[TD-xxxxxxxx]`。
+
+---
+
+## 八、触发后流程与可调用清单
+
+### 8.1 触发后的完整链路
+
+```text
+飞书 im.message.receive_v1
+  │  FeishuClient.start()（长连接）
+  ▼
+createFeishuGateway().handleEvent(event)        src/integrations/feishu/gateway.ts
+  ├─ normalizeFeishuEvent()                     非用户/非 text/空内容 → ignored
+  ├─ evaluateMentionGate()                      botOpenId 未知 → fail-closed；群聊新会话需 @
+  ├─ text === "-help" → sendMechanical()        固定使用方法，不建调查、不走模型
+  └─ routeInbound()                             src/intake/router.ts
+       去重 → 路由（标号 → root/thread → parent →（@）新建）→ insertMessage + createRun(queued)
+  ▼
+Worker claimNextRun() → executeRun()            src/diagnosis/orchestrator.ts
+   stripSessionMarker → extractOccurredAt（宁漏勿错）→ 时间窗
+   → buildCodeSource（按发生时间钉 SHA）→ EvidenceRegistry / FileLogSource / DiagnosisToolbox
+   → engine.run()（fake 或 pi）→ validateDraft → finalizeSuccess/finalizeReply → enqueueDelivery
+  ▼
+投递循环 processDeliveriesOnce() → FeishuClient.send() → reply / create
+```
+
+### 8.2 模型可调用的工具
+
+| 工具 | 常驻 | 作用 | 约束 |
+|---|---|---|---|
+| `query_logs` | ✅ | 查服务时间窗内日志 | 服务白名单、时间窗、关键词、条数、总量上限 |
+| `search_code` | 仅有源码时 | 钉死 SHA 上 `git grep` | 子串、glob、≤50 条、总量上限 |
+| `read_code` | 仅有源码时 | 钉死 SHA 上 `git show` 读区间 | 路径白名单、默认 200 行、截断 |
+| `request_info` | ✅ | 向用户追问（反问），调用即结束本轮 | - |
+| `submit_report` | ✅ | 提交结构化报告，调用即结束（`terminate`） | 引用/版本校验 |
+
+**不能调用**：pi 内置工具全关（`noTools:"builtin"`）——无 shell、无 `read`/`write`/`edit`/`bash`。
+
+### 8.3 程序（非模型）能力
+
+时间提取（`extractOccurredAt`）、版本钉死（`resolveRepoShaAt`）、证据签发（`E#`）、
+报告校验（`validateDraft`）、投递与重试、机械回复（`-help`）。
+
+### 8.4 外部只读源
+
+日志（`FileLogSource` 读只读挂载的本地文件）、源码（`GitCodeSource` 对只读镜像跑 git）、飞书（仅出站发送）。
+
+### 8.5 边界（不可调用）
+
+生产 DB、其他服务、任意文件系统、shell、写操作、密钥（`.env` 仅启动读一次）。
+
+### 8.6 触发条件
+
+| 场景 | 条件 | 结果 |
+|---|---|---|
+| 新建调查 | 群聊 @机器人 | 建调查 + run |
+| 续接 | 带 `[TD-xxxxxxxx]` / 线程字段 / 回复机器人 | 续接 + run |
+| `-help` | 门控通过 | 机械回使用方法 |
+| 非 text（图片等） | — | 当前忽略 |
+| 未 @ 且无归属 | — | 忽略（fail-closed） |
+| 重复事件 | message_id 重复 | 去重，不重复执行 |
+
+### 8.7 一次触发产生什么
+
+- 落库：`inbound_events` / `messages` / `runs` / `run_events` / `evidence` / `reports` / `deliveries`。
+- 出站：一条飞书消息（报告 / 闲聊回复 / 追问 / 提示）。
+- 可观测：`run_events` 目前仅 `run_started / engine_finished / report_saved / reply_saved / run_error / commit_rejected`
+  （逐次工具调用尚未落盘，见 backlog T3/O1）。
