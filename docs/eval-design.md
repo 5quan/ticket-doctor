@@ -9,6 +9,7 @@
 - **M1 已完成**：离线 harness（`npm run eval`）+ `fixtures/evals/checkout-timeout`（5 case + fixture 日志/仓库 + `rules.md`）+ 打分器（召回率 / 引用精确率 / 决策正确率）+ 结果 JSONL。
 - **真实模型基线**（`TD_ENGINE=pi`，5 case）：证据召回率 **90%** / 引用精确率 **30.7%** / 决策正确率 **80%**。
 - **待迭代**：`rules.md` 修掉「材料不足仍给 supported 结论」（ct-005）与「引用干扰证据」（ct-003 精确率低）。
+- **设计已对齐文献**（见第 13 节）：规则将改为**条目化 + 增量 delta + 程序合并**（ACE）；候选选择用 **Pareto + 带文字的反馈函数 μ_f**（GEPA）。M1 的 `rules.md` 仍是自由文本，M2 换成条目格式。
 - M2/M3 见第 10 节里程碑。
 
 ## 0. 定位与边界
@@ -25,8 +26,8 @@
 2. 让每次规则 / 提示词改动都有回归证据，可保留、可回滚。
 3. 为后续「独立审计 Agent 是否真的提升正确率」提供度量基准。
 
-**非目标（第一版）**
-- 不做规则自动生成、候选规则自动筛选（截图也未展开）。
+**非目标（第一版 / M1）**
+- 不做规则自动生成与自动筛选（M3 再做，见第 12 节）；M1 只做 L0 人肉迭代。
 - 不做跨场景迁移的自动验证（先单场景跑通）。
 - 不用评测替换线上观测，只是离线回归。
 
@@ -70,12 +71,12 @@ fixtures/evals/<scenario>/
         "answer": "库存服务 InventoryClient 调用超时，导致下单失败",
         "evidence": [
           { "kind": "log", "level": "ERROR", "substring": "InventoryClient 调用库存服务失败 timeout" },
-          { "kind": "code", "repoId": "app", "path": "src/main/java/com/example/order/OrderService.java", "line": 88 }
+          { "kind": "code", "repoId": "app", "path": "src/main/java/com/example/order/OrderService.java", "lineStart": 15, "lineEnd": 17 }
         ]
       },
       "distractors": [
         { "kind": "log", "level": "WARN", "substring": "RedisPool 连接池使用率 92%" },
-        { "kind": "code", "repoId": "app", "path": "src/main/java/com/example/payment/Unrelated.java", "line": 3 }
+        { "kind": "code", "repoId": "app", "path": "src/main/java/com/example/order/RedisConfig.java", "lineStart": 1, "lineEnd": 10 }
       ],
       "labels": ["timeout", "cross-service", "log+code"]
     }
@@ -86,7 +87,7 @@ fixtures/evals/<scenario>/
 要点：
 - **证据用"源级定位"表达，不用 `E#`**（`E#` 是 run 局部、每轮从 E1 重开，跨 case 无意义）。
 - 日志定位 = `level + substring`（当前日志证据没有独立 traceId 字段，traceId 在 message 里，用唯一子串定位）。
-- 代码定位 = `repoId + path + line`（映射到证据 `codeRef` 的 `startLine~endLine` 区间）。
+- 代码定位 = `repoId + path + lineStart/lineEnd`（与证据 `codeRef` 区间**重叠**即命中）。
 - `distractors` 必须"表面相关、实际无关"，且与 gold 在同一时间窗/仓库里，模型才可能被诱导。
 
 ## 4. 评测流水线
@@ -126,11 +127,14 @@ npm run eval -- --scenario checkout-timeout
 - code：`record.codeRef.repoId === locator.repoId && record.codeRef.path === locator.path && locator.line ∈ [startLine, endLine]`。
 
 **正确率判定（v1 规则化，v2 升级 judge）**
-取报告 top 假设（confidence 最高者，并列取第一条），判定为"正确"需同时满足：
-1. 该假设 `evidenceIds` 至少命中 1 条 gold 证据（回答必须建立在正确证据上，而不是干扰/编造）；
-2. 假设 `cause` 与 `gold.answer` 的规范化文本共享关键实体（服务名 + 故障词，如 `InventoryClient`/`timeout`/`库存`）。
+取报告 top 假设（confidence 最高者，并列取第一条）：
+- **诊断类**：`status = supported` 且其 `evidenceIds` 至少命中 1 条 gold 证据 → 算对（"结论必须建立在正确证据上"）。
+- **材料不足类**（`expect: insufficient`）：`completeness = partial` 且没有任何 `supported` 结论 → 算对（不得臆断）。
+- v2 再叠加语义匹配 / judge 模型（判定 `cause` 是否等价于 `gold.answer`）。
 
-每 case 输出：`{ id, recall, precision, correct, missedGold:[...], citedDistractor:[...] }`。
+**召回取"检索到"，精确取"被引用"**：召回率用 `registry.all()`（本次真正取到的证据，无论是否被引用）；精确率用报告实际引用的证据。
+
+每 case 输出：`{ id, recall, precision, correct, matchedGold, missedGold, citedDistractor }`。
 
 ## 6. fixture 注入（不动生产代码）
 
@@ -140,22 +144,44 @@ npm run eval -- --scenario checkout-timeout
 
 ## 7. 记忆规则（唯一的迭代对象）
 
-`rules.md` 是声明式文本，只回答三个问题：
+### 7.1 形态：条目化的 bullets（照 ACE）
+
+`rules.md` **不是整段自由文本**，而是一条条 bullet，每条 = 元数据 + 内容：
 
 ```markdown
 # 场景：checkout-timeout
-## 该记住
-- 跨服务调用失败的 ERROR 日志（含 traceId）→ 必查
-- 相同 traceId 的日志链 → 归并为同一故障
-## 不该记住
-- 与发生时间无关的 INFO 成功日志
-- RedisPool 连接池使用率类指标（除非伴随超时/等待队列）
-## 检索顺序
-- 先按 service+时间窗查 ERROR → 按 traceId 下钻 → 读源码定位调用点
+
+- [R1] helpful=3 harmful=0 #timeout #trace
+  该记住：跨服务调用失败的 ERROR 日志（含 traceId）→ 必查
+- [R2] helpful=2 harmful=1 #redis #distractor
+  不该记住：RedisPool 连接池使用率类指标（除非伴随超时/等待队列）
+- [R3] helpful=0 harmful=2 #partial
+  不该记住：材料不足时不得给出 supported 结论，completeness 必须 partial
 ```
 
-- 注入点：`SYSTEM_PROMPT + rules.md`（引擎 `systemPrompt` 选项已存在，只做 prompt 组装）。
-- 规则是**场景作用域**、**版本化**（git 跟踪）、**可回滚**的文本；引擎与打分器跨场景复用。
+- **id**：稳定标识，供增量增删改与计数。
+- **helpful / harmful 计数**：Generator 标注哪些条目有用/误导，供 Curator 剪枝。
+- **标签**：便于按故障类型检索分组（对应 ACE 的 fine-grained retrieval）。
+
+### 7.2 更新方式：增量 delta，不整篇重写（照 ACE，防 context collapse）
+
+- Proposer（Reflector）**只输出增量 delta**（add / update / remove 哪些条目），**禁止重写全文**。
+- **只让 LLM 产 delta，合并由程序做**（确定性、非 LLM）：按 id 追加/原地更新、累加计数、去重、超限剪枝。
+- 理由：ACE 实证——让 LLM「整篇重写上下文」会 **context collapse / brevity bias**，越写越短、丢细节；条目化 + 增量更新能保住知识、可并行、省算力。
+
+```jsonc
+// Proposer 输出（delta，不是全文）
+{ "add":    [ { "id": "R3", "tags": ["partial"], "text": "材料不足时不得给 supported 结论" } ],
+  "update": [ { "id": "R1", "helpfulDelta": 1 } ],
+  "remove": [ "R2" ],
+  "rationale": "ct-005 无证据仍下结论；ct-003 被 Redis 告警带偏" }
+```
+
+### 7.3 注入与版本
+
+- 注入点：`SYSTEM_PROMPT + 渲染后的 bullets`（引擎 `systemPrompt` 选项已存在，只做 prompt 组装）。
+- 规则是**场景作用域**、**版本化**（git）、**可回滚**；引擎与打分器跨场景复用。
+- 迁移说明：M1 的 `rules.md` 是自由文本，M2 改成上述条目格式（打分与组合逻辑不变）。
 
 ## 8. 迭代循环与回滚
 
@@ -175,8 +201,8 @@ npm run eval -- --scenario checkout-timeout
 ## 10. 里程碑
 
 - **M1 最小闭环**：5 个 case，只算召回率 + 正确率，1 个 `rules.md`，CLI 跑通并输出 JSONL。
-- **M2 扩充**：加引用精确率 / 干扰抗性，20~30 case，judge 版正确率，CI 门禁，独立 dev/test 集。
-- **M3 探索**：规则候选自动生成（LLM 提议、人工批准）、场景迁移验证。
+- **M2 扩充**：`rules.md` 改**条目化 + 增量 delta + 程序合并**（ACE）；候选选择用 **Pareto + μ_f**（GEPA）；加干扰抗性指标、20~30 case、judge 版正确率、独立 dev/test 集、CI 门禁。
+- **M3 探索**：L1 自动迭代（Reflector 产 delta、程序 Curator 合并、人批准）、场景迁移验证。
 
 ## 11. 风险与对策
 
@@ -190,46 +216,121 @@ npm run eval -- --scenario checkout-timeout
 | 成本 / 时长 | 小样本起步，CI 只跑 smoke 集 |
 | 评测工程化过重 | 先 M1 最小闭环，跑通再扩 |
 
-## 12. 自行迭代（可选进阶）
+## 12. 自动迭代（RSI 落地）
 
-第 8 节是「人肉迭代」（人改 `rules.md`）。**自行迭代 = 把「改 rules.md」这一步从人换成 LLM 自动写**，其余（引擎/工具/benchmark/打分）完全不变。生产系统仍不会运行时自我修改——自迭代也是离线批处理，产出的还是一个 `rules.md`。
+第 8 节是「人肉迭代」。**自动迭代 = 把「改规则」从人换成 LLM（Reflector/Proposer），由程序按分数决定收不收。** 生产系统仍不会运行时自我修改——这是离线批处理。设计对齐 GEPA / ACE（见第 13 节）。
 
-**执行流程（生成—验证搜索，eval 即适应度函数）**
+### 12.1 角色分工（关键：AI 提案，程序/基准裁判）
 
-```text
-基线 = eval(rules.md)
-循环 N 轮：
-  1. Proposer(LLM)：输入 = 当前 rules.md + 失败明细（漏了哪些 gold / 被哪些干扰带偏 / 哪些结论错）
-                    输出 = 候选 rules'.md（diff）
-  2. score' = eval(rules')          # 真实模型重跑，算召回率/正确率
-  3. Selector(程序)：score' > best ? 接受并记历史 : 丢弃
-最终：一个 rules.md + 每轮 diff + 分数曲线
+| 角色 | 谁 | 做什么 |
+|---|---|---|
+| Generator | 诊断引擎(pi) + 评测 | 跑 case，产出**执行轨迹**（会话日志）与**评估轨迹**（失败明细） |
+| Reflector / Proposer | LLM | 读轨迹与失败明细，产出**增量 delta 规则**（不是全文） |
+| Curator | **程序** | 按 id 确定性合并 delta、更新计数、去重剪枝 |
+| Selector | **程序** | 按客观分数 + 护栏决定采纳/回滚 |
+
+**硬禁区**：Proposer 不得自评自过；其「改」只允许落在规则文件（`benchmark.json` / `scorer.ts` 是禁区，防刷分）。
+
+### 12.2 反馈函数 μ_f（照 GEPA：不只给分数，要给文字）
+
+每轮给 Reflector 的不只是 `{recall, precision, accuracy}`，还要**逐 case 的文字反馈**：
+
+```jsonc
+{ "score": { "recall": 0.9, "precision": 0.307, "accuracy": 0.8 },
+  "failures": [
+    { "id": "ct-005", "labels": ["insufficient-material"],
+      "expected": "现有材料无法确定根因", "actual": "疑似库存超时",
+      "missedGold": [], "citedDistractors": ["E7","E9"] },
+    { "id": "ct-003", "labels": ["distractor"],
+      "expected": "根因不是 Redis…", "actual": "Redis 连接池打满",
+      "missedGold": [], "citedDistractors": ["E3","E5","E6"] }
+  ] }
 ```
 
-**自动化程度分级（建议分阶段）**
+其中 `actual / citedDistractors / missedGold` 都从**会话日志与 report** 里取（即 GEPA 的 `feedback_text`）。
+
+### 12.3 候选选择：Pareto，而非单一总分（照 GEPA）
+
+不用「平均分最高」选下一步改谁——会困在局部最优。改为：
+- 记录每个候选在**每个 case**上的分；
+- 保留「在至少一个 case 上最好」的候选（Pareto 前沿），剪掉被支配的；
+- 按「领跑 case 数」加权采样下一步要改的候选。
+
+既保多样性，又能容纳「修好 ct-005 但 ct-003 略降」这类互补候选。
+
+### 12.4 成本控制：minibatch 先试、全量再评（照 GEPA）
+
+候选先在一小撮 case（2~3 个）上跑；**只有优于父代**才跑全量 benchmark。省真实模型调用。
+
+### 12.5 循环
+
+```text
+best = eval(rules_0)                        # 全量
+for round in 1..N:
+  parent = ParetoSelect(pool)               # 12.3
+  traces = 最近一轮的会话日志 + 失败明细        # 12.2 μ_f
+  delta  = Reflector(parent.rules, traces)  # LLM 只产增量
+  cand   = Curator(parent.rules, delta)     # 程序确定性合并
+  mini   = eval(cand.rules, minibatch)      # 12.4
+  if mini <= parent.mini: continue
+  full   = eval(cand.rules)                 # 全量
+  if accept(full, best): best = cand; pool.add(cand)
+  history.append({round, delta, full, accepted})
+  if 连续 K 轮无提升: break
+# 需 --apply 才写回 rules.md（L1 人工闸门），否则只写 data/evals/evolve/
+```
+
+### 12.6 接受条件（程序判，护栏）
+
+```ts
+accept(cand, best) =
+  fitness(cand) > fitness(best) + minDelta     // 涨了（带容差防抖）
+  && cand.accuracy >= best.accuracy            // 正确率不退
+  && noRegression(best, cand)                  // 不牺牲"原来对的 case"
+```
+
+`fitness` 自定义（如 `0.5*accuracy + 0.3*recall + 0.2*precision`）。
+
+### 12.7 自动化程度分级
 
 | 级别 | 谁写规则 | 谁决定接受 | 风险 |
 |---|---|---|---|
-| L0 人肉 | 人 | 人看分数 | 无（M1 先到这） |
-| L1 建议 | LLM | 人批准 | 低（推荐第二个做） |
-| L2 自动接受 | LLM | 程序（涨了就收） | 中 |
+| L0 人肉 | 人 | 人 | 无（M1） |
+| **L1 建议** | LLM | **人批准（--apply）** | 低（推荐先到这） |
+| L2 自动接受 | LLM | 程序 | 中 |
 | L3 自主搜索 | LLM 多轮 | 程序 + 护栏 | 高 |
 
-**护栏（为什么敢自动）**
-- 引擎冻结：唯一变量是 rules 文本。
-- 固定 benchmark 作适应度 + 独立 test 集防过拟合。
-- 只接受分数提升，退化自动回滚。
-- 轮数 / 预算上限；全历史留档（每轮 diff + 分数）。
-- （可选）应用到生产前设人工批准闸门。
+### 12.8 AI 操控 vs 写成程序
 
-**截图没展开、需我们补的三点**
-1. 候选规则怎么生成：喂失败明细，让 Proposer 产出 diff，而非自由发挥。
-2. 候选怎么筛选：逐个跑 eval 按分选，或设阈值增量接受。
-3. 退化怎么处理：单调接受 + 回滚 + 保留历史最佳（hall of fame）。
+- **操控搜索**（读轨迹、想假设、产 delta、跑评测）→ 适合 AI/agent，灵活、能用会话日志。
+- **判定与采纳**（算分、比 best、回滚、护栏）→ 必须程序/冻结基准，否则自评自过。
+- 落地：**一份协议**（`docs/evolve-protocol.md`）+ 现有命令（`npm run eval`、`edit rules`、`read 会话日志`）；等规则稳定再固化成 `evolve.ts` 跑 CI。
 
-**风险**：过拟合 benchmark → 独立 test 集；同模型盲区 → 换模型 / Proposer 只看失败明细；成本爆炸 → 轮数/case 数/候选数设上限。
+### 12.9 风险
 
-## 13. 一句话总结
+- 样本太小 → 假提升：候选**重复采样取中位数**，样本扩到 20+ 再自动化。
+- 过拟合 benchmark：Proposer **禁写 case id** + 独立 test 集。
+- Proposer 质量：输出**增量 delta** + diff 人工过目（L1）。
+- 成本：minibatch + 轮数上限 + CI 用 fake。
 
-> 冻结引擎与主链路，用带 gold / 干扰证据标注的 benchmark 打「证据召回率 + 决策正确率」，
-> 只迭代场景级 `rules.md`（什么该记 / 什么不该记），评测门控、历史可查、退化回滚。
+## 13. 参考与借鉴（GEPA / ACE）
+
+两篇 2025 年「冻结权重、只改文本」的工作，本设计直接对齐它们（已读原文）：
+
+- **GEPA**：arXiv **2507.19457**，《GEPA: Reflective Prompt Evolution Can Outperform Reinforcement Learning》（Genetic-Pareto），代码 `github.com/gepa-ai/gepa`。
+  - 借鉴：① 对**执行轨迹 + 评估轨迹**做自然语言反思来改提示；② **Pareto 候选选择**（每任务最优、剪支配、按领跑数采样）防局部最优；③ **minibatch 先试、全量再评**省成本；④ 反馈函数 `μ_f` 返回**分数 + 文字**。
+  - 结论：比 GRPO 平均高 6%、最高 +20%，rollout 少至 1/35；比 MIPROv2 高 >10%，提示短至 1/9.2。
+- **ACE**：arXiv **2510.04618**，《Agentic Context Engineering: Evolving Contexts for Self-Improving Language Models》。
+  - 借鉴：① 把上下文当**条目化 playbook**（bullet = id + helpful/harmful 计数 + 内容）；② **增量 delta 更新 + 非 LLM 确定性合并**，防 **context collapse / brevity bias**；③ **grow-and-refine**（追加 + 原地更新 + 去重剪枝）；④ 可不依赖标注、只用执行反馈。
+  - 结论：agent +10.6%、金融 +8.6%；AppWorld 上用小模型追平榜首生产级 agent。
+- **共同底线**：**权重冻结、只改文本、外部指标当裁判、LLM 不自评自过**——与我们 OQ-30「审计 Agent 剥离自查自证」一致。
+
+**我们已对齐 / 待对齐**：
+- 已对齐：冻结引擎、只改规则、外部评测裁判、先落盘（轨迹=学习信号）。
+- 待对齐（M2）：`rules.md` 条目化 + 增量 delta + 程序合并（ACE）；候选选择用 Pareto + μ_f（GEPA）。
+
+## 14. 一句话总结
+
+> 冻结引擎与主链路，用带 gold / 干扰证据标注的 benchmark 打「证据召回率 + 决策正确率」；
+> 规则条目化、只增量更新、由程序合并；自动迭代时 LLM 提案、Pareto 选候选、程序按分采纳；
+> 评测门控、历史可查、退化回滚。

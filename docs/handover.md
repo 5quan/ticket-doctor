@@ -105,6 +105,9 @@ npm run worker           # 只跑 worker
 | 工具结果上限 | 单条证据按 `maxResultChars` 截断 + 单次工具调用总量按 `maxToolResultChars` 截断并提示 |
 | 上下文兜底 | 开启 pi compaction 作为总量兜底（`TD_COMPACTION_ENABLED`，默认 true）；单次工具结果仍有界 |
 | 会话日志存储 | 每次尝试一个 JSONL（append-only typed events，带单调 seq）作为真相源；SQLite `runs` 只存指针 + token 汇总；设计照 pi/dsh |
+| 记忆规则形态 | 条目化 bullet（id + helpful/harmful + 标签），**增量 delta 更新、程序确定性合并**（照 ACE，防 context collapse） |
+| 自动迭代机制 | LLM 按**执行轨迹+评估轨迹**反思产 delta；**Pareto 选候选** + 带文字的反馈函数 μ_f（照 GEPA）；AI 提案、程序/基准裁判；L0→L1→L2 分阶段 |
+| 评测题源 | 合成 fixture 仅用于 harness 自测；真实质量必须以**历史真实 bug + 人工标注 gold** 为准（`docs/eval-design.md`） |
 
 ## 五、待办
 

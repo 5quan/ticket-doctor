@@ -38,7 +38,8 @@
 ## 阶段二：评测与效果优化（未开始）
 
 - [x] **评测 Benchmark（RSI）— M1**：harness + `checkout-timeout` 5 case + 打分器（`npm run eval`）。真实模型基线：证据召回率 90% / 引用精确率 30.7% / 决策正确率 80%。详见 `docs/eval-design.md`。
-- [ ] **评测 Benchmark（RSI）— M2**：扩充样本（20~30）、judge 版正确率、独立 test 集、CI 门禁。
+- [ ] **评测 Benchmark（RSI）— M2**：`rules.md` 条目化 + 增量 delta + 程序合并（照 ACE）；Pareto + μ_f（照 GEPA）；扩样本（20~30）、judge 版正确率、独立 test 集、CI 门禁。
+- [ ] **评测 Benchmark（RSI）— M3**：L1 自动迭代（`docs/evolve-protocol.md`）、场景迁移验证。
 - [ ] **独立上下文审计 Agent**：证据充分性审查，结构化输出已确认事实/疑似原因/补证请求（OQ-30）。
 - [ ] 提示词调优（针对"跳工具直接作答 / 过度归因 / 漏报缺失材料"做 A/B）。
 - [ ] 工具补**路径层** `list_files`（照搬 pi `ls`/`find` 分层）；`search_code` 改"有界预览 + 路径清单"。
