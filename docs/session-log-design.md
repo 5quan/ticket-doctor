@@ -1,8 +1,9 @@
 # 会话日志（JSONL）设计：对齐 pi durable storage
 
 > 状态：待探讨（设计稿）。本文件只定义目标、契约与落地阶段，不代表已实现。
+> **重要：见 §0.5“存储收敛”——若采纳单库（SQLite）方向，本文件面向 JSONL 的部分作废。**
 > 相关：`docs/interface.md §7/§8.7`（接口约束）、`docs/handover.md`（实现现状）、
-> `backlog.md P1/A7/A9`、`open-questions.md`（决策记录）。
+> `docs/concurrency.md`（并发清单）、`backlog.md P4/A7/A9`、`open-questions.md`（决策记录）。
 > 参考源码：`/opt/pi/packages/agent/src/harness/session/**`、`runtime/**`；
 > `/opt/deepseek-harness/packages/core/session/**`、`packages/session/session-persistence-jsonl/**`。
 
@@ -17,6 +18,47 @@
 2. **尝试不自洽**：崩溃/超时可能留下"有 `tool_started`、无 `tool_completed`"的悬空记录，
    事后审计分不清"没查到"和"没查过"。
 3. **无持久屏障**：`appendFileSync` 不 fsync，指针更新与内容落盘没有"提交点"语义。
+
+## 0.5 存储收敛：单库（SQLite）方向（待评审）
+
+### 为什么现在有两个存储
+- **SQLite**：业务状态机（inbound/investigation/message/run/attempt/run_event/evidence/report/delivery）+ 会话日志的指针与 usage 汇总。事务、去重约束、租约/代次都靠它。
+- **JSONL**：模型层逐事件（message/tool/usage/compaction），后加的可观测/审计/评测轨迹。
+- 历史原因：先落业务事实（OQ-7），JSONL 是后来为“可回放/可审计/算成本”补的。
+
+### 问题
+两个存储必须保持一致：DB 里的 `runs.session_file / session_seq` 指针可能指向 JSONL 里**不存在或未刷盘**的行（跨存储不一致），需要“先 fsync 日志、再提交指针”的排序屏障（flush）。
+
+### 收敛方案（推荐）：会话条目也进 SQLite
+- 新增 `session_entries` 表（`investigation_id, seq, id, parent_id, attempt_id, type, role, time_ms, data`；`PRIMARY KEY(investigation_id, seq)`，`UNIQUE(investigation_id, id)`）。
+- 启动/恢复时：`SELECT ... ORDER BY seq` → 映射为 pi `FileEntry[]` →
+  `SessionManager.inMemory(cwd, options, entries)`，**pi 仍负责树 / 压缩 / 上下文重建**。
+- 写入：订阅 pi `entry_appended` → 在同一次 attempt 事务内 `INSERT`（带代次守卫）。
+- **不再使用 JSONL，也不依赖 pi 原生会话文件**；pi 只做内存态计算。
+
+### 消除了什么
+- 跨存储指针不一致 → **无需 flush 排序屏障**；
+- JSONL 文件锁 / torn write → **无**（SQLite 事务串行化写者）；
+- pi `SessionManager` 的**首写延迟陷阱** → **无**（我们拥有持久化，用户输入与 run 范围随 run 创建一起提交）；
+- 多进程写同一文件撑裂 → SQLite 自己的锁串行化（`BEGIN IMMEDIATE` + `busy_timeout`）。
+
+### 仍然需要（与单/双存储无关）
+- turn 平衡 + 工具结果对账（RecoveryCoordinator）；
+- 启动自愈（取消运行中接管后）；
+- 并发清单（见 `docs/concurrency.md`）。
+
+### 代价 / 风险
+- `node:sqlite` 同步：每条 entry 一次同步 DB 写，比文件 append 更易阻塞事件循环（W1），需控制写入频率/事务大小；
+- DB 体积与 WAL 增长：大工具输出需截断或 spill；需 checkpoint；
+- 失去 JSONL 的“纯文本可 grep”；但 SQL 查询/时间线更强。
+
+### “和 pi 一样”的准确含义
+pi 自己有两套：coding-agent 是 JSONL，agent-core 另有 **SQLite session backend**（`packages/session-backends/sqlite-node`）。
+“单存储”对应的是**后者**，不是 JSONL。把业务状态搬进 JSONL 不可行（租约/去重/事务会很难做），
+所以可行的收敛方向是**业务 + 会话条目都放 SQLite**。
+
+> 若采纳本节，本文件前面面向 JSONL 的契约（header/事务行/appendFileAtomically 等）作废，
+> 只保留“写类型 entry/usage/value/list + 校验 + 恢复语义”的抽象。
 
 ## 1. 借鉴来源与取舍
 

@@ -82,6 +82,7 @@
 | OQ-31 | 评测 Benchmark（RSI）与记忆规则迭代 | 已结论（阶段二，依赖逐次落盘；见 backlog Q6） |
 | OQ-32 | 生产诊断 MCP Server | 已结论（阶段三；工具外化，见 backlog Q7） |
 | OQ-33 | 会话 JSONL 是否照搬 pi 的 durable storage 契约 | **待探讨**。方案见 `docs/session-log-design.md`：借 pi agent-core 的**事务化写日志**（`entry/usage/value/list` + 提交前校验 + flush 屏障 + 原子发布）与 dsh 的**崩溃恢复补齐收尾**（未决工具标 `outcome: unknown`）；**不搬** lane 状态机 / 会话树 / 内核 flock；**不存半截模型流**（失败丢弃尾巴 + 整轮重试）。评审后分 P1~P4 落地。 | 待探讨 |
+| OQ-34 | 是否取消两个存储，收敛为单库（SQLite） | **待探讨，倾向采纳**。见 `docs/session-log-design.md §0.5`：业务状态 + 会话条目都进 SQLite，pi 用 `SessionManager.inMemory(entries)` 做树/压缩/上下文重建。可消除跨存储指针不一致、flush 排序、文件锁、torn write、pi 首写陷阱；代价是 `node:sqlite` 同步写与 DB 体积。 | 待探讨 |
 
 ---
 
