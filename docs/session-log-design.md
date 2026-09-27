@@ -46,8 +46,11 @@
 - 不引入 PG/Redis/MQ/前端；不改 SQLite 单机定位。
 - 不重写 agent loop / 不搬 pi 的 lane 状态机（我们委托 pi 引擎）。
 - 不做会话树/分支/fork。
-- 不在尝试内"断点续跑"模型（重试仍是整轮重跑 + `contextSummary`）；本设计只保证
-  **日志语义完整**，不承诺**推理状态续接**。
+- **不持久化半截模型流（partial assistant frames）**：最后一步失败即**丢弃未结算的尾巴 + 整轮重试**。
+  半截 assistant 无终态、不能进模型上下文（pi 用 `SessionPendingAssistantMessageError` 禁止其成为持久 entry），
+  对“回读重建会话”零可用价值；丢了它换取更简单的实现。
+- **不在尝试内“断点续跑”模型**（重试仍是整轮重跑 + `contextSummary`）；本设计只保证
+  **日志语义完整**与**可回放**，不承诺**推理状态续接**。
 
 ## 3. 存储契约
 
@@ -105,7 +108,8 @@ type SessionWrite =
 ## 5. 恢复语义（照 dsh，最关键的借鉴）
 
 ### 5.1 平衡一个被中断的 attempt
-在 `executeRun` 的任何失败/超时/失租路径上，**先把当前 attempt 的日志补平**，再走 `failRun`：
+在 `executeRun` 的任何**优雅失败**（超时、失租、预算超、provider 报错）路径上，
+**先把当前 attempt 的日志补平**，再走 `failRun`：
 
 1. 读出本 attempt 已提交的 `entry`/`list`；
 2. 对每个在 `td.pending.tool` 里、没有对应 `tool_result` 的 `tool_call`：
@@ -114,12 +118,21 @@ type SessionWrite =
 3. 追加 `entry` type `custom`（`td.attempt_end`）：`reason: "interrupted" | "timeout" | "failed"`；
 4. `flush()` 后再 `failRun`。
 
-### 5.2 为什么不用"截断尾巴"
-照 dsh：长任务已经落盘的内容必须保留，**不截断、不重写**；只丢弃"未 resolve 的那次 append"
-的物理半行（`readSessionLog` 现有行为）。语义上的不自洽由 §5.1 的合成收尾解决。
+> 这里的意义是**审计诚实**（分得清“没查到”和“查了没结果”），不是为了续跑。
+> ticket-doctor 工具全只读，即使不补收尾也不造成副作用风险。
 
-### 5.3 只读观察
-审计/回放侧（backlog A9）对冷日志做**内存内平衡**，不写回（照 dsh `session-query`）。
+### 5.1b 硬崩溃：不截断、只在读侧平衡
+进程硬崩时已经写不进任何东西（连收尾都写不了），因此：
+- **不截断、不重写**已落盘的内容（长任务已提交的事件必须保留）；
+- 存盘的日志可能停在“有 `tool_call`、无 `tool_result`”的不自洽状态；
+- 由**读侧**（审计/回放，backlog A9）在内存里补平，不写回（照 dsh `session-query`）；
+- 不做“崩溃后由下一个进程重开旧 attempt 并补写”——本设计不重开旧 attempt（§2 非目标）。
+
+### 5.1c 半截模型流直接丢弃
+未结算的 assistant 输出（流式到一半、无终态）**不落盘、不恢复**：
+- 模型层：新 attempt 从头生；
+- 工具层：已结算的 `tool_call`/`tool_result` 保留作审计；未结算的按 §5.1 补收尾（优雅失败）或读侧平衡（硬崩）；
+- 不存 partial frames，不做“从帧 settle 孤儿 assistant”。
 
 ## 6. 持久性、写所有权与并发
 
@@ -152,7 +165,7 @@ type SessionWrite =
 |---|---|---|
 | **P0（设计冻结）** | 本文件评审通过，登记 `open-questions` / `backlog` | 决策记录在案 |
 | **P1（契约化）** | 新增 `SessionWrite` 类型 + `commit(writes)` + 校验 + `flush()`；`RunSessionLog.append` 变薄封装；v2→v3 迁移 | `typecheck` + 单测：校验拒绝重复 id/缺 parent；flush 后可读；v2 旧文件可读 |
-| **P2（自洽恢复）** | `td.pending.tool` 槽 + 失败路径追加合成 `tool_result` / `attempt_end` | 单测：模拟工具中途崩溃，日志被补平且含 `TOOL_OUTCOME_UNKNOWN` |
+| **P2（自洽恢复）** | `td.pending.tool` 槽；**优雅失败**路径追加合成 `tool_result` / `attempt_end`；硬崩溃只做读侧平衡 | 单测：模拟优雅失败，日志被补平且含 `TOOL_OUTCOME_UNKNOWN`；不涉及 partial frames |
 | **P3（读模型）** | `td replay` CLI + 审计只读平衡 | 集成测试：崩溃 attempt 可回放 |
 | **P4（事实槽）** | `td.scope.*` / `td.retrieval.range` 落盘，跨轮读取 | 多轮测试：第二轮能读到第一轮锁定的时间/版本 |
 
@@ -160,7 +173,7 @@ type SessionWrite =
 
 | 风险 | 对策 |
 |---|---|
-| 过度工程（重蹈"评测太早"覆辙） | 分阶段、每阶段独立可用；非目标明确；不引入新依赖 |
+| 过度工程（重蹈"评测太早"覆辙） | 分阶段、每阶段独立可用；**不做 partial frames / 不做续跑**，非目标明确；不引入新依赖 |
 | 迁移破坏历史日志 | 迁移只读降级 + 幂等 + 旧文件保留；先跑回归 |
 | flush 成本 | 只在 attempt 终态/关键检查点 flush；增量仍批量 append |
 | 与 pi 引擎的事件耦合 | 契约只在 ticket-doctor 侧；pi 的 `entry_appended` 仍映射为 `entry`，不依赖 pi 持久化 |
