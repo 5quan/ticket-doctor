@@ -2,7 +2,7 @@
 // 它产出与真实引擎同形的 ReportDraft，走完全相同的工具箱与校验路径——
 // 保证"框架正确"可以在没有模型/网络的情况下被验证。
 import type { DiagnosisInput, ReportDraft } from "../domain/types.ts";
-import type { DiagnosisEngine, EngineResult, RunSessionLog, Toolbox } from "./types.ts";
+import type { DiagnosisEngine, EngineResult, SessionSink, Toolbox } from "./types.ts";
 
 export interface FakeEngineOptions {
   defaultService?: string;
@@ -49,7 +49,7 @@ export class FakeDiagnosisEngine implements DiagnosisEngine {
     input: DiagnosisInput,
     toolbox: Toolbox,
     signal: AbortSignal,
-    _log?: RunSessionLog,
+    _session?: SessionSink,
   ): Promise<EngineResult> {
     signal.throwIfAborted();
     const service = input.service ?? guessService(input.question, this.defaultService);

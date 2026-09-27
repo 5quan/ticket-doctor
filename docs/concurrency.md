@@ -36,14 +36,15 @@
 | W8 | `claimNextRun` 与 `recoverExpiredLeases` 是两个事务，存在时序窗口 | `BEGIN IMMEDIATE` 串行 | 审计窗口是否可导致双领 |
 | W9 | `recordSessionLog` 的 attempt 维度更新按 `id + run + generation`；迟到写入语义 | 已加守卫 | 确认 abort 后迟到写入不会污染 |
 | W10 | `evidence` 主键 `(run_id, evidence_id)`；跨 attempt 复用 / 调查作用域改造 | run 内 E# 重开 | 见 OQ-33 证据作用域 |
-| W11 | 会话文件无锁（若维持 JSONL + 共享会话） | 现为每 attempt 独立文件 | 单库后消失 |
+| W11 | ~~会话文件无锁~~ | **已消除**：会话条目进 SQLite `session_entries`，写者由 SQLite 事务串行化，无文件级撕裂 | — |
 | W12 | `investigations.context_summary / total_rounds` 无代次守卫（终态同事务更新） | finalize 事务内 | 审计是否可被迟到写入覆盖 |
 
-## 4. 相关决定方向（待定）
+## 4. 相关决定方向
 
-- **取消运行中接管**，改为**启动时自愈**（重启证明旧进程已死）；配单实例启动锁。
-- **存储收敛为单库（SQLite）**（见 `docs/session-log-design.md` 存储收敛节）：收敛后
-  W3 / W11 等并发写撕裂类问题由 SQLite 事务串行化天然消除。
+- **已落实**：存储收敛为单库（SQLite）——会话条目进 `session_entries`（写入带代次守卫），
+  消除 W11 等文件级并发写撕裂。详见 `docs/session-log-design.md §0.5`。
+- **待定**：是否取消运行中接管、改为**启动时自愈**（重启证明旧进程已死）+ 单实例启动锁。
+  （单库后即使保留接管也不会写坏日志，但语义上的双重执行仍需靠租约/代次约束。）
 
 ## 5. 梳理方法
 

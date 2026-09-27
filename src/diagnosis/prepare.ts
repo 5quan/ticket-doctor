@@ -8,7 +8,6 @@ import { extractOccurredAt } from "../domain/time.ts";
 import type { DiagnosisInput, MaterialScope, RepositoryRef } from "../domain/types.ts";
 import { buildCodeSource, type MultiRepoCodeSource } from "../sources/code.ts";
 import { FileLogSource } from "../sources/logs.ts";
-import type { RunSessionLog } from "../agent/types.ts";
 import { DiagnosisToolbox } from "../agent/toolbox.ts";
 import { EvidenceRegistry } from "./evidence.ts";
 
@@ -24,8 +23,6 @@ export interface PrepareParams {
   contextSummary?: string;
   /** 本轮取消信号，穿透到工具查询。 */
   signal: AbortSignal;
-  /** 会话日志：工具调用事件落这里；评测可选、生产必传。 */
-  log?: RunSessionLog;
   /** 让测试注入假日志源；缺省用配置文件日志源。 */
   logSource?: FileLogSource;
 }
@@ -118,7 +115,6 @@ export async function prepareDiagnosis(config: AppConfig, params: PrepareParams)
     maxToolCalls: config.diagnosis.maxToolCalls,
     maxToolResultChars: config.diagnosis.maxToolResultChars,
     signal: params.signal,
-    log: params.log,
   });
 
   return { input, scope, registry, toolbox, missingMaterial };

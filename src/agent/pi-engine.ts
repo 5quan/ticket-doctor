@@ -4,7 +4,7 @@
 // 工具只有四个只读/提交动作：query_logs / search_code / read_code / submit_report。
 // 显式关闭内置工具（noTools: builtin）与文件发现（自定义 ResourceLoader），
 // 避免意外加载 shell、写文件或全局扩展。
-import { mkdirSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -16,12 +16,14 @@ import {
   SettingsManager,
   type AgentSession,
   type ResourceLoader,
-  type SessionEntry,
 } from "@earendil-works/pi-coding-agent";
 import { Type, type Static } from "@earendil-works/pi-ai";
 import { getBuiltinModel } from "@earendil-works/pi-ai/providers/all";
 import type { DiagnosisInput, ReportDraft } from "../domain/types.ts";
-import type { DiagnosisEngine, EngineResult, RunSessionLog, Toolbox } from "./types.ts";
+import type { DiagnosisEngine, EngineResult, SessionSink, Toolbox } from "./types.ts";
+import { reconcileSession } from "./session-recovery.ts";
+import { renderDiagnosisInput } from "./input-text.ts";
+import { writeSeedFile } from "./seed-file.ts";
 
 const SYSTEM_PROMPT = `你是飞书群里的 Bug 预检助手，像一名耐心、务实的同事一样和用户交流。
 
@@ -125,104 +127,35 @@ function lastAssistantText(messages: SessionMessages): string | undefined {
   return undefined;
 }
 
-function renderInput(input: DiagnosisInput): string {
-  const lines = [`用户消息：${input.question}`];
-  if (input.service) lines.push(`服务：${input.service}`);
-  lines.push(`上报时间：${new Date(input.receivedAt).toISOString()}`);
-  lines.push(
-    input.occurredAt !== undefined
-      ? `故障发生时间：${new Date(input.occurredAt).toISOString()}（来源：${input.occurredSource ?? "输入"}）`
-      : "故障发生时间：未从输入获取（时间窗按上报时间回溯，可能遗漏）",
-  );
-  if (input.repositories?.length) {
-    lines.push(`代码仓库：${input.repositories.map((r) => `${r.repoId}@${r.rev ?? "HEAD"}`).join("、")}`);
+/** 恢复时的提示：上一条 assistant 已结束但未提交报告（例如崩溃在 submit_report 之前）。 */
+const RECOVERY_NUDGE =
+  "（恢复）上一轮回复已结束但没有提交报告。请基于当前会话继续：若材料已足够就调用 submit_report，否则继续取证。";
+
+/** 包一次工具执行：记录耗时/成败/结果规模（T3 可观测）。callId 用 pi 的 toolCallId，便于关联。 */
+async function timedTool<T extends { content: Array<{ type: string; text?: string }> }>(
+  sink: SessionSink | undefined,
+  name: string,
+  callId: string,
+  input: unknown,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const started = Date.now();
+  try {
+    const out = await fn();
+    const chars = out.content.reduce((n, c) => n + (c.text?.length ?? 0), 0);
+    sink?.recordTool({ callId, tool: name, input, ok: true, durationMs: Date.now() - started, outputChars: chars });
+    return out;
+  } catch (err) {
+    sink?.recordTool({
+      callId,
+      tool: name,
+      input,
+      ok: false,
+      durationMs: Date.now() - started,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    throw err;
   }
-  if (input.contextSummary) lines.push(`此前轮次上下文：${input.contextSummary}`);
-  lines.push("请遵循系统提示：闲聊直接回复；有排查需求先取证，完成时用 submit_report 提交报告。");
-  return lines.join("\n");
-}
-
-/** 把一次 LLM 用量记账进会话日志（0.84.x 的 usage 挂在 assistant 消息 / compaction 上，无独立 usage entry）。 */
-function logUsage(
-  log: RunSessionLog,
-  usage: { input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens: number },
-  extra: { provider?: string; model?: string; note?: string; parentId?: string | null },
-): void {
-  log.recordUsage({
-    inputTokens: usage.input,
-    outputTokens: usage.output,
-    cacheTokens: usage.cacheRead + usage.cacheWrite,
-    totalTokens: usage.totalTokens,
-    provider: extra.provider,
-    model: extra.model,
-    note: extra.note,
-    parentId: extra.parentId,
-  });
-}
-
-/** 把 pi 的 SessionEntry 转成可回放的会话日志事件。 */
-function logSessionEntry(log: RunSessionLog, entry: SessionEntry): void {
-  switch (entry.type) {
-    case "message": {
-      const msg = entry.message;
-      if (msg.role === "user") return; // 用户输入已由编排层记录，避免重复
-      log.append(
-        "message",
-        { role: msg.role, content: compactMessage(msg) },
-        { parentId: entry.parentId },
-      );
-      if (msg.role === "assistant" && msg.usage) {
-        logUsage(log, msg.usage, { provider: msg.provider, model: msg.model, parentId: entry.parentId });
-      }
-      return;
-    }
-    case "compaction": {
-      log.append(
-        "compaction",
-        {
-          summary: entry.summary,
-          firstKeptEntryId: entry.firstKeptEntryId,
-          tokensBefore: entry.tokensBefore,
-          fromHook: entry.fromHook,
-        },
-        { parentId: entry.parentId },
-      );
-      if (entry.usage) logUsage(log, entry.usage, { note: "compaction", parentId: entry.parentId });
-      return;
-    }
-    case "branch_summary": {
-      log.append("branch_summary", { fromId: entry.fromId, summary: entry.summary }, { parentId: entry.parentId });
-      if (entry.usage) logUsage(log, entry.usage, { note: "branch_summary", parentId: entry.parentId });
-      return;
-    }
-    case "model_change": {
-      log.append("model_change", { provider: entry.provider, modelId: entry.modelId });
-      return;
-    }
-    default: {
-      // 其余状态类 entry（thinking_level_change / custom / label 等）做 best-effort 记录。
-      log.append("entry", { entryType: entry.type });
-    }
-  }
-}
-
-/** 只保留文本与结构化骨架，不落图片字节，避免会话日志膨胀。 */
-function compactMessage(message: unknown): unknown {
-  const obj = message as { role?: string; content?: unknown };
-  if (!obj || typeof obj !== "object") return message;
-  return { role: obj.role, content: compactContent(obj.content) };
-}
-
-function compactContent(content: unknown): unknown {
-  if (!Array.isArray(content)) return content;
-  return content.map((part) => {
-    if (!part || typeof part !== "object") return part;
-    const p = part as { type?: string; text?: string; thinking?: string };
-    if (p.type === "text") return { type: "text", text: p.text };
-    if (p.type === "image") return { type: "image" }; // 不存图片字节
-    if (p.type === "thinking") return { type: "thinking", thinking: (p.thinking ?? "").slice(0, 2_000) };
-    return part;
-  });
 }
 
 export class PiDiagnosisEngine implements DiagnosisEngine {
@@ -237,7 +170,7 @@ export class PiDiagnosisEngine implements DiagnosisEngine {
     input: DiagnosisInput,
     toolbox: Toolbox,
     signal: AbortSignal,
-    log?: RunSessionLog,
+    sink?: SessionSink,
   ): Promise<EngineResult> {
     const agentDir = join(tmpdir(), "ticket-doctor-agent");
     mkdirSync(agentDir, { recursive: true });
@@ -277,13 +210,14 @@ export class PiDiagnosisEngine implements DiagnosisEngine {
       label: "query_logs",
       description: "查询服务在时间窗内的日志，返回带 [E#] 证据编号的原文。",
       parameters: queryLogsSchema,
-      execute: async (_id, params: Static<typeof queryLogsSchema>) => {
-        const from = Date.parse(params.from);
-        const to = Date.parse(params.to);
-        if (Number.isNaN(from) || Number.isNaN(to)) throw new Error("from/to 必须是 ISO8601 时间");
-        const text = await toolbox.queryLogs({ service: params.service, from, to, keywords: params.keywords });
-        return { content: [{ type: "text" as const, text }], details: {} };
-      },
+      execute: (id, params: Static<typeof queryLogsSchema>) =>
+        timedTool(sink, "query_logs", id, params, async () => {
+          const from = Date.parse(params.from);
+          const to = Date.parse(params.to);
+          if (Number.isNaN(from) || Number.isNaN(to)) throw new Error("from/to 必须是 ISO8601 时间");
+          const text = await toolbox.queryLogs({ service: params.service, from, to, keywords: params.keywords });
+          return { content: [{ type: "text" as const, text }], details: {} };
+        }),
     });
 
     const searchCodeTool = defineTool({
@@ -291,10 +225,11 @@ export class PiDiagnosisEngine implements DiagnosisEngine {
       label: "search_code",
       description: "在本次运行的代码版本里按子串搜索，返回带 [E#] 的 文件:行号:内容。",
       parameters: searchCodeSchema,
-      execute: async (_id, params: Static<typeof searchCodeSchema>) => {
-        const text = await toolbox.searchCode({ pattern: params.pattern, glob: params.glob, repoId: params.repoId });
-        return { content: [{ type: "text" as const, text }], details: {} };
-      },
+      execute: (id, params: Static<typeof searchCodeSchema>) =>
+        timedTool(sink, "search_code", id, params, async () => {
+          const text = await toolbox.searchCode({ pattern: params.pattern, glob: params.glob, repoId: params.repoId });
+          return { content: [{ type: "text" as const, text }], details: {} };
+        }),
     });
 
     const readCodeTool = defineTool({
@@ -302,15 +237,16 @@ export class PiDiagnosisEngine implements DiagnosisEngine {
       label: "read_code",
       description: "读取指定版本文件的一段内容，返回带 [E#] 的原文。",
       parameters: readCodeSchema,
-      execute: async (_id, params: Static<typeof readCodeSchema>) => {
-        const text = await toolbox.readCode({
-          path: params.path,
-          startLine: params.startLine,
-          endLine: params.endLine,
-          repoId: params.repoId,
-        });
-        return { content: [{ type: "text" as const, text }], details: {} };
-      },
+      execute: (id, params: Static<typeof readCodeSchema>) =>
+        timedTool(sink, "read_code", id, params, async () => {
+          const text = await toolbox.readCode({
+            path: params.path,
+            startLine: params.startLine,
+            endLine: params.endLine,
+            repoId: params.repoId,
+          });
+          return { content: [{ type: "text" as const, text }], details: {} };
+        }),
     });
 
     const submitReportTool = defineTool({
@@ -318,14 +254,15 @@ export class PiDiagnosisEngine implements DiagnosisEngine {
       label: "submit_report",
       description: "提交最终结构化报告并结束本次运行。假设用 evidenceIds 引用 [E#]；随后程序会做确定性校验。",
       parameters: reportSchema,
-      execute: async (_id, params: Static<typeof reportSchema>) => {
-        submitted = params as ReportDraft;
-        return {
-          content: [{ type: "text" as const, text: "报告已收到。" }],
-          details: {},
-          terminate: true,
-        };
-      },
+      execute: (id, params: Static<typeof reportSchema>) =>
+        timedTool(sink, "submit_report", id, params, async () => {
+          submitted = params as ReportDraft;
+          return {
+            content: [{ type: "text" as const, text: "报告已收到。" }],
+            details: {},
+            terminate: true,
+          };
+        }),
     });
 
     const requestInfoTool = defineTool({
@@ -335,20 +272,38 @@ export class PiDiagnosisEngine implements DiagnosisEngine {
         "必要时向用户追问缺失信息（例如：无法确定要读取的源码仓库/版本，或缺少服务名、现象、复现步骤等关键信息）。" +
         "不要用它做普通寒暄。调用后本次运行结束，等待用户补充后继续。",
       parameters: requestInfoSchema,
-      execute: async (_id, params: Static<typeof requestInfoSchema>) => {
-        requested = params.question;
-        return {
-          content: [{ type: "text" as const, text: "已向用户追问，本次运行结束。" }],
-          details: {},
-          terminate: true,
-        };
-      },
+      execute: (id, params: Static<typeof requestInfoSchema>) =>
+        timedTool(sink, "request_info", id, params, async () => {
+          requested = params.question;
+          return {
+            content: [{ type: "text" as const, text: "已向用户追问，本次运行结束。" }],
+            details: {},
+            terminate: true,
+          };
+        }),
     });
 
     // request_info 常驻，是否调用交给模型判断（描述里写了必要条件）。
     const customTools = toolbox.hasCode
       ? [queryLogsTool, searchCodeTool, readCodeTool, requestInfoTool, submitReportTool]
       : [queryLogsTool, requestInfoTool, submitReportTool];
+
+    // 恢复：把已落库条目读回，补齐未决工具结果，再决定 prompt / continue。
+    const reconciled = reconcileSession(sink?.priorEntries ?? []);
+    for (const entry of reconciled.added) sink?.appendEntry(entry);
+
+    let mode: "prompt" | "continue" | "nudge";
+    if (reconciled.entries.length === 0) {
+      mode = "prompt";
+    } else {
+      const last = reconciled.entries.at(-1);
+      const lastIsAssistant =
+        last?.type === "message" && (last.message as { role?: string }).role === "assistant";
+      mode = lastIsAssistant ? "nudge" : "continue";
+    }
+
+    const seedFile = reconciled.entries.length > 0 ? writeSeedFile(agentDir, reconciled.entries) : undefined;
+    const manager = seedFile ? SessionManager.open(seedFile) : SessionManager.inMemory(process.cwd());
 
     const created = await createAgentSession({
       cwd: process.cwd(),
@@ -359,18 +314,22 @@ export class PiDiagnosisEngine implements DiagnosisEngine {
       settingsManager,
       noTools: "builtin",
       customTools,
-      sessionManager: SessionManager.inMemory(process.cwd()),
+      sessionManager: manager,
     });
     const session: AgentSession = created.session;
+    // create 期间可能追加元数据条目（model_change / thinking_level_change）；一并落库，按 entry_id 去重。
+    for (const entry of manager.getEntries()) sink?.appendEntry(entry);
     const unsubscribe = session.subscribe((event) => {
       if (event.type === "tool_execution_start") turns += 1;
-      if (event.type === "entry_appended" && log) logSessionEntry(log, event.entry);
+      if (event.type === "entry_appended") sink?.appendEntry(event.entry);
     });
     const onAbort = () => void session.abort();
     signal.addEventListener("abort", onAbort, { once: true });
 
     try {
-      await session.prompt(renderInput(input));
+      if (mode === "continue") await session.agent.continue();
+      else if (mode === "nudge") await session.prompt(RECOVERY_NUDGE);
+      else await session.prompt(renderDiagnosisInput(input));
       if (signal.aborted) throw new Error("诊断被取消");
 
       // 反问：向用户要缺失信息，本次运行结束，等用户补充后进入下一轮。
@@ -407,6 +366,7 @@ export class PiDiagnosisEngine implements DiagnosisEngine {
       signal.removeEventListener("abort", onAbort);
       unsubscribe();
       session.dispose();
+      if (seedFile) rmSync(seedFile, { force: true });
     }
   }
 }

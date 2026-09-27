@@ -302,12 +302,13 @@ Worker claimNextRun() → executeRun()            src/diagnosis/orchestrator.ts
 
 ### 8.7 一次触发产生什么
 
-- 落库：`inbound_events` / `messages` / `investigations` / `runs` / `attempts` / `run_events` / `evidence` / `reports` / `deliveries`。
+- 落库（全部在 SQLite，**单存储**）：`inbound_events` / `messages` / `investigations` / `runs` / `attempts` / `run_events` / `session_entries` / `tool_executions` / `evidence` / `reports` / `deliveries`。
 - 出站：一条飞书消息（报告 / 闲聊回复 / 追问 / 提示）。
-- **分层落盘**：
-  - **业务事实与状态**在 SQLite；终态（报告 / 证据 / 投递 / 上下文）同事务提交，写操作带 `generation` 守卫。
-  - **模型层逐事件**在会话 JSONL（每个 attempt 一个文件，append-only 真相源）：`message / tool_started / tool_completed / usage / compaction`；每行带 `runId / attemptId` 便于与库表关联。
-  - **指针**：`attempts.session_file`（每次尝试一份，重试不覆盖）+ `runs.session_file`（最新一次）；`runs.usage_*` 为该 run **全部尝试之和**。
-- 可观测：`run_events` 记录生命周期事件 `run_started / engine_finished / report_saved / reply_saved / run_error / commit_rejected`；
-  工具调用与模型对话细节在会话 JSONL（backlog T3/O1 已落）。
-- 回放：按 `runs → attempts` 拿到全部 attempt 的 JSONL 指针，逐个 `readSessionLog` 回放（丢末尾半写行）。
+- **会话条目（`session_entries`）**：模型会话的每条 pi `SessionEntry`（message / tool_call+tool_result / compaction / model_change …）**原样存库**（`investigation_id, seq, entry_id, data(JSON)`），按调查单调 `seq`；不再是 JSONL 文件。
+  - **首次执行**：编排层把本轮用户输入落成一条 user 条目，再交给引擎；**恢复**（本轮已有条目）不重复追加。
+  - **重建**：引擎按 `seq` 读回条目 → 写成一次性 seed 文件交给 pi `SessionManager.open` 原生重建（树 / 压缩 / 上下文），run 后即删；seed 不是存储。
+  - **崩溃恢复**：`reconcileSession` 给“已发起但无结果”的 tool_call 补 `outcome unknown` 结果，再用 `Agent.continue()` 续跑。
+- **写守卫**：`session_entries` 写入带 `generation` 守卫（过期/僵尸执行者被丢弃）；`runs.usage_*` 为该 run 全部尝试之和。
+- **工具可观测（T3）**：每次工具执行的 pi `callId / 入参 / 耗时 / 成败 / 结果规模` 落 `tool_executions`。
+- 可观测：`run_events` 记录生命周期事件 `run_started / engine_finished / report_saved / reply_saved / run_error / commit_rejected`。
+- 回放：按调查读 `session_entries` + `tool_executions` + `evidence`，无需文件。

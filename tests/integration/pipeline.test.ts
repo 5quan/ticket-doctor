@@ -51,15 +51,11 @@ test("完整链路：新建调查 → 诊断 → 报告 → 投递，且报告�
   await executeRun({ store, config: cfg, engine }, claimed);
   assert.equal(store.getRun(claimed.run.id)!.status, "succeeded");
 
-  // 会话日志：run 行应记录 JSONL 指针与事件序号，文件真实落盘。
+  // 会话条目进 SQLite（单存储）：本轮应至少落了用户输入。
   const runRow = store.getRun(claimed.run.id)!;
-  assert.ok(runRow.session_file, "run 应记录会话日志文件路径");
-  assert.ok(runRow.session_seq >= 3, `至少用户消息 + 一次工具调用，实际 seq=${runRow.session_seq}`);
-  assert.ok(existsSync(runRow.session_file), "会话日志文件应真实存在");
-  // attempt 维度也要有指针，重试时上一次尝试的日志才不会被覆盖而失去关联。
-  const attemptRow = store.getAttempt(claimed.attemptId)!;
-  assert.ok(attemptRow.session_file, "attempt 应记录自己的会话日志路径");
-  assert.equal(attemptRow.session_file, runRow.session_file);
+  assert.ok(runRow.session_seq >= 1, `应至少落一条会话条目，实际 seq=${runRow.session_seq}`);
+  const entries = store.listSessionEntries(runRow.investigation_id);
+  assert.ok(entries.length >= 1, `至少用户输入一条，实际 ${entries.length}`);
 
   while ((await processDeliveriesOnce(store, cfg, feishu)) > 0) {
     // drain

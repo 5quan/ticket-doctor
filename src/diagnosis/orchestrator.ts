@@ -13,7 +13,8 @@ import type { Store, ClaimedRun } from "../storage/store.ts";
 import { ToolBudgetExceeded } from "../agent/toolbox.ts";
 import type { DiagnosisEngine, EngineResult } from "../agent/types.ts";
 import { prepareDiagnosis } from "./prepare.ts";
-import { SessionLog } from "./session-log.ts";
+import { RunSession } from "./run-session.ts";
+import { renderDiagnosisInput } from "../agent/input-text.ts";
 import { validateDraft } from "./validate.ts";
 
 export interface OrchestratorDeps {
@@ -64,16 +65,15 @@ export async function executeRun(deps: OrchestratorDeps, claimed: ClaimedRun): P
   try {
     store.appendRunEvent(run.id, claimed.attemptId, "run_started", { worker: claimed.attemptId });
 
-    // 会话日志：模型层逐条事件（消息/工具/用量/压缩）的 append-only 真相源。
-    const sessionLog = SessionLog.open({
-      dir: config.sessionDir,
+    // 会话槽：模型会话条目直接落 SQLite（单存储）。先读回历史条目，pi 重建会话。
+    const runSession = new RunSession(store, {
+      investigationId: investigation.id,
       runId: run.id,
       attemptId: claimed.attemptId,
-      investigationId: investigation.id,
-      cwd: process.cwd(),
+      generation: claimed.generation,
     });
 
-    // 材料准备与生产同一路径：时间窗 → 钉版本 → 工具箱（含会话日志埋点）。
+    // 材料准备与生产同一路径：时间窗 → 钉版本 → 工具箱。
     const { input, scope, registry, toolbox, missingMaterial } = await prepareDiagnosis(config, {
       investigationId: investigation.id,
       runId: run.id,
@@ -83,42 +83,32 @@ export async function executeRun(deps: OrchestratorDeps, claimed: ClaimedRun): P
       environment: investigation.environment ?? undefined,
       contextSummary: investigation.context_summary ?? undefined,
       signal: controller.signal,
-      log: sessionLog,
       logSource: deps.logSource,
     });
     const question = input.question;
-    sessionLog.append("message", { role: "user", content: question });
+    // 首次执行：把本轮用户输入落成会话条目（恢复时不追加，避免重复）。
+    if (!runSession.resumed) runSession.appendUserMessage(renderDiagnosisInput(input));
 
     let result: EngineResult;
     try {
-      result = await engine.run(input, toolbox, controller.signal, sessionLog);
+      // 首次执行 prompt；恢复（本轮已有条目）则由引擎 continue，不重复追加用户消息。
+      result = await engine.run(input, toolbox, controller.signal, runSession);
     } catch (err) {
-      // 无论成败都先落会话日志指针，保证失败尝试也可回放。
-      // 指针写到 attempt 维度（重试不覆盖），run 级写入带代次守卫。
-      store.recordSessionLog({
-        runId: run.id,
-        attemptId: claimed.attemptId,
-        generation: claimed.generation,
-        ...sessionLog.summary(),
-      });
+      // 无论成败都把本轮 usage 汇总落库；条目由引擎逐个带守卫写入。
+      runSession.finish();
       if (err instanceof ToolBudgetExceeded) {
         await failRun(deps, claimed, "budget_tools", err.message);
         return;
       }
       throw err;
     }
-    store.recordSessionLog({
-      runId: run.id,
-      attemptId: claimed.attemptId,
-      generation: claimed.generation,
-      ...sessionLog.summary(),
-    });
+    runSession.finish();
     store.appendRunEvent(run.id, claimed.attemptId, "engine_finished", {
       kind: result.kind,
       toolCalls: result.toolCalls,
       modelTurns: result.modelTurns,
       model: result.model,
-      session: sessionLog.summary(),
+      priorEntries: runSession.priorEntries.length,
     });
 
     const round = investigation.total_rounds + 1;

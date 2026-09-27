@@ -1,9 +1,8 @@
-# 会话日志（JSONL）设计：对齐 pi durable storage
+# 会话持久化设计：单库（SQLite）+ pi 会话重建
 
-> 状态：待探讨（设计稿）。本文件只定义目标、契约与落地阶段，不代表已实现。
-> **重要：见 §0.5“存储收敛”——若采纳单库（SQLite）方向，本文件面向 JSONL 的部分作废。**
-> 相关：`docs/interface.md §7/§8.7`（接口约束）、`docs/handover.md`（实现现状）、
-> `docs/concurrency.md`（并发清单）、`backlog.md P4/A7/A9`、`open-questions.md`（决策记录）。
+> 状态：**§0.5（单库方向）已实施 v0**（`session_entries` + seed 文件重建 + 崩溃补齐收尾）；
+> 下方面向 JSONL 的契约与阶段已作废，仅保留作背景。
+> 相关：`docs/interface.md §8.7`、`docs/handover.md`、`docs/concurrency.md`、`backlog.md P4/P5`、`open-questions.md OQ-33/OQ-34`。
 > 参考源码：`/opt/pi/packages/agent/src/harness/session/**`、`runtime/**`；
 > `/opt/deepseek-harness/packages/core/session/**`、`packages/session/session-persistence-jsonl/**`。
 
@@ -19,9 +18,17 @@
    事后审计分不清"没查到"和"没查过"。
 3. **无持久屏障**：`appendFileSync` 不 fsync，指针更新与内容落盘没有"提交点"语义。
 
-## 0.5 存储收敛：单库（SQLite）方向（待评审）
+## 0.5 存储收敛：单库（SQLite）——已实施 v0
 
-### 为什么现在有两个存储
+**实施要点（当前代码）**：
+- `session_entries`：一行一条完整 pi `SessionEntry`（`data` 存 JSON），按 `investigation_id + seq` 单调；写入带 `generation` 守卫。
+- `tool_executions`：工具执行可观测（`callId/tool/input/ok/durationMs/outputChars/error`）。
+- 首次执行：编排层 `RunSession.appendUserMessage()` 落 user 条目；恢复不重复追加（`hasSessionEntriesForRun`）。
+- 重建：`RunSession.priorEntries` → `writeSeedFile()` 写一次性 JSONL → `SessionManager.open()` 原生重建（0.84.2 的 `inMemory` 不接受初始 entries）；run 后删 seed。
+- 崩溃恢复：`reconcileSession()` 给无结果的 `tool_call` 补 `outcome unknown`，再 `Agent.continue()`。
+- JSONL 与 `SessionManager` 文件持久化已从运行路径移除。
+
+### 历史背景（为什么曾经两个存储）
 - **SQLite**：业务状态机（inbound/investigation/message/run/attempt/run_event/evidence/report/delivery）+ 会话日志的指针与 usage 汇总。事务、去重约束、租约/代次都靠它。
 - **JSONL**：模型层逐事件（message/tool/usage/compaction），后加的可观测/审计/评测轨迹。
 - 历史原因：先落业务事实（OQ-7），JSONL 是后来为“可回放/可审计/算成本”补的。
@@ -57,8 +64,8 @@ pi 自己有两套：coding-agent 是 JSONL，agent-core 另有 **SQLite session
 “单存储”对应的是**后者**，不是 JSONL。把业务状态搬进 JSONL 不可行（租约/去重/事务会很难做），
 所以可行的收敛方向是**业务 + 会话条目都放 SQLite**。
 
-> 若采纳本节，本文件前面面向 JSONL 的契约（header/事务行/appendFileAtomically 等）作废，
-> 只保留“写类型 entry/usage/value/list + 校验 + 恢复语义”的抽象。
+> 本节已按上述实施（v0）；下方面向 JSONL 的契约（header/事务行/`publishFileAtomically` 等）已作废，
+> 仅保留“写类型/校验/恢复语义”的抽象作参考。`entry/usage/value/list` 的完整事务契约尚未实现（当前直接存 pi 条目）。
 
 ## 1. 借鉴来源与取舍
 

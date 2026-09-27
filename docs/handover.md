@@ -42,7 +42,7 @@
 |---|---|---|
 | 飞书接入 | 官方 SDK 长连接、事件归一化、fail-closed mention 门控 | ✅ 真机跑通 |
 | 会话路由 | 标号 `[TD-xxxxxxxx]` / root / thread / parent；不同群不合并 | ✅ 真机跑通 |
-| 持久化 | SQLite(`node:sqlite`) schema：inbound/investigation/messages/runs/attempts/run_events/evidence/reports/deliveries | ✅ |
+| 持久化 | SQLite(`node:sqlite`) schema：inbound/investigation/messages/runs/attempts/run_events/**session_entries/tool_executions**/evidence/reports/deliveries | ✅ |
 | 调度 | worker 池、同调查串行 / 不同调查并行、租约 + 代次守卫、过期回收 | ✅ |
 | 诊断引擎 | 端口 + 假引擎（离线）+ pi 引擎（真实，SDK 隔离在单文件） | ✅ 真机两轮跑通 |
 | 交互回复 | 闲聊直接回复、必要时 `request_info` 反问追问；`submit_report` 提交即结束（`terminate`） | ✅ 新增 |
@@ -53,9 +53,9 @@
 | 版本钉死 | 有发生时间时按 `git rev-list --before` 钉当时 SHA（显式 rev 优先；钉不到记为缺失，不回退 HEAD） | ✅ |
 | 证据 | 程序签发 `E#`、报告只引用 ID、校验引用与版本、无证据强制降级 | ✅ |
 | 投递 | 待发送记录、退避重试、**不确定态**、平台消息 ID | ✅ 真机回复成功 |
-| 会话日志落盘 | 每次尝试一个 JSONL（append-only）：`message / tool_started / tool_completed / usage / compaction`；指针写 `attempts`（重试不覆盖）+ `runs`（最新一次），`runs.usage_*` 为全尝试之和 | ✅ |
+| 会话持久化（单存储） | pi 会话条目原样落 `session_entries`（按调查单调 `seq`）；引擎读回写 seed 文件给 pi 重建、崩溃时 `reconcileSession` 补未决工具结果并 `Agent.continue()`；JSONL 已移除 | ✅ |
 | 评测 harness（离线） | `npm run eval`：加载 benchmark → 复用生产链路跑诊断 → 打分（证据召回率/引用精确率/决策正确率）→ 结果 JSONL | ✅ M1 |
-| 测试 | 56 个（单元 + 集成），`npm test` 全绿 | ✅ |
+| 测试 | 58 个（单元 + 集成），`npm test` 全绿 | ✅ |
 
 **未实现 / 明确边界**
 
@@ -66,14 +66,14 @@
 - 路径层工具 `list_files`（照搬 pi `ls`/`find` 分层）。
 - 独立上下文审计 Agent（证据充分性审查，见 `open-questions.md` OQ-30）。
 - 仓库同步器（本地只读镜像由外部更新）。
-- pi 会话持久化（当前用 `contextSummary` 传多轮）。
 - 出站消息映射（已决定暂缓）；跨轮证据复用。
+- 证据作用域仍为 run 内 `E#`（调查作用域待做，见 OQ-33）。
 
 **运行方式**
 
 ```bash
 npm install
-npm test                 # 56 个测试
+npm test                 # 58 个测试
 npm run demo             # 离线端到端（假引擎）
 TD_ENGINE=pi npm run demo
 npm run gateway          # 飞书接入 + 投递 + 内嵌 4 worker（常驻）
@@ -98,7 +98,7 @@ npm run worker           # 只跑 worker
 | 工具语义不为预算让路 | 照搬 pi 分层（路径→定位→内容）；预算在编排层管，不合并/裁剪工具 |
 | 标号 vs 引用 id 冲突 | **以标号为主**（当前实现即如此） |
 | 出站消息映射 | 暂缓，不做 |
-| pi 会话持久化 | 暂不启用，用 `contextSummary` 传多轮 |
+| pi 会话持久化 | 已启用：pi 会话条目进 SQLite `session_entries`（单存储）；引擎读回重建、崩溃补未决工具结果后续跑；不再用 JSONL / `contextSummary` |
 | 飞书交互 | 最小权限 `im:message.group_at_msg:readonly`，**每次回复 @机器人** |
 | 存储 | 单机 SQLite(WAL) + `node:sqlite`，暂不引入 PostgreSQL |
 | 引擎 | 默认 `fake`（离线）；真实模型切 `TD_ENGINE=pi` |
@@ -106,7 +106,7 @@ npm run worker           # 只跑 worker
 | 闲聊/追问 | 一律走 LLM；闲聊直接回复；必要时 `request_info` 向用户追问后结束本轮；仅 `-help` 由程序机械回复（不建调查） |
 | 工具结果上限 | 单条证据按 `maxResultChars` 截断 + 单次工具调用总量按 `maxToolResultChars` 截断并提示 |
 | 上下文兜底 | 开启 pi compaction 作为总量兜底（`TD_COMPACTION_ENABLED`，默认 true）；单次工具结果仍有界 |
-| 会话日志存储 | 每次尝试一个 JSONL（append-only typed events，带单调 seq）作为真相源；SQLite `runs` 只存指针 + token 汇总；设计照 pi/dsh |
+| 会话日志存储 | 单库：`session_entries`（pi 条目 JSON + 调查内 `seq`）+ `tool_executions`（工具可观测）；不再存 JSONL 文件 |
 | 记忆规则形态 | 条目化 bullet（id + helpful/harmful + 标签），**增量 delta 更新、程序确定性合并**（照 ACE，防 context collapse） |
 | 自动迭代机制 | LLM 按**执行轨迹+评估轨迹**反思产 delta；**Pareto 选候选** + 带文字的反馈函数 μ_f（照 GEPA）；AI 提案、程序/基准裁判；L0→L1→L2 分阶段 |
 | 评测题源 | 合成 fixture 仅用于 harness 自测；真实质量必须以**历史真实 bug + 人工标注 gold** 为准（`docs/eval-design.md`） |

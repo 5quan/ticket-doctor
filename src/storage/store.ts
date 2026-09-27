@@ -670,20 +670,115 @@ export class Store {
     });
   }
 
+  // ---------- session entries（单存储：模型会话进库，取代 JSONL） ----------
+
   /**
-   * 记录会话日志指针与 token 汇总（JSONL 文件是真相源，这里只存定位信息）。
-   *
-   * - 指针同时写到 **attempt 维度**（重试不覆盖上一次尝试）与 runs（最新一次，带代次守卫）。
-   * - runs 上的 usage_* 汇总为**该 run 全部尝试之和**，避免重试成本被漏记。
-   * - 返回 run 级指针是否写入；代次不匹配或 run 已不在 running（被回收/已终态）时为 false，
-   *   此时仍会记录 attempt 维度（该尝试确实产生了这份日志），但不污染新一代的 run 指针。
+   * 追加一条 pi 会话条目（完整 SessionEntry JSON）。
+   * 带代次守卫：只有当前 running 且代次匹配的执行者能写；过期/僵尸写入直接丢弃。
+   * seq 按调查单调递增；entry_id 去重。
    */
-  recordSessionLog(input: {
+  appendSessionEntry(input: {
+    investigationId: string;
     runId: string;
     attemptId: string;
     generation: number;
-    path: string;
-    lastSeq: number;
+    entry: { id: string; parentId: string | null; type: string; timestamp: string };
+  }): boolean {
+    const now = Date.now();
+    return transaction(this.db, () => {
+      const guard = this.db
+        .prepare("SELECT id FROM runs WHERE id = ? AND generation = ? AND status = 'running'")
+        .get(input.runId, input.generation) as { id: string } | undefined;
+      if (!guard) return false;
+      const row = this.db
+        .prepare("SELECT COALESCE(MAX(seq), 0) AS seq FROM session_entries WHERE investigation_id = ?")
+        .get(input.investigationId) as { seq: number | bigint };
+      const seq = asNumber(row.seq) + 1;
+      const result = this.db
+        .prepare(
+          `INSERT OR IGNORE INTO session_entries
+             (investigation_id, seq, run_id, attempt_id, entry_id, parent_id, type, time_ms, data, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          input.investigationId,
+          seq,
+          input.runId,
+          input.attemptId,
+          input.entry.id,
+          input.entry.parentId ?? null,
+          input.entry.type,
+          Date.parse(input.entry.timestamp) || now,
+          JSON.stringify(input.entry),
+          now,
+        );
+      if (asNumber(result.changes) !== 1) return false;
+      this.db.prepare("UPDATE runs SET session_seq = ?, updated_at = ? WHERE id = ?").run(seq, now, input.runId);
+      return true;
+    });
+  }
+
+  /** 按调查读回全部会话条目（按 seq 升序），供引擎重建会话。 */
+  listSessionEntries(investigationId: string): unknown[] {
+    const rows = this.db
+      .prepare("SELECT data FROM session_entries WHERE investigation_id = ? ORDER BY seq ASC")
+      .all(investigationId) as unknown as Array<{ data: string }>;
+    const out: unknown[] = [];
+    for (const row of rows) {
+      try {
+        out.push(JSON.parse(row.data));
+      } catch {
+        // 损坏行跳过（正常不会发生：写入即 JSON.stringify）
+      }
+    }
+    return out;
+  }
+
+  /** 本轮是否已经追加过用户消息：决定新引擎是 prompt（首次）还是 continue（恢复）。 */
+  hasSessionEntriesForRun(runId: string): boolean {
+    return this.db.prepare("SELECT 1 AS x FROM session_entries WHERE run_id = ? LIMIT 1").get(runId) !== undefined;
+  }
+
+  /** 工具执行记录（可观测，T3）：入参/结果规模/耗时/成败/pi 调用 ID。 */
+  recordToolExecution(input: {
+    investigationId: string;
+    runId: string;
+    attemptId: string;
+    callId: string;
+    tool: string;
+    input: unknown;
+    ok: boolean;
+    durationMs: number;
+    outputChars?: number;
+    error?: string;
+  }): void {
+    this.db
+      .prepare(
+        `INSERT OR REPLACE INTO tool_executions
+           (id, investigation_id, run_id, attempt_id, call_id, tool, input, ok, duration_ms, output_chars, error, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        randomUUID(),
+        input.investigationId,
+        input.runId,
+        input.attemptId,
+        input.callId,
+        input.tool,
+        input.input === undefined ? null : JSON.stringify(input.input),
+        input.ok ? 1 : 0,
+        input.durationMs,
+        input.outputChars ?? null,
+        input.error ?? null,
+        Date.now(),
+      );
+  }
+
+  /** token 汇总：attempt 维度一份，runs 为该 run 全部尝试之和；带代次守卫。 */
+  recordSessionUsage(input: {
+    runId: string;
+    attemptId: string;
+    generation: number;
     inputTokens: number;
     outputTokens: number;
     cacheTokens: number;
@@ -691,15 +786,13 @@ export class Store {
   }): boolean {
     const now = Date.now();
     return transaction(this.db, () => {
-      const attemptResult = this.db
+      this.db
         .prepare(
-          `UPDATE attempts SET session_file = ?, session_seq = ?, usage_input_tokens = ?,
-             usage_output_tokens = ?, usage_cache_tokens = ?, usage_total_tokens = ?
+          `UPDATE attempts SET usage_input_tokens = ?, usage_output_tokens = ?,
+             usage_cache_tokens = ?, usage_total_tokens = ?
            WHERE id = ? AND run_id = ? AND generation = ?`,
         )
         .run(
-          input.path,
-          input.lastSeq,
           input.inputTokens,
           input.outputTokens,
           input.cacheTokens,
@@ -708,8 +801,6 @@ export class Store {
           input.runId,
           input.generation,
         );
-      void attemptResult;
-
       const totals = this.db
         .prepare(
           `SELECT COALESCE(SUM(usage_input_tokens), 0) AS i,
@@ -719,16 +810,13 @@ export class Store {
              FROM attempts WHERE run_id = ?`,
         )
         .get(input.runId) as { i: number | bigint; o: number | bigint; c: number | bigint; t: number | bigint };
-
       const runResult = this.db
         .prepare(
-          `UPDATE runs SET session_file = ?, session_seq = ?, usage_input_tokens = ?,
-             usage_output_tokens = ?, usage_cache_tokens = ?, usage_total_tokens = ?, updated_at = ?
+          `UPDATE runs SET usage_input_tokens = ?, usage_output_tokens = ?,
+             usage_cache_tokens = ?, usage_total_tokens = ?, updated_at = ?
            WHERE id = ? AND generation = ? AND status = 'running'`,
         )
         .run(
-          input.path,
-          input.lastSeq,
           asNumber(totals.i),
           asNumber(totals.o),
           asNumber(totals.c),
