@@ -57,6 +57,26 @@ export interface RunRow {
   created_at: number;
 }
 
+export interface AttemptRow {
+  id: string;
+  run_id: string;
+  generation: number;
+  worker_id: string;
+  status: string;
+  lease_expires_at: number;
+  heartbeat_at: number;
+  error_code: string | null;
+  error_message: string | null;
+  started_at: number;
+  finished_at: number | null;
+  session_file: string | null;
+  session_seq: number;
+  usage_input_tokens: number;
+  usage_output_tokens: number;
+  usage_cache_tokens: number;
+  usage_total_tokens: number;
+}
+
 export interface ClaimedRun {
   run: RunRow;
   attemptId: string;
@@ -299,6 +319,17 @@ export class Store {
     return this.db
       .prepare("SELECT * FROM runs WHERE message_id = ? ORDER BY created_at DESC LIMIT 1")
       .get(messageId) as RunRow | undefined;
+  }
+
+  getAttempt(attemptId: string): AttemptRow | undefined {
+    return this.db.prepare("SELECT * FROM attempts WHERE id = ?").get(attemptId) as AttemptRow | undefined;
+  }
+
+  /** 按时间列出一次 run 的全部尝试（含每次的会话日志指针），供回放/审计使用。 */
+  listAttemptsByRun(runId: string): AttemptRow[] {
+    return this.db
+      .prepare("SELECT * FROM attempts WHERE run_id = ? ORDER BY generation ASC")
+      .all(runId) as unknown as AttemptRow[];
   }
 
   /**
@@ -639,34 +670,75 @@ export class Store {
     });
   }
 
-  /** 记录会话日志指针与 token 汇总（JSONL 文件是真相源，这里只存定位信息）。 */
-  recordSessionLog(
-    runId: string,
-    summary: {
-      path: string;
-      lastSeq: number;
-      inputTokens: number;
-      outputTokens: number;
-      cacheTokens: number;
-      totalTokens: number;
-    },
-  ): void {
-    this.db
-      .prepare(
-        `UPDATE runs SET session_file = ?, session_seq = ?, usage_input_tokens = ?,
-           usage_output_tokens = ?, usage_cache_tokens = ?, usage_total_tokens = ?, updated_at = ?
-         WHERE id = ?`,
-      )
-      .run(
-        summary.path,
-        summary.lastSeq,
-        summary.inputTokens,
-        summary.outputTokens,
-        summary.cacheTokens,
-        summary.totalTokens,
-        Date.now(),
-        runId,
-      );
+  /**
+   * 记录会话日志指针与 token 汇总（JSONL 文件是真相源，这里只存定位信息）。
+   *
+   * - 指针同时写到 **attempt 维度**（重试不覆盖上一次尝试）与 runs（最新一次，带代次守卫）。
+   * - runs 上的 usage_* 汇总为**该 run 全部尝试之和**，避免重试成本被漏记。
+   * - 返回 run 级指针是否写入；代次不匹配或 run 已不在 running（被回收/已终态）时为 false，
+   *   此时仍会记录 attempt 维度（该尝试确实产生了这份日志），但不污染新一代的 run 指针。
+   */
+  recordSessionLog(input: {
+    runId: string;
+    attemptId: string;
+    generation: number;
+    path: string;
+    lastSeq: number;
+    inputTokens: number;
+    outputTokens: number;
+    cacheTokens: number;
+    totalTokens: number;
+  }): boolean {
+    const now = Date.now();
+    return transaction(this.db, () => {
+      const attemptResult = this.db
+        .prepare(
+          `UPDATE attempts SET session_file = ?, session_seq = ?, usage_input_tokens = ?,
+             usage_output_tokens = ?, usage_cache_tokens = ?, usage_total_tokens = ?
+           WHERE id = ? AND run_id = ? AND generation = ?`,
+        )
+        .run(
+          input.path,
+          input.lastSeq,
+          input.inputTokens,
+          input.outputTokens,
+          input.cacheTokens,
+          input.totalTokens,
+          input.attemptId,
+          input.runId,
+          input.generation,
+        );
+      void attemptResult;
+
+      const totals = this.db
+        .prepare(
+          `SELECT COALESCE(SUM(usage_input_tokens), 0) AS i,
+                  COALESCE(SUM(usage_output_tokens), 0) AS o,
+                  COALESCE(SUM(usage_cache_tokens), 0) AS c,
+                  COALESCE(SUM(usage_total_tokens), 0) AS t
+             FROM attempts WHERE run_id = ?`,
+        )
+        .get(input.runId) as { i: number | bigint; o: number | bigint; c: number | bigint; t: number | bigint };
+
+      const runResult = this.db
+        .prepare(
+          `UPDATE runs SET session_file = ?, session_seq = ?, usage_input_tokens = ?,
+             usage_output_tokens = ?, usage_cache_tokens = ?, usage_total_tokens = ?, updated_at = ?
+           WHERE id = ? AND generation = ? AND status = 'running'`,
+        )
+        .run(
+          input.path,
+          input.lastSeq,
+          asNumber(totals.i),
+          asNumber(totals.o),
+          asNumber(totals.c),
+          asNumber(totals.t),
+          now,
+          input.runId,
+          input.generation,
+        );
+      return asNumber(runResult.changes) === 1;
+    });
   }
 
   // ---------- evidence ----------

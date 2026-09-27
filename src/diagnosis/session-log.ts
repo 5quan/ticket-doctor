@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { RunSessionLog } from "../agent/types.ts";
 
-export const SESSION_LOG_VERSION = 1;
+export const SESSION_LOG_VERSION = 2;
 
 export interface SessionLogSummary {
   path: string;
@@ -30,14 +30,18 @@ export function safeStringify(value: unknown): string {
 
 export class SessionLog implements RunSessionLog {
   readonly path: string;
+  readonly runId: string;
+  readonly attemptId: string;
   private seq = 0;
   private inputTokens = 0;
   private outputTokens = 0;
   private cacheTokens = 0;
   private totalTokens = 0;
 
-  private constructor(path: string) {
+  private constructor(path: string, runId: string, attemptId: string) {
     this.path = path;
+    this.runId = runId;
+    this.attemptId = attemptId;
   }
 
   static open(opts: {
@@ -51,7 +55,7 @@ export class SessionLog implements RunSessionLog {
     mkdirSync(opts.dir, { recursive: true });
     // 每次尝试一个文件，避免重试时同一文件重复写 header / 交错。
     const path = join(opts.dir, `${opts.runId}-${opts.attemptId}.jsonl`);
-    const log = new SessionLog(path);
+    const log = new SessionLog(path, opts.runId, opts.attemptId);
     log.write({
       type: "session",
       version: SESSION_LOG_VERSION,
@@ -74,6 +78,8 @@ export class SessionLog implements RunSessionLog {
       seq: this.seq,
       type,
       id: randomUUID(),
+      runId: this.runId,
+      attemptId: this.attemptId,
       parentId: opts.parentId ?? null,
       time: Date.now(),
       data,

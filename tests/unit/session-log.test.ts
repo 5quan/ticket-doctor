@@ -19,9 +19,13 @@ test("SessionLog 写入 header + typed events，seq 单调递增", () => {
 
   const entries = readSessionLog(log.path);
   assert.equal(entries[0].type, "session");
+  assert.equal(entries[0].version, 2);
   assert.equal(entries[0].runId, "r1");
   assert.equal(entries[1].seq, 1);
   assert.equal(entries[1].type, "message");
+  // 每条事件都带 runId/attemptId，便于与 run_events / attempts 关联。
+  assert.equal(entries[1].attemptId, "a1");
+  assert.equal(entries[1].runId, "r1");
   assert.equal(entries[2].seq, 2);
   assert.equal(entries[2].type, "tool_started");
 });

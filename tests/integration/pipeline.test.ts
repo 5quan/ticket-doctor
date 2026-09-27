@@ -56,6 +56,10 @@ test("完整链路：新建调查 → 诊断 → 报告 → 投递，且报告�
   assert.ok(runRow.session_file, "run 应记录会话日志文件路径");
   assert.ok(runRow.session_seq >= 3, `至少用户消息 + 一次工具调用，实际 seq=${runRow.session_seq}`);
   assert.ok(existsSync(runRow.session_file), "会话日志文件应真实存在");
+  // attempt 维度也要有指针，重试时上一次尝试的日志才不会被覆盖而失去关联。
+  const attemptRow = store.getAttempt(claimed.attemptId)!;
+  assert.ok(attemptRow.session_file, "attempt 应记录自己的会话日志路径");
+  assert.equal(attemptRow.session_file, runRow.session_file);
 
   while ((await processDeliveriesOnce(store, cfg, feishu)) > 0) {
     // drain

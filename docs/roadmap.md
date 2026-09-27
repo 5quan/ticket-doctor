@@ -23,7 +23,7 @@
 - 交互回复（闲聊/追问）+ 机械回复（`-help`）。
 - 工具结果总量上限 + pi compaction 兜底。
 - 会话日志落盘（逐次工具/消息/token/压缩，JSONL append-only + runs 指针汇总）。
-- 48 个测试，`npm test` 全绿。
+- 56 个测试，`npm test` 全绿。
 
 **待完成（P0）**
 

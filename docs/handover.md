@@ -53,9 +53,9 @@
 | 版本钉死 | 有发生时间时按 `git rev-list --before` 钉当时 SHA（显式 rev 优先；钉不到记为缺失，不回退 HEAD） | ✅ |
 | 证据 | 程序签发 `E#`、报告只引用 ID、校验引用与版本、无证据强制降级 | ✅ |
 | 投递 | 待发送记录、退避重试、**不确定态**、平台消息 ID | ✅ 真机回复成功 |
-| 会话日志落盘 | 每次尝试一个 JSONL（append-only）：`message / usage / compaction / tool_started / tool_completed`；`runs` 存指针与 token 汇总 | ✅ |
+| 会话日志落盘 | 每次尝试一个 JSONL（append-only）：`message / tool_started / tool_completed / usage / compaction`；指针写 `attempts`（重试不覆盖）+ `runs`（最新一次），`runs.usage_*` 为全尝试之和 | ✅ |
 | 评测 harness（离线） | `npm run eval`：加载 benchmark → 复用生产链路跑诊断 → 打分（证据召回率/引用精确率/决策正确率）→ 结果 JSONL | ✅ M1 |
-| 测试 | 55 个（单元 + 集成），`npm test` 全绿 | ✅ |
+| 测试 | 56 个（单元 + 集成），`npm test` 全绿 | ✅ |
 
 **未实现 / 明确边界**
 
@@ -73,7 +73,7 @@
 
 ```bash
 npm install
-npm test                 # 45 个测试
+npm test                 # 56 个测试
 npm run demo             # 离线端到端（假引擎）
 TD_ENGINE=pi npm run demo
 npm run gateway          # 飞书接入 + 投递 + 内嵌 4 worker（常驻）

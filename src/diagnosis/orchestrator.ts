@@ -94,14 +94,25 @@ export async function executeRun(deps: OrchestratorDeps, claimed: ClaimedRun): P
       result = await engine.run(input, toolbox, controller.signal, sessionLog);
     } catch (err) {
       // 无论成败都先落会话日志指针，保证失败尝试也可回放。
-      store.recordSessionLog(run.id, sessionLog.summary());
+      // 指针写到 attempt 维度（重试不覆盖），run 级写入带代次守卫。
+      store.recordSessionLog({
+        runId: run.id,
+        attemptId: claimed.attemptId,
+        generation: claimed.generation,
+        ...sessionLog.summary(),
+      });
       if (err instanceof ToolBudgetExceeded) {
         await failRun(deps, claimed, "budget_tools", err.message);
         return;
       }
       throw err;
     }
-    store.recordSessionLog(run.id, sessionLog.summary());
+    store.recordSessionLog({
+      runId: run.id,
+      attemptId: claimed.attemptId,
+      generation: claimed.generation,
+      ...sessionLog.summary(),
+    });
     store.appendRunEvent(run.id, claimed.attemptId, "engine_finished", {
       kind: result.kind,
       toolCalls: result.toolCalls,

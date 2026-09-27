@@ -302,7 +302,12 @@ Worker claimNextRun() → executeRun()            src/diagnosis/orchestrator.ts
 
 ### 8.7 一次触发产生什么
 
-- 落库：`inbound_events` / `messages` / `runs` / `run_events` / `evidence` / `reports` / `deliveries`。
+- 落库：`inbound_events` / `messages` / `investigations` / `runs` / `attempts` / `run_events` / `evidence` / `reports` / `deliveries`。
 - 出站：一条飞书消息（报告 / 闲聊回复 / 追问 / 提示）。
-- 可观测：`run_events` 目前仅 `run_started / engine_finished / report_saved / reply_saved / run_error / commit_rejected`
-  （逐次工具调用尚未落盘，见 backlog T3/O1）。
+- **分层落盘**：
+  - **业务事实与状态**在 SQLite；终态（报告 / 证据 / 投递 / 上下文）同事务提交，写操作带 `generation` 守卫。
+  - **模型层逐事件**在会话 JSONL（每个 attempt 一个文件，append-only 真相源）：`message / tool_started / tool_completed / usage / compaction`；每行带 `runId / attemptId` 便于与库表关联。
+  - **指针**：`attempts.session_file`（每次尝试一份，重试不覆盖）+ `runs.session_file`（最新一次）；`runs.usage_*` 为该 run **全部尝试之和**。
+- 可观测：`run_events` 记录生命周期事件 `run_started / engine_finished / report_saved / reply_saved / run_error / commit_rejected`；
+  工具调用与模型对话细节在会话 JSONL（backlog T3/O1 已落）。
+- 回放：按 `runs → attempts` 拿到全部 attempt 的 JSONL 指针，逐个 `readSessionLog` 回放（丢末尾半写行）。
