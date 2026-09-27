@@ -40,6 +40,7 @@
 | P1 | 模型对话 / 工具调用 / token 的持久化模型 | ✅ 已定：会话 JSONL（真相源）+ `runs` 指针/汇总 | 见 `docs/handover.md`；脱敏另议（S1） | 已完成 | P0 |
 | P2 | 是否引入 PostgreSQL | 当前单机 SQLite(WAL)，4 worker，写入量很小 | **单机阶段不必上**：PG 解决的是多进程/多机写入并发与运维，不是“持久化能力”；代价是 Store 全异步、迁移全部调用点。**触发条件**：多机部署、或单机写入成为瓶颈时再评估 | 待探讨 | P3 |
 | P3 | 跨轮上下文与证据传递 | 目前只把上一轮报告的**摘要字符串**带给下一轮（有损）；证据 ID 每次运行从 `E1` 重开，**跨轮不复用** | 定义“历史证据引用”格式，保留原轮次/版本/时间；方案原要求历史证据沿用时保留原轮信息 | 待探讨 | P2 |
+| P4 | 会话 JSONL 类型化 / 自洽恢复 / 持久屏障 | 现为 `{seq,type,data}` 自由事件 + `appendFileSync`；崩溃可能留下悬空 `tool_started`；无 fsync | 照搬 pi agent-core 的存储契约（`entry/usage/value/list` + 校验 + flush + 原子发布）+ dsh 的崩溃恢复补齐收尾。设计见 `docs/session-log-design.md` | 待探讨 | P2 |
 
 ## 五、安全与合规
 

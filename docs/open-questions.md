@@ -81,6 +81,7 @@
 | OQ-30 | 独立上下文审计 Agent（证据充分性审查） | 已结论（简历口径已定，阶段二实现；见下） |
 | OQ-31 | 评测 Benchmark（RSI）与记忆规则迭代 | 已结论（阶段二，依赖逐次落盘；见 backlog Q6） |
 | OQ-32 | 生产诊断 MCP Server | 已结论（阶段三；工具外化，见 backlog Q7） |
+| OQ-33 | 会话 JSONL 是否照搬 pi 的 durable storage 契约 | **待探讨**。方案见 `docs/session-log-design.md`：借 pi agent-core 的**事务化写日志**（`entry/usage/value/list` + 提交前校验 + flush 屏障 + 原子发布）与 dsh 的**崩溃恢复补齐收尾**（未决工具标 `outcome: unknown`）；**不搬** lane 状态机 / 会话树 / 内核 flock。评审后分 P1~P4 落地。 | 待探讨 |
 
 ---
 

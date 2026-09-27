@@ -117,6 +117,7 @@ npm run worker           # 只跑 worker
 - `docs/backlog.md`：可优化清单（F 飞书、T 工具、O 可观测、P 持久化、S 安全、M 材料、R 可靠性、E 工程、Q 专项、N 输入与版本、D 部署）。
 - `docs/open-questions.md`：问题与讨论记录（OQ）。
 - `docs/interface.md`：接口与格式约束（业务场景、部署、输入输出、数据交互、**触发后流程与可调用清单**）。
+- `docs/session-log-design.md`：会话 JSONL 设计稿（对齐 pi durable storage；待探讨）。
 - `docs/usage.md` / `docs/feishu-channel.md`：产品用法与飞书渠道设计。
 
 ## 六、当前进度与下一步
@@ -148,6 +149,7 @@ npm run worker           # 只跑 worker
 6. 按任务读专项：
    - 评测 / 规则迭代 → `docs/eval-design.md`、`docs/evolve-protocol.md`
    - 飞书 / 接入 → `docs/feishu-channel.md`、`docs/usage.md`
+   - 会话 / 持久化 → `docs/session-log-design.md`、`docs/interface.md §8.7`
    - 简历 / 面试 → `docs/interview-reliability.md`
 7. **先跑基线**：`npm run typecheck && npm test`，确认全绿再动。
 8. 设计参考源码：`/opt/pi`、`/opt/miniclaw`、`/opt/deepseek-harness`；平台参考 `/opt/locatebug/研发Agent平台项目文档`。
