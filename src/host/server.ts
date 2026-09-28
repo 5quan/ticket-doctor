@@ -5,7 +5,10 @@
 //   * 不做平台鉴权与协议解析（由 Go 接入适配器负责）；
 //   * 不直接跑诊断：诊断由 worker/Runner 执行，结果通过 EventStore 推送。
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { AppConfig } from "../config/index.ts";
 import type { InboundMessage } from "../domain/types.ts";
 import { routeInbound } from "../intake/router.ts";
@@ -23,6 +26,32 @@ export interface HostServer {
   server: Server;
   listen(): Promise<{ host: string; port: number }>;
   close(): Promise<void>;
+}
+
+// Web 会话页面：无框架、无构建的静态页，由 Host 直接托管。
+const WEB_DIR = join(dirname(fileURLToPath(import.meta.url)), "web");
+const STATIC_FILES: Record<string, { file: string; type: string }> = {
+  "/": { file: "index.html", type: "text/html; charset=utf-8" },
+  "/index.html": { file: "index.html", type: "text/html; charset=utf-8" },
+  "/app.js": { file: "app.js", type: "text/javascript; charset=utf-8" },
+  "/styles.css": { file: "styles.css", type: "text/css; charset=utf-8" },
+};
+const staticCache = new Map<string, string>();
+
+function serveStatic(res: ServerResponse, name: keyof typeof STATIC_FILES): void {
+  const entry = STATIC_FILES[name];
+  let body = staticCache.get(entry.file);
+  if (body === undefined) {
+    try {
+      body = readFileSync(join(WEB_DIR, entry.file), "utf8");
+    } catch {
+      sendJson(res, 500, { error: `缺少 Web 资源：${entry.file}` });
+      return;
+    }
+    staticCache.set(entry.file, body);
+  }
+  res.writeHead(200, { "Content-Type": entry.type, "Cache-Control": "no-cache" });
+  res.end(body);
 }
 
 const CORS_HEADERS: Record<string, string> = {
@@ -121,6 +150,11 @@ export function createHostServer(deps: HostServerDeps): HostServer {
       return;
     }
 
+    // Web 会话页面（无框架静态资源）
+    if (req.method === "GET" && path in STATIC_FILES) {
+      return serveStatic(res, path as keyof typeof STATIC_FILES);
+    }
+
     if (req.method === "GET" && path === "/api/agent/capabilities") {
       return sendJson(res, 200, {
         engine: config.diagnosis.engine,
@@ -143,9 +177,8 @@ export function createHostServer(deps: HostServerDeps): HostServer {
         investigation,
         messages: store.listMessages(investigation.id),
         runs: store.listRunsByInvestigation(investigation.id),
-        report: report
-          ? { ...report, content: safeParse(report.content) }
-          : null,
+        report: report ? { ...report, content: safeParse(report.content) } : null,
+        evidence: report ? store.listEvidence(report.run_id) : [],
       });
     }
 

@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ticket-doctor 会话</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <aside id="sidebar">
+        <header class="sidebar-header">
+          <h1>ticket-doctor</h1>
+          <button id="new-btn" type="button" title="新建一个调查">＋ 新建</button>
+        </header>
+        <div id="conn" class="conn">未连接</div>
+        <div id="list" class="list"></div>
+      </aside>
+
+      <main id="main">
+        <div id="empty" class="empty">
+          <p>选择一个调查查看时间线、进度与证据报告；或点「新建」发起一个新的 Bug 预检。</p>
+        </div>
+
+        <section id="detail" hidden>
+          <header id="detail-header" class="detail-header"></header>
+          <div class="columns">
+            <div class="col">
+              <h2>时间线</h2>
+              <div id="timeline" class="timeline"></div>
+              <form id="composer" class="composer">
+                <textarea id="text" rows="3" placeholder="继续补充材料（Enter 发送，Shift+Enter 换行）"></textarea>
+                <button type="submit">发送</button>
+              </form>
+            </div>
+            <div class="col">
+              <h2>事件流</h2>
+              <div id="events" class="events"></div>
+            </div>
+          </div>
+          <section id="report" class="report"></section>
+        </section>
+      </main>
+    </div>
+    <script src="/app.js"></script>
+  </body>
+</html>

@@ -27,6 +27,8 @@ cd adapters/go && go run .  # Go 接入适配器：飞书事件 → Host；Host 
 
 迁移期仍可用旧单进程链路（Host 内直连飞书、worker 内联执行）：`npm run gateway`。
 
+Web 会话页：Host 启动后访问 `http://<host>:3000/`（无需构建，无框架）。
+
 ## 架构
 
 ```text
@@ -112,5 +114,5 @@ fixtures/           样例日志与样例仓库（demo 用）
 
 - 真实日志平台适配器（SLS/ELK）尚未实现，当前为本地文件日志源。
 - 会话条目已进 SQLite（`session_entries`），pi 按 seq 读回重建；不再用 JSONL 持久化。
-- Web 前端仅有 API/SSE，会话页面（列表/时间线/报告）待做；无权限与身份限制。
+- Web 会话页已提供（`src/host/web/`：列表/时间线/进度/证据报告 + SSE 实时刷新）；无登录与权限限制。
 - Go 适配器当前为飞书 Webhook 回调；长连接（WSClient）与多平台（钉钉/Slack）待扩展。

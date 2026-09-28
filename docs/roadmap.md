@@ -57,7 +57,7 @@
 - [x] Host Web API + EventStore/SSE replay + 投递 claim/result（阶段4）
 - [x] Go 接入适配器骨架（飞书 Webhook + 投递轮询）
 - [ ] Go 适配器长连接模式 + 签名校验 + 钉钉/Slack
-- [ ] Web 会话页面（列表 / 时间线 / 报告）
+- [x] Web 会话页面（列表 / 时间线 / 进度 / 报告 + SSE 实时刷新，无框架无构建）
 - [x] 故障注入：超时 / 运行中取消 / 租约回收后会话恢复 / 僵尸提交被拒（`tests/integration/fault.test.ts`）
 - [ ] Host 重启的进程级验证 + docker-compose 部署（host / adapter / 数据卷）
 

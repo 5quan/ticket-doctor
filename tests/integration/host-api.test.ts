@@ -94,6 +94,28 @@ test("取消与重试接口改变轮次状态", async () => {
   assert.equal(retried.json.status, "queued");
 });
 
+test("Host 托管 Web 会话页面与静态资源", async () => {
+  const html = await fetch(`${base}/`);
+  assert.equal(html.status, 200);
+  assert.match(html.headers.get("content-type") ?? "", /text\/html/);
+  assert.match(await html.text(), /ticket-doctor/);
+
+  const js = await fetch(`${base}/app.js`);
+  assert.equal(js.status, 200);
+  assert.match(js.headers.get("content-type") ?? "", /javascript/);
+
+  const css = await fetch(`${base}/styles.css`);
+  assert.equal(css.status, 200);
+  assert.match(css.headers.get("content-type") ?? "", /text\/css/);
+});
+
+test("调查详情返回证据列表供页面展示", async () => {
+  const list = await (await fetch(`${base}/api/agent/investigations`)).json();
+  const id = list.investigations[0].id;
+  const detail = await (await fetch(`${base}/api/agent/investigations/${id}`)).json();
+  assert.ok(Array.isArray(detail.evidence), "详情应包含 evidence 数组");
+});
+
 test("投递交给外部适配器：claim → result 可靠收敛", async () => {
   // 造一条待发送记录（飞书来源，需要回 IM）
   const inv = store.createInvestigation({
