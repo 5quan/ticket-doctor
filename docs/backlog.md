@@ -136,7 +136,7 @@
 | H4 | Host Web API + SSE | ✅ message/investigations/events(SSE replay)/cancel/retry/deliveries | 补鉴权与 CORS 白名单（当前开放） | 已完成 | P0 |
 | H5 | Go 接入适配器 | ◐ 飞书 Webhook + fail-closed 门控 + 投递轮询 | 长连接模式、真签名校验、钉钉/Slack、多平台注册 | 进行中 | P1 |
 | H6 | Web 会话页面 | 仅 API/SSE | 列表 / 时间线 / 当前进度 / 证据报告 | 待办 | P1 |
-| H7 | 阶段五故障注入与部署 | 已有取消/崩溃测试 | Host 重启、强杀、投递不确定态、重复请求；docker-compose（host+adapter+卷） | 待办 | P0 |
+| H7 | 阶段五故障注入与部署 | ✅ 已覆盖：超时、运行中取消、租约回收后恢复、僵尸提交被拒（`fault.test.ts`）、Runner 崩溃、投递不确定态 | 补 Host 重启的进程级验证；docker-compose（host+adapter+卷） | 进行中 | P0 |
 
 ---
 

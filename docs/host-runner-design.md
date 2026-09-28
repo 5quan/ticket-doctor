@@ -91,7 +91,7 @@ Go 接入适配器（adapters/go）                  │
 | 2 独立 Runner + 监管 | ✅ | 真实 spawn、并发隔离、崩溃只判本轮（`tests/integration/runner-process.test.ts`） |
 | 3 Go 飞书适配器 | ◐ | 事件归一化/fail-closed 门控/转发/投递（`adapters/go`，`go test ./...`） |
 | 4 Web API + SSE Replay | ✅ | 入队/详情/取消/重试/投递 claim+result/SSE replay（`tests/integration/host-api.test.ts`） |
-| 5 故障测试与部署 | ◐ | 已有取消/崩溃覆盖；Host 重启、强杀、投递不确定态待补 |
+| 5 故障测试与部署 | ◐ | 超时/运行中取消/租约回收恢复/僵尸提交被拒（`fault.test.ts`）、Runner 崩溃、投递不确定态已覆盖；Host 重启进程级验证与 docker-compose 待补 |
 
 ## 7. 后续待办
 
