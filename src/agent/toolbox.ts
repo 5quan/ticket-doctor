@@ -9,7 +9,7 @@ import type { MaterialScope } from "../domain/types.ts";
 import type { EvidenceRegistry } from "../diagnosis/evidence.ts";
 import type { MultiRepoCodeSource } from "../sources/code.ts";
 import type { LogSource } from "../sources/logs.ts";
-import type { CodeReadArgs, CodeSearchArgs, LogQueryArgs, Toolbox } from "./types.ts";
+import type { CodeListArgs, CodeReadArgs, CodeSearchArgs, LogQueryArgs, Toolbox } from "./types.ts";
 
 export class ToolBudgetExceeded extends Error {}
 
@@ -85,6 +85,22 @@ export class DiagnosisToolbox implements Toolbox {
       return `[${record.evidenceId}] ${iso(e.time)}\t${e.level}\t${record.excerpt}`;
     });
     return this.assemble(`命中 ${entries.length} 条日志：`, lines);
+  }
+
+  /** 路径层：列出钉死版本的文件路径，先缩小范围再 search/read。 */
+  async listFiles(args: CodeListArgs): Promise<string> {
+    this.spend();
+    if (!this.deps.code) throw new Error("list_files 未启用：本次运行没有可用的源码");
+    const target = this.deps.code.pick(args.repoId);
+    const sha = target.revision!;
+    const paths = await this.deps.code.listFiles({ glob: args.glob, repoId: args.repoId }, this.deps.signal);
+    if (paths.length === 0) return "（没有匹配的文件路径）";
+    const record = this.deps.evidence.register({
+      kind: "code",
+      source: `${target.repoId}@${sha.slice(0, 10)} 路径清单${args.glob ? ` glob=${args.glob}` : ""}`,
+      excerpt: paths.join("\n"),
+    });
+    return this.assemble(`[${record.evidenceId}] 命中 ${paths.length} 个文件：`, paths.map((p) => `  ${p}`));
   }
 
   async searchCode(args: CodeSearchArgs): Promise<string> {

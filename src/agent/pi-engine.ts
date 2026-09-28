@@ -34,6 +34,7 @@ const SYSTEM_PROMPT = `你是飞书群里的 Bug 预检助手，像一名耐心�
 
 排查规则：
 1. 先取证，后结论：在拿到足够日志/源码证据前，必须先调用 query_logs / search_code / read_code；
+   不确定文件在哪时先用 list_files 缩小范围（路径 → 定位 → 内容）。
    禁止不取证就直接下结论。证据足够就停，不要为了凑数继续查询。
 2. 只读：没有 shell、没有写操作，不要尝试执行命令或修改任何东西。
 3. 证据引用是硬规则：submit_report 中每条假设只能用 evidenceIds 引用工具返回的 [E#] 编号，
@@ -61,6 +62,11 @@ const queryLogsSchema = Type.Object({
   from: Type.String({ description: "起始时间，ISO8601" }),
   to: Type.String({ description: "结束时间，ISO8601" }),
   keywords: Type.Array(Type.String(), { description: "关键词，任一命中即保留；可为空数组" }),
+});
+
+const listFilesSchema = Type.Object({
+  glob: Type.Optional(Type.String({ description: "按路径子串过滤，如 /order/ 或 .java" })),
+  repoId: Type.Optional(Type.String({ description: "多仓时指定仓库" })),
 });
 
 const searchCodeSchema = Type.Object({
@@ -220,6 +226,18 @@ export class PiDiagnosisEngine implements DiagnosisEngine {
         }),
     });
 
+    const listFilesTool = defineTool({
+      name: "list_files",
+      label: "list_files",
+      description: "列出本次运行的代码版本里的文件路径（路径层）。不确定文件在哪时先用它缩小范围，再 search_code / read_code。返回带 [E#] 的路径清单。",
+      parameters: listFilesSchema,
+      execute: (id, params: Static<typeof listFilesSchema>) =>
+        timedTool(sink, "list_files", id, params, async () => {
+          const text = await toolbox.listFiles({ glob: params.glob, repoId: params.repoId });
+          return { content: [{ type: "text" as const, text }], details: {} };
+        }),
+    });
+
     const searchCodeTool = defineTool({
       name: "search_code",
       label: "search_code",
@@ -285,7 +303,7 @@ export class PiDiagnosisEngine implements DiagnosisEngine {
 
     // request_info 常驻，是否调用交给模型判断（描述里写了必要条件）。
     const customTools = toolbox.hasCode
-      ? [queryLogsTool, searchCodeTool, readCodeTool, requestInfoTool, submitReportTool]
+      ? [queryLogsTool, listFilesTool, searchCodeTool, readCodeTool, requestInfoTool, submitReportTool]
       : [queryLogsTool, requestInfoTool, submitReportTool];
 
     // 恢复：把已落库条目读回，补齐未决工具结果，再决定 prompt / continue。

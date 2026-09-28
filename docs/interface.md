@@ -217,7 +217,7 @@ deliveries.kind = report | reply | notice
 
 | 层 | pi | ticket-doctor |
 |---|---|---|
-| 路径（广度） | `ls` / `find` | `list_files`（待补，`git ls-tree`） |
+| 路径（广度） | `ls` / `find` | `list_files`（`git ls-tree -r --name-only`，按 glob 过滤） |
 | 定位（收窄） | `grep` | `search_code`（`git grep`） |
 | 内容（按需） | `read` | `read_code`（`git show`） |
 | — | `bash`（输出溢出到文件） | （不适用，只读） |
@@ -269,6 +269,7 @@ Worker claimNextRun() → executeRun()            src/diagnosis/orchestrator.ts
 | 工具 | 常驻 | 作用 | 约束 |
 |---|---|---|---|
 | `query_logs` | ✅ | 查服务时间窗内日志 | 服务白名单、时间窗、关键词、条数、总量上限 |
+| `list_files` | 仅有源码时 | 钉死 SHA 上 `git ls-tree` 列文件路径 | glob 子串过滤、≤200 条、签发一条路径清单证据 |
 | `search_code` | 仅有源码时 | 钉死 SHA 上 `git grep` | 子串、glob、≤50 条、总量上限 |
 | `read_code` | 仅有源码时 | 钉死 SHA 上 `git show` 读区间 | 路径白名单、默认 200 行、截断 |
 | `request_info` | ✅ | 向用户追问（反问），调用即结束本轮 | 补证渠道；后续支持 @ 相关人员补背景/文档（backlog T6） |

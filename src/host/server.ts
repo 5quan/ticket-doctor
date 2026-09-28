@@ -158,7 +158,7 @@ export function createHostServer(deps: HostServerDeps): HostServer {
     if (req.method === "GET" && path === "/api/agent/capabilities") {
       return sendJson(res, 200, {
         engine: config.diagnosis.engine,
-        tools: ["query_logs", "search_code", "read_code", "request_info", "submit_report"],
+        tools: ["query_logs", "list_files", "search_code", "read_code", "request_info", "submit_report"],
         maxWorkers: config.scheduler.workerCount,
         sources: ["feishu", "web"],
       });

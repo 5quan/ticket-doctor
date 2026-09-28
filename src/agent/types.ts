@@ -19,12 +19,17 @@ export interface CodeReadArgs {
   endLine?: number;
   repoId?: string;
 }
+export interface CodeListArgs {
+  glob?: string;
+  repoId?: string;
+}
 
 export interface Toolbox {
   readonly hasCode: boolean;
   readonly toolCalls: number;
   readonly maxToolCalls: number;
   queryLogs(args: LogQueryArgs): Promise<string>;
+  listFiles(args: CodeListArgs): Promise<string>;
   searchCode(args: CodeSearchArgs): Promise<string>;
   readCode(args: CodeReadArgs): Promise<string>;
 }

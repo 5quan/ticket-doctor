@@ -28,12 +28,21 @@ export interface CodeReadIntent {
   repoId?: string;
 }
 
+/** 路径层（对应 pi 的 ls/find）：只列路径，不做内容检索。 */
+export interface CodeListIntent {
+  /** 按路径子串过滤。 */
+  glob?: string;
+  repoId?: string;
+  limit?: number;
+}
+
 export interface CodeSource {
   readonly name: string;
   readonly repoId: string;
   readonly revision: string | undefined;
   search(intent: CodeSearchIntent, signal: AbortSignal): Promise<CodeSnippet[]>;
   read(intent: CodeReadIntent, signal: AbortSignal): Promise<CodeSnippet[]>;
+  listFiles(intent: CodeListIntent, signal: AbortSignal): Promise<string[]>;
 }
 
 export class CodeAccessError extends Error {}
@@ -181,6 +190,14 @@ export class GitCodeSource implements CodeSource {
     return snippets;
   }
 
+  async listFiles(intent: CodeListIntent, signal: AbortSignal): Promise<string[]> {
+    const stdout = await this.git(["ls-tree", "-r", "--name-only", this.sha], signal);
+    const all = stdout.split(/\r?\n/).filter(Boolean);
+    const glob = intent.glob?.trim();
+    const filtered = glob ? all.filter((p) => p.includes(glob)) : all;
+    return filtered.slice(0, intent.limit ?? 200);
+  }
+
   async read(intent: CodeReadIntent, signal: AbortSignal): Promise<CodeSnippet[]> {
     const path = intent.path.trim();
     if (!path || path.length > MAX_PATH) throw new CodeAccessError("read_code：path 非法");
@@ -236,6 +253,10 @@ export class MultiRepoCodeSource implements CodeSource {
 
   read(intent: CodeReadIntent, signal: AbortSignal): Promise<CodeSnippet[]> {
     return this.pick(intent.repoId).read(intent, signal);
+  }
+
+  listFiles(intent: CodeListIntent, signal: AbortSignal): Promise<string[]> {
+    return this.pick(intent.repoId).listFiles(intent, signal);
   }
 
   /** 各仓解析后的版本与钉版本依据，供报告“材料范围”使用。 */

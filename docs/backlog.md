@@ -21,7 +21,7 @@
 | T2 | 访问路径和权限需要探讨 | 工具在代码里做白名单与路径校验；pi 内置工具被全部关闭 | 权限边界到底划在哪：按服务/环境/仓库/群聊？是否需要审批？是否需要按人授权？ | 待探讨 | P1 |
 | T3 | **每个工具的信息都需要能够保存下来** | ✅ 已落：每次工具调用的入参、结果、耗时、成败、调用 ID 写入会话 JSONL（`tool_started / tool_completed`） | 留存期与脱敏另议（S1） | 已完成 | P0 |
 | T4 | pi 内置 `read` 是否应该开放 | 当前 `noTools:"builtin"` 全关；用 `read_code` 代替 | 见文末“关于 pi 内置 read” | 待探讨 | P2 |
-| T5 | 工具缺少“路径层” | 当前只有 `search_code`(grep 形状)/`read_code`(read 形状)，缺 pi 的 `ls`/`find` 层 | 新增 `list_files`（在钉死 SHA 上 `git ls-tree`），组成 路径→定位→内容 完整分层 | 待办 | P1 |
+| T5 | 工具缺少“路径层” | ✅ 已补 `list_files`（钉死 SHA 上 `git ls-tree -r --name-only`，glob 过滤 + 路径清单证据） | `search_code` 改“有界预览 + 路径清单” 仍待做 | 已完成 | P1 |
 | T6 | 证据不足时 @ 相关人员补证 | `request_info` 只向触发者追问 | 支持在飞书话题 @ 指定人员补充业务背景/文档，作为补证渠道（注意权限与 scope） | 待办 | P2 |
 
 ## 三、可观测性与审计
