@@ -22,6 +22,8 @@ type Config struct {
 	AppID             string
 	AppSecret         string
 	VerificationToken string
+	// 事件订阅 Encrypt Key：配置后校验签名并解密 encrypt 事件体。
+	EncryptKey string
 	// 机器人 open_id；未知时群聊 fail-closed。
 	BotOpenID string
 	// 群聊是否必须 @机器人（默认 true）。
@@ -74,6 +76,7 @@ func Load() Config {
 		AppID:             os.Getenv("LARK_APP_ID"),
 		AppSecret:         os.Getenv("LARK_APP_SECRET"),
 		VerificationToken: os.Getenv("LARK_VERIFICATION_TOKEN"),
+		EncryptKey:        os.Getenv("LARK_ENCRYPT_KEY"),
 		BotOpenID:         os.Getenv("LARK_BOT_OPEN_ID"),
 		RequireMention:    envBool("ADAPTER_REQUIRE_MENTION", true),
 		LarkAPIBase:       env("LARK_API_BASE", "https://open.feishu.cn/open-apis"),

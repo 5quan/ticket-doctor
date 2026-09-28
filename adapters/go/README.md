@@ -24,7 +24,8 @@ go run .
 ```
 
 飞书后台把事件回调地址指到 `http(s)://<adapter>/feishu/events`（也支持长连接方式，
-当前实现为 Webhook 回调）。URL 校验（`challenge`）与 token 校验已实现。
+当前实现为 Webhook 回调）。已实现：URL 校验（`challenge`）、Verification Token 校验、
+Encrypt Key 签名校验（`X-Lark-Signature = sha256(timestamp+nonce+encryptKey+body)`）与事件解密。
 
 ## 配置
 
@@ -35,6 +36,7 @@ go run .
 | `HOST_TIMEOUT_MS` | `5000` | 调用 Host 超时 |
 | `LARK_APP_ID` / `LARK_APP_SECRET` | — | 飞书应用凭证（发送用） |
 | `LARK_VERIFICATION_TOKEN` | — | 事件回调校验 token |
+| `LARK_ENCRYPT_KEY` | — | 配置后校验 `X-Lark-Signature` 并 AES-256-CBC 解密 `encrypt` 事件体 |
 | `LARK_BOT_OPEN_ID` | — | 机器人 open_id；未知时群聊 fail-closed |
 | `ADAPTER_REQUIRE_MENTION` | `true` | 群聊是否必须 @机器人 |
 | `LARK_API_BASE` | `https://open.feishu.cn/open-apis` | OpenAPI 基址（测试可覆盖） |

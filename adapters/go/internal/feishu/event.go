@@ -47,7 +47,9 @@ type ReceiveEvent struct {
 }
 
 // Envelope 是飞书事件回调的完整包体（v2 schema + url_verification）。
+// 配置 Encrypt Key 时，外层仅有 encrypt 字段，解密后才是完整事件。
 type Envelope struct {
+	Encrypt   string        `json:"encrypt"`
 	Challenge string        `json:"challenge"`
 	Token     string        `json:"token"`
 	Type      string        `json:"type"`

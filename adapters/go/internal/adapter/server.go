@@ -46,6 +46,33 @@ func (s *Server) handleFeishuEvent(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "读取请求体失败"})
 		return
 	}
+
+	// 配置 Encrypt Key 后：先验签，再解密 encrypt 事件体。
+	if s.cfg.EncryptKey != "" {
+		timestamp := r.Header.Get("X-Lark-Request-Timestamp")
+		nonce := r.Header.Get("X-Lark-Request-Nonce")
+		signature := r.Header.Get("X-Lark-Signature")
+		if !feishu.VerifySignature(s.cfg.EncryptKey, timestamp, nonce, raw, signature) {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "签名校验失败"})
+			return
+		}
+		var outer struct {
+			Encrypt string `json:"encrypt"`
+		}
+		if err := json.Unmarshal(raw, &outer); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "非法 JSON"})
+			return
+		}
+		if outer.Encrypt != "" {
+			decrypted, err := feishu.DecryptEvent(s.cfg.EncryptKey, outer.Encrypt)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "事件解密失败"})
+				return
+			}
+			raw = decrypted
+		}
+	}
+
 	var envelope feishu.Envelope
 	if err := json.Unmarshal(raw, &envelope); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "非法 JSON"})

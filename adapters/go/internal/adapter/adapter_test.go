@@ -1,7 +1,13 @@
 package adapter
 
 import (
+	"bytes"
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -132,6 +138,104 @@ func TestHandleEventMentionGateFailsClosed(t *testing.T) {
 	}
 	if fake.forwarded.ChatID != "" {
 		t.Fatal("被门控的消息不应转发 Host")
+	}
+}
+
+func pkcs7Pad(data []byte) []byte {
+	pad := aes.BlockSize - len(data)%aes.BlockSize
+	for i := 0; i < pad; i++ {
+		data = append(data, byte(pad))
+	}
+	return data
+}
+
+func encryptPayload(t *testing.T, key, plaintext string) string {
+	t.Helper()
+	sum := sha256.Sum256([]byte(key))
+	block, err := aes.NewCipher(sum[:])
+	if err != nil {
+		t.Fatalf("cipher: %v", err)
+	}
+	iv := sum[:aes.BlockSize]
+	padded := pkcs7Pad([]byte(plaintext))
+	out := make([]byte, len(padded))
+	cipher.NewCBCEncrypter(block, iv).CryptBlocks(out, padded)
+	return base64.StdEncoding.EncodeToString(append(append([]byte{}, iv...), out...))
+}
+
+func signBody(key, timestamp, nonce string, body []byte) string {
+	h := sha256.New()
+	h.Write([]byte(timestamp))
+	h.Write([]byte(nonce))
+	h.Write([]byte(key))
+	h.Write(body)
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func encryptedServer(t *testing.T, fake *fakeHost, larkBase, encryptKey string) *httptest.Server {
+	t.Helper()
+	hostSrv := httptest.NewServer(fake.handler())
+	t.Cleanup(hostSrv.Close)
+	cfg := config.Config{
+		HostAPIBase: hostSrv.URL,
+		AppID:       "app_1",
+		AppSecret:   "secret",
+		EncryptKey:  encryptKey,
+		LarkAPIBase: larkBase,
+		HostTimeout: 2e9,
+		LarkTimeout: 2e9,
+	}
+	core := New(cfg, hostclient.New(hostSrv.URL, cfg.HostTimeout), feishu.New(cfg.AppID, cfg.AppSecret, larkBase, cfg.LarkTimeout))
+	server := httptest.NewServer(NewServer(cfg, core).Handler())
+	t.Cleanup(server.Close)
+	return server
+}
+
+func TestServerHandlesEncryptedSignedEvent(t *testing.T) {
+	lark := fakeLark()
+	defer lark.Close()
+	fake := &fakeHost{}
+	server := encryptedServer(t, fake, lark.URL, "enc-key")
+
+	event := `{"schema":"2.0","header":{"event_type":"im.message.receive_v1","token":"","app_id":"app_1"},"event":{"sender":{"sender_type":"user","sender_id":{"open_id":"ou_user"}},"message":{"message_id":"om_enc","chat_id":"oc_enc","chat_type":"p2p","message_type":"text","content":"{\"text\":\"checkout-service 报错\"}"}}}`
+	body := []byte(`{"encrypt":"` + encryptPayload(t, "enc-key", event) + `"}`)
+	timestamp, nonce := "1700000000", "nonce-1"
+
+	req, _ := http.NewRequest(http.MethodPost, server.URL+"/feishu/events", bytes.NewReader(body))
+	req.Header.Set("X-Lark-Request-Timestamp", timestamp)
+	req.Header.Set("X-Lark-Request-Nonce", nonce)
+	req.Header.Set("X-Lark-Signature", signBody("enc-key", timestamp, nonce, body))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("请求失败：%v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("状态码 %d", resp.StatusCode)
+	}
+	if fake.forwarded.Text != "checkout-service 报错" || fake.forwarded.ChatID != "oc_enc" {
+		t.Fatalf("解密后未正确转发：%+v", fake.forwarded)
+	}
+}
+
+func TestServerRejectsBadSignature(t *testing.T) {
+	lark := fakeLark()
+	defer lark.Close()
+	fake := &fakeHost{}
+	server := encryptedServer(t, fake, lark.URL, "enc-key")
+
+	body := []byte(`{"encrypt":"whatever"}`)
+	req, _ := http.NewRequest(http.MethodPost, server.URL+"/feishu/events", bytes.NewReader(body))
+	req.Header.Set("X-Lark-Request-Timestamp", "1")
+	req.Header.Set("X-Lark-Request-Nonce", "n")
+	req.Header.Set("X-Lark-Signature", "deadbeef")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("请求失败：%v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("错误签名应 403，实际 %d", resp.StatusCode)
 	}
 }
 
