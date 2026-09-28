@@ -156,6 +156,7 @@ npm run worker           # 只跑 worker
 
 ### 7.1 会话开始（阅读顺序）
 
+0. （新接手的 Agent）先读 `docs/contributor-onboarding.md` —— 十分钟上手 + 任务菜单。
 1. `docs/handover.md`（本文）—— 目标 / 实现 / 决策 / 进度 / 下一步。
 2. `docs/roadmap.md` —— 当前阶段与优先级。
 3. `docs/backlog.md` —— 只挑「进行中」+ 当前阶段的 P0/P1。
