@@ -10,6 +10,7 @@ import { onFailure } from "../domain/run-state.ts";
 import type { DiagnosisReport, RunErrorCode } from "../domain/types.ts";
 import type { FileLogSource } from "../sources/logs.ts";
 import type { Store, ClaimedRun } from "../storage/store.ts";
+import type { EventStore } from "../host/event-store.ts";
 import { ToolBudgetExceeded } from "../agent/toolbox.ts";
 import type { DiagnosisEngine, EngineResult } from "../agent/types.ts";
 import { prepareDiagnosis } from "./prepare.ts";
@@ -23,6 +24,13 @@ export interface OrchestratorDeps {
   engine: DiagnosisEngine;
   /** 让测试注入假日志源。缺省用配置文件日志源。 */
   logSource?: FileLogSource;
+  /** Host EventStore（SSE）：提供时把生命周期事件持久化并推送。 */
+  eventStore?: EventStore;
+}
+
+/** 只有 IM 来源的轮次才回平台；Web 来源只进 EventStore/SSE。 */
+function isImProvider(provider: string): boolean {
+  return provider !== "web";
 }
 
 function buildContextSummary(report: DiagnosisReport): string {
@@ -50,12 +58,24 @@ export async function executeRun(deps: OrchestratorDeps, claimed: ClaimedRun): P
   const controller = new AbortController();
   let leaseLost = false;
   let timedOut = false;
+  let cancelRequested = false;
+  const emit = (type: string, payload?: unknown) => {
+    try {
+      deps.eventStore?.publish(investigation.id, type, payload);
+    } catch {
+      // 事件推送失败不影响诊断主链路
+    }
+  };
   const timeout = setTimeout(() => {
     timedOut = true;
     controller.abort();
   }, config.diagnosis.timeoutMs);
   const heartbeat = setInterval(() => {
     const ok = store.heartbeat(run.id, claimed.attemptId, claimed.generation, config.scheduler.leaseMs);
+    if (store.isCancelRequested(run.id)) {
+      cancelRequested = true;
+      controller.abort();
+    }
     if (!ok) {
       leaseLost = true;
       controller.abort();
@@ -64,6 +84,7 @@ export async function executeRun(deps: OrchestratorDeps, claimed: ClaimedRun): P
 
   try {
     store.appendRunEvent(run.id, claimed.attemptId, "run_started", { worker: claimed.attemptId });
+    emit("run_started", { runId: run.id, round: run.round, source: run.source });
 
     // 会话槽：模型会话条目直接落 SQLite（单存储）。先读回历史条目，pi 重建会话。
     const runSession = new RunSession(store, {
@@ -111,7 +132,8 @@ export async function executeRun(deps: OrchestratorDeps, claimed: ClaimedRun): P
       priorEntries: runSession.priorEntries.length,
     });
 
-    const round = investigation.total_rounds + 1;
+    const round = run.round || investigation.total_rounds + 1;
+    const deliverToIm = isImProvider(message.provider);
 
     // 非诊断回复（闲聊 / 追问）：不产生报告，只回一条消息。
     if (result.kind === "reply") {
@@ -123,12 +145,14 @@ export async function executeRun(deps: OrchestratorDeps, claimed: ClaimedRun): P
         text: result.text,
         targetMessageId: message.external_message_id,
         contextSummary: buildReplyContextSummary(result.reason, result.text),
+        deliver: deliverToIm,
       });
       if (!replied.ok) {
         store.appendRunEvent(run.id, claimed.attemptId, "commit_rejected", { reason: "lease_lost" });
         return;
       }
       store.appendRunEvent(run.id, claimed.attemptId, "reply_saved", { reason: result.reason });
+      emit("reply", { runId: run.id, reason: result.reason, text: result.text, delivered: deliverToIm });
       return;
     }
 
@@ -169,12 +193,14 @@ export async function executeRun(deps: OrchestratorDeps, claimed: ClaimedRun): P
         level: e.level,
         codeRef: e.codeRef,
       })),
-      delivery: {
-        kind: "report",
-        targetMessageId: message.external_message_id,
-        content,
-        idempotencyKey: `report:${run.id}`,
-      },
+      delivery: deliverToIm
+        ? {
+            kind: "report",
+            targetMessageId: message.external_message_id,
+            content,
+            idempotencyKey: `report:${run.id}`,
+          }
+        : undefined,
       contextSummary: buildContextSummary(report),
     });
 
@@ -186,9 +212,22 @@ export async function executeRun(deps: OrchestratorDeps, claimed: ClaimedRun): P
       reportId: finalized.reportId,
       completeness: report.completeness,
     });
+    emit("report", {
+      runId: run.id,
+      reportId: finalized.reportId,
+      completeness: report.completeness,
+      report,
+      delivered: deliverToIm,
+    });
   } catch (err) {
+    if (cancelRequested) {
+      store.finishCancelled(run.id, claimed.generation, "用户取消", Date.now());
+      store.appendRunEvent(run.id, claimed.attemptId, "run_cancelled", null);
+      emit("cancelled", { runId: run.id });
+      return;
+    }
     const code: RunErrorCode = leaseLost ? "interrupted" : timedOut ? "timeout" : classify(err);
-    await failRun(deps, claimed, code, err instanceof Error ? err.message : String(err));
+    await failRun(deps, claimed, code, err instanceof Error ? err.message : String(err), emit);
   } finally {
     clearTimeout(timeout);
     clearInterval(heartbeat);
@@ -208,6 +247,7 @@ async function failRun(
   claimed: ClaimedRun,
   code: RunErrorCode,
   message: string,
+  emit: (type: string, payload?: unknown) => void = () => {},
 ): Promise<void> {
   const { store, config } = deps;
   store.appendRunEvent(claimed.run.id, claimed.attemptId, "run_error", { code, message });
@@ -221,14 +261,23 @@ async function failRun(
     Date.now() + config.scheduler.retryDelayMs,
   );
   if (transition.status === "failed") {
-    // 诊断失败与消息发送失败分开处理：这里只记录，不触发任何飞书发送重试
-    store.enqueueDelivery({
-      investigationId: claimed.run.investigation_id,
-      runId: claimed.run.id,
-      kind: "notice",
-      targetMessageId: undefined,
-      content: `【预检失败】本轮诊断未能完成：${message}`,
-      idempotencyKey: `failure-notice:${claimed.run.id}`,
-    });
+    // 失败通知也遵守来源路由：Web 轮次不回 IM。
+    const failingMessage = store.getMessageById(claimed.run.message_id);
+    if (failingMessage && isImProvider(failingMessage.provider)) {
+      store.enqueueDelivery({
+        investigationId: claimed.run.investigation_id,
+        runId: claimed.run.id,
+        kind: "notice",
+        targetMessageId: undefined,
+        content: `【预检失败】本轮诊断未能完成：${message}`,
+        idempotencyKey: `failure-notice:${claimed.run.id}`,
+      });
+    }
   }
+  emit("run_error", {
+    runId: claimed.run.id,
+    code,
+    message,
+    status: transition.status,
+  });
 }

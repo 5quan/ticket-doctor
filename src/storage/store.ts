@@ -28,7 +28,12 @@ export interface InvestigationRow {
 export interface MessageRow {
   id: string;
   investigation_id: string;
+  /** 本轮来源入口：feishu | web | …（决定回复是否回 IM）。 */
+  provider: string;
+  account_id: string;
   external_message_id: string;
+  root_id: string | null;
+  thread_id: string | null;
   sender_id: string | null;
   sender_name: string | null;
   text: string;
@@ -39,12 +44,17 @@ export interface RunRow {
   id: string;
   investigation_id: string;
   message_id: string;
+  /** 调查内单调轮次号（Host 分配，调度只认它）。 */
+  round: number;
+  /** 本轮来源入口：feishu | web | …（决定回复是否回 IM）。 */
+  source: string;
   status: RunStatus;
   generation: number;
   attempt_count: number;
   max_attempts: number;
   available_at: number;
   lease_expires_at: number | null;
+  cancel_requested: number;
   error_code: string | null;
   error_message: string | null;
   report_id: string | null;
@@ -81,6 +91,53 @@ export interface ClaimedRun {
   run: RunRow;
   attemptId: string;
   generation: number;
+}
+
+/** 入站消息的处理计划：由 intake 层算出，由 acceptInbound 在同一事务里落库。 */
+export type InboundPlan =
+  | {
+      decision: "new_investigation";
+      newInvestigation: {
+        sessionCode: string;
+        provider: string;
+        accountId: string;
+        chatId: string;
+        rootMessageId?: string;
+        threadId?: string;
+        title?: string;
+        service?: string;
+        createdBy?: string;
+      };
+    }
+  | { decision: "continue_investigation"; investigationId: string; servicePatch?: string };
+
+/** 拒绝落库：unroutable 会提示用户，ignored 静默丢弃。 */
+export interface InboundRejection {
+  reject: "unroutable" | "ignored";
+  reason: string;
+}
+
+export interface AcceptInboundResult {
+  accepted: boolean;
+  decision:
+    | { kind: "new_investigation"; sessionCode: string }
+    | { kind: "continue_investigation"; investigationId: string }
+    | { kind: "duplicate" }
+    | { kind: "unroutable"; reason: string }
+    | { kind: "ignored"; reason: string };
+  investigationId?: string;
+  messageId?: string;
+  runId?: string;
+  round?: number;
+  sessionCode?: string;
+}
+
+export interface EventRow {
+  id: number;
+  stream: string;
+  type: string;
+  payload: string | null;
+  created_at: number;
 }
 
 export interface DeliveryRow {
@@ -130,6 +187,101 @@ export class Store {
     this.db
       .prepare("UPDATE inbound_events SET status = ?, error = ?, processed_at = ? WHERE id = ?")
       .run(status, error ?? null, Date.now(), id);
+  }
+
+  /**
+   * 原子接收：去重 + 计划 + 关联/新建调查 + 存消息 + 建轮次 + 入站状态，全部在一个事务里。
+   * 计划由 intake 层算出（纯路由规则），这里只负责按计划落库，避免"去重与建轮次"分事务。
+   */
+  acceptInbound(
+    msg: InboundMessage,
+    opts: { maxAttempts: number; plan: (msg: InboundMessage) => InboundPlan | InboundRejection },
+  ): AcceptInboundResult {
+    return transaction(this.db, () => {
+      const inboundId = randomUUID();
+      const inserted = this.db
+        .prepare(
+          `INSERT OR IGNORE INTO inbound_events
+             (id, provider, account_id, external_message_id, chat_id, status, payload, received_at)
+           VALUES (?, ?, ?, ?, ?, 'received', ?, ?)`,
+        )
+        .run(
+          inboundId,
+          msg.provider,
+          msg.accountId,
+          msg.externalMessageId,
+          msg.chatId,
+          JSON.stringify(msg),
+          msg.receivedAt,
+        );
+      if (asNumber(inserted.changes) !== 1) {
+        return { accepted: false, decision: { kind: "duplicate" } };
+      }
+
+      const planned = opts.plan(msg);
+      if ("reject" in planned) {
+        this.finishInbound(inboundId, "ignored", planned.reason);
+        return {
+          accepted: false,
+          decision:
+            planned.reject === "unroutable"
+              ? { kind: "unroutable", reason: planned.reason }
+              : { kind: "ignored", reason: planned.reason },
+        };
+      }
+
+      let investigationId: string;
+      let sessionCode: string;
+      if (planned.decision === "new_investigation") {
+        const investigation = this.createInvestigation(planned.newInvestigation);
+        investigationId = investigation.id;
+        sessionCode = investigation.session_code;
+      } else {
+        const investigation = this.getInvestigation(planned.investigationId);
+        if (!investigation) {
+          this.finishInbound(inboundId, "failed", "调查不存在");
+          return { accepted: false, decision: { kind: "unroutable", reason: "调查不存在" } };
+        }
+        investigationId = investigation.id;
+        sessionCode = investigation.session_code;
+        if (planned.servicePatch && !investigation.service) {
+          this.setInvestigationService(investigationId, planned.servicePatch);
+        }
+      }
+
+      const message = this.insertMessage({
+        investigationId,
+        provider: msg.provider,
+        accountId: msg.accountId,
+        externalMessageId: msg.externalMessageId,
+        rootId: msg.rootId,
+        threadId: msg.threadId,
+        senderId: msg.senderId,
+        senderName: msg.senderName,
+        text: msg.text,
+        receivedAt: msg.receivedAt,
+      });
+      const run = this.createRun({
+        investigationId,
+        messageId: message.id,
+        maxAttempts: opts.maxAttempts,
+        source: msg.provider,
+      });
+      this.finishInbound(inboundId, "processed");
+
+      return {
+        accepted: true,
+        decision:
+          planned.decision === "new_investigation"
+            ? { kind: "new_investigation", sessionCode }
+            : { kind: "continue_investigation", investigationId },
+        investigationId,
+        messageId: message.id,
+        runId: run.id,
+        round: run.round,
+        sessionCode,
+      };
+    });
   }
 
   // ---------- investigation ----------
@@ -289,20 +441,27 @@ export class Store {
     messageId: string;
     maxAttempts: number;
     availableAt?: number;
+    source?: string;
+    round?: number;
   }): RunRow {
     const id = randomUUID();
     const now = Date.now();
     this.db
       .prepare(
         `INSERT INTO runs
-           (id, investigation_id, message_id, status, generation, attempt_count, max_attempts,
-            available_at, created_at, updated_at)
-         VALUES (?, ?, ?, 'queued', 0, 0, ?, ?, ?, ?)`,
+           (id, investigation_id, message_id, round, source, status, generation, attempt_count,
+            max_attempts, available_at, created_at, updated_at)
+         VALUES (?, ?, ?,
+            COALESCE(?, (SELECT COALESCE(MAX(round), 0) + 1 FROM runs WHERE investigation_id = ?)),
+            ?, 'queued', 0, 0, ?, ?, ?, ?)`,
       )
       .run(
         id,
         input.investigationId,
         input.messageId,
+        input.round ?? null,
+        input.investigationId,
+        input.source ?? "feishu",
         input.maxAttempts,
         input.availableAt ?? now,
         now,
@@ -334,6 +493,8 @@ export class Store {
 
   /**
    * 领取一个待执行轮次：同一调查最多一个有效执行者，不同调查可并行。
+   * 严格轮次顺序：只有调查内最小未终态轮次可领取（前一轮待重试时后一轮不越过）。
+   * 会话间公平：按各调查最早的待执行轮次 FIFO，避免单调查长队列饿死其他调查。
    * 在 BEGIN IMMEDIATE 里完成"选任务 + 占租约 + 建尝试"，不在这里做任何 IO。
    */
   claimNextRun(workerId: string, leaseMs: number, now = Date.now()): ClaimedRun | undefined {
@@ -349,7 +510,16 @@ export class Store {
                  AND other.id <> r.id
                  AND other.status = 'running'
              )
-           ORDER BY r.created_at ASC, r.id ASC
+             AND NOT EXISTS (
+               SELECT 1 FROM runs prev
+               WHERE prev.investigation_id = r.investigation_id
+                 AND prev.status IN ('queued', 'running')
+                 AND prev.round < r.round
+             )
+           ORDER BY (
+             SELECT MIN(h.created_at) FROM runs h
+             WHERE h.investigation_id = r.investigation_id AND h.status = 'queued'
+           ) ASC, r.round ASC, r.created_at ASC, r.id ASC
            LIMIT 1`,
         )
         .get(now) as RunRow | undefined;
@@ -380,6 +550,69 @@ export class Store {
         generation,
       };
     });
+  }
+
+  /** 用户显式取消一个轮次：queued 直接取消，running 置标志等执行者失租/中止，终态返回现状。 */
+  requestCancel(runId: string, now = Date.now()): { status: RunStatus; requested: boolean } {
+    return transaction(this.db, () => {
+      const run = this.getRun(runId);
+      if (!run) return { status: "failed", requested: false };
+      if (run.status === "queued") {
+        this.db
+          .prepare(
+            "UPDATE runs SET status = 'cancelled', lease_expires_at = NULL, finished_at = ?, updated_at = ? WHERE id = ? AND status = 'queued'",
+          )
+          .run(now, now, runId);
+        return { status: "cancelled", requested: true };
+      }
+      if (run.status === "running") {
+        this.db
+          .prepare("UPDATE runs SET cancel_requested = 1, updated_at = ? WHERE id = ? AND status = 'running'")
+          .run(now, runId);
+        return { status: "running", requested: true };
+      }
+      return { status: run.status, requested: false };
+    });
+  }
+
+  /** 执行者检查本轮是否被请求取消（心跳周期调用）。 */
+  isCancelRequested(runId: string): boolean {
+    const row = this.db.prepare("SELECT cancel_requested FROM runs WHERE id = ?").get(runId) as
+      | { cancel_requested: number }
+      | undefined;
+    return asNumber(row?.cancel_requested ?? 0) === 1;
+  }
+
+  /** 取消终态：带代次守卫；不回 queued、不重试。 */
+  finishCancelled(runId: string, generation: number, message: string, now = Date.now()): boolean {
+    return transaction(this.db, () => {
+      const result = this.db
+        .prepare(
+          `UPDATE runs SET status = 'cancelled', lease_expires_at = NULL,
+             error_code = 'cancelled', error_message = ?, finished_at = ?, updated_at = ?
+           WHERE id = ? AND generation = ? AND status = 'running'`,
+        )
+        .run(message, now, now, runId, generation);
+      if (asNumber(result.changes) !== 1) return false;
+      this.db
+        .prepare(
+          "UPDATE attempts SET status = 'cancelled', error_code = 'cancelled', error_message = ?, finished_at = ? WHERE run_id = ? AND generation = ?",
+        )
+        .run(message, now, runId, generation);
+      return true;
+    });
+  }
+
+  /** 人工重试失败/取消的轮次：回到 queued，保留 attempt_count 与 round。 */
+  retryRun(runId: string, now = Date.now()): boolean {
+    const result = this.db
+      .prepare(
+        `UPDATE runs SET status = 'queued', available_at = ?, lease_expires_at = NULL,
+           cancel_requested = 0, error_code = NULL, error_message = NULL, finished_at = NULL, updated_at = ?
+         WHERE id = ? AND status IN ('failed', 'cancelled')`,
+      )
+      .run(now, now, runId);
+    return asNumber(result.changes) === 1;
   }
 
   /** 续租：只有当前代次的执行者能续。返回 false 表示已失去租约（必须中止）。 */
@@ -444,7 +677,8 @@ export class Store {
       level?: string;
       codeRef?: { repoId: string; sha: string; path: string; startLine: number; endLine: number };
     }>;
-    delivery: { kind: string; targetMessageId?: string; content: string; idempotencyKey: string };
+    /** 需要回复到 IM 时提供；Web 发起的轮次不提供（结果只进 EventStore/SSE）。 */
+    delivery?: { kind: string; targetMessageId?: string; content: string; idempotencyKey: string };
     contextSummary: string;
     now?: number;
   }): { ok: boolean; reportId: string } {
@@ -506,26 +740,28 @@ export class Store {
           "UPDATE attempts SET status = 'succeeded', finished_at = ? WHERE run_id = ? AND generation = ?",
         )
         .run(now, input.runId, input.generation);
-      this.db
-        .prepare(
-          `INSERT OR IGNORE INTO deliveries
-             (id, investigation_id, run_id, report_id, kind, target_message_id, content, idempotency_key,
-              status, attempt, available_at, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?)`,
-        )
-        .run(
-          randomUUID(),
-          input.investigationId,
-          input.runId,
-          reportId,
-          input.delivery.kind,
-          input.delivery.targetMessageId ?? null,
-          input.delivery.content,
-          input.delivery.idempotencyKey,
-          now,
-          now,
-          now,
-        );
+      if (input.delivery) {
+        this.db
+          .prepare(
+            `INSERT OR IGNORE INTO deliveries
+               (id, investigation_id, run_id, report_id, kind, target_message_id, content, idempotency_key,
+                status, attempt, available_at, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?)`,
+          )
+          .run(
+            randomUUID(),
+            input.investigationId,
+            input.runId,
+            reportId,
+            input.delivery.kind,
+            input.delivery.targetMessageId ?? null,
+            input.delivery.content,
+            input.delivery.idempotencyKey,
+            now,
+            now,
+            now,
+          );
+      }
       this.db
         .prepare("UPDATE investigations SET context_summary = ?, total_rounds = ?, updated_at = ? WHERE id = ?")
         .run(input.contextSummary, input.round, now, input.investigationId);
@@ -545,6 +781,8 @@ export class Store {
     text: string;
     targetMessageId?: string;
     contextSummary: string;
+    /** Web 发起的回复不回 IM，只落会话与事件；默认 true 保持 IM 行为。 */
+    deliver?: boolean;
     now?: number;
   }): { ok: boolean } {
     const now = input.now ?? Date.now();
@@ -565,24 +803,26 @@ export class Store {
           "UPDATE attempts SET status = 'succeeded', finished_at = ? WHERE run_id = ? AND generation = ?",
         )
         .run(now, input.runId, input.generation);
-      this.db
-        .prepare(
-          `INSERT OR IGNORE INTO deliveries
-             (id, investigation_id, run_id, report_id, kind, target_message_id, content, idempotency_key,
-              status, attempt, available_at, created_at, updated_at)
-           VALUES (?, ?, ?, NULL, 'reply', ?, ?, ?, 'pending', 0, ?, ?, ?)`,
-        )
-        .run(
-          randomUUID(),
-          input.investigationId,
-          input.runId,
-          input.targetMessageId ?? null,
-          input.text,
-          `reply:${input.runId}`,
-          now,
-          now,
-          now,
-        );
+      if (input.deliver !== false) {
+        this.db
+          .prepare(
+            `INSERT OR IGNORE INTO deliveries
+               (id, investigation_id, run_id, report_id, kind, target_message_id, content, idempotency_key,
+                status, attempt, available_at, created_at, updated_at)
+             VALUES (?, ?, ?, NULL, 'reply', ?, ?, ?, 'pending', 0, ?, ?, ?)`,
+          )
+          .run(
+            randomUUID(),
+            input.investigationId,
+            input.runId,
+            input.targetMessageId ?? null,
+            input.text,
+            `reply:${input.runId}`,
+            now,
+            now,
+            now,
+          );
+      }
       this.db
         .prepare("UPDATE investigations SET context_summary = ?, total_rounds = ?, updated_at = ? WHERE id = ?")
         .run(input.contextSummary, input.round, now, input.investigationId);
@@ -1008,5 +1248,69 @@ export class Store {
         "UPDATE deliveries SET status = 'failed', error = ?, lease_expires_at = NULL, updated_at = ? WHERE id = ?",
       )
       .run(error, now, id);
+  }
+
+  // ---------- Host EventStore（SSE 事件的持久化与 replay） ----------
+
+  /** 追加一条事件，返回稳定的全局自增 ID（= SSE Last-Event-ID）。 */
+  appendEvent(stream: string, type: string, payload: unknown, now = Date.now()): number {
+    const result = this.db
+      .prepare("INSERT INTO events (stream, type, payload, created_at) VALUES (?, ?, ?, ?)")
+      .run(stream, type, payload === undefined ? null : JSON.stringify(payload), now);
+    return asNumber(result.lastInsertRowid);
+  }
+
+  /** 按流读取 id 之后的事件，供断线重连 replay。 */
+  listEvents(stream: string, afterId = 0, limit = 1000): EventRow[] {
+    return this.db
+      .prepare("SELECT * FROM events WHERE stream = ? AND id > ? ORDER BY id ASC LIMIT ?")
+      .all(stream, afterId, limit) as unknown as EventRow[];
+  }
+
+  // ---------- 查询辅助（Host Web API） ----------
+
+  /** 调查列表：按更新时间倒序，带最新轮次状态供列表页展示。 */
+  listInvestigations(
+    limit = 50,
+  ): Array<InvestigationRow & { latest_run_status: string | null; latest_round: number | null }> {
+    return this.db
+      .prepare(
+        `SELECT i.*,
+                (SELECT r.status FROM runs r WHERE r.investigation_id = i.id ORDER BY r.round DESC LIMIT 1) AS latest_run_status,
+                (SELECT r.round FROM runs r WHERE r.investigation_id = i.id ORDER BY r.round DESC LIMIT 1) AS latest_round
+           FROM investigations i
+          ORDER BY i.updated_at DESC
+          LIMIT ?`,
+      )
+      .all(limit) as unknown as Array<
+      InvestigationRow & { latest_run_status: string | null; latest_round: number | null }
+    >;
+  }
+
+  /** 调查内消息，按接收时间升序（含来源与发送者，供时间线展示）。 */
+  listMessages(investigationId: string): MessageRow[] {
+    return this.db
+      .prepare("SELECT * FROM messages WHERE investigation_id = ? ORDER BY received_at ASC, created_at ASC")
+      .all(investigationId) as unknown as MessageRow[];
+  }
+
+  /** 调查内轮次，按 round 升序（含来源与状态）。 */
+  listRunsByInvestigation(investigationId: string): RunRow[] {
+    return this.db
+      .prepare("SELECT * FROM runs WHERE investigation_id = ? ORDER BY round ASC")
+      .all(investigationId) as unknown as RunRow[];
+  }
+
+  /** 调查内最新一份报告（含所属 run），供详情页展示。 */
+  getLatestReportByInvestigation(investigationId: string):
+    | { id: string; run_id: string; completeness: ReportCompleteness; content: string; created_at: number }
+    | undefined {
+    return this.db
+      .prepare(
+        "SELECT id, run_id, completeness, content, created_at FROM reports WHERE investigation_id = ? ORDER BY created_at DESC LIMIT 1",
+      )
+      .get(investigationId) as
+      | { id: string; run_id: string; completeness: ReportCompleteness; content: string; created_at: number }
+      | undefined;
   }
 }

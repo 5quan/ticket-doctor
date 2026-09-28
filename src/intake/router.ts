@@ -7,15 +7,21 @@
 //   4. 群里被 @ 且无归属                  → 新建调查
 //   5. 其余                               → 无法关联，提示从根消息发起
 // 不同群聊的调查不自动合并：所有查找都带 chat_id。
+//
+// 路由规则（纯读判断）与落库（去重/建消息/建轮次）分离：
+// 计划由 planRoute 算出，由 Store.acceptInbound 在**同一事务**里执行，保证原子入队。
 import type { AppConfig } from "../config/index.ts";
 import { extractSessionCode, newSessionCode, stripSessionMarker } from "../domain/session.ts";
 import type { InboundMessage, IntakeDecision } from "../domain/types.ts";
-import type { Store } from "../storage/store.ts";
+import type { InboundPlan, InboundRejection, Store } from "../storage/store.ts";
 
 export interface IntakeResult {
   decision: IntakeDecision;
   investigationId?: string;
   runId?: string;
+  messageId?: string;
+  /** Host 分配的调查内轮次号。 */
+  round?: number;
   /** 新建调查时生成的标号，供回执使用。 */
   sessionCode?: string;
 }
@@ -33,12 +39,8 @@ export function extractService(text: string): string | undefined {
   return named ? named[1] : undefined;
 }
 
-export function routeInbound(store: Store, config: AppConfig, msg: InboundMessage): IntakeResult {
-  const inbound = store.recordInbound(msg);
-  if (!inbound.created) {
-    return { decision: { kind: "duplicate" } };
-  }
-
+/** 纯路由判断：不写库，只返回"该建新调查 / 该续接谁 / 该拒绝"。 */
+export function planRoute(store: Store, msg: InboundMessage): InboundPlan | InboundRejection {
   const code = extractSessionCode(msg.text);
   let investigationId: string | undefined;
 
@@ -46,10 +48,7 @@ export function routeInbound(store: Store, config: AppConfig, msg: InboundMessag
     const found = store.findInvestigationByCode(code);
     // 标号必须属于同一个群聊，避免跨群串消息
     if (found && found.chat_id === msg.chatId) investigationId = found.id;
-    else if (found) {
-      store.finishInbound(inbound.id, "ignored", "会话标号属于其他群聊");
-      return { decision: { kind: "unroutable", reason: "会话标号不属于当前群聊" } };
-    }
+    else if (found) return { reject: "unroutable", reason: "会话标号不属于当前群聊" };
   }
 
   if (!investigationId) {
@@ -68,13 +67,22 @@ export function routeInbound(store: Store, config: AppConfig, msg: InboundMessag
     if (parent) investigationId = parent.investigation_id;
   }
 
-  // 新建
-  if (!investigationId) {
-    if (!msg.mentionedBot) {
-      store.finishInbound(inbound.id, "ignored", "无法关联且未 @机器人");
-      return { decision: { kind: "unroutable", reason: "请从根消息 @机器人 发起新的调查" } };
-    }
-    const investigation = store.createInvestigation({
+  if (investigationId) {
+    return {
+      decision: "continue_investigation",
+      investigationId,
+      servicePatch: extractService(msg.text),
+    };
+  }
+
+  // @ 门控是 IM 概念：Web 来源不需要 @；IM 来源无归属时必须 @ 才允许新建。
+  if (msg.provider !== "web" && !msg.mentionedBot) {
+    return { reject: "unroutable", reason: "请从根消息 @机器人 发起新的调查" };
+  }
+
+  return {
+    decision: "new_investigation",
+    newInvestigation: {
       sessionCode: newSessionCode(),
       provider: msg.provider,
       accountId: msg.accountId,
@@ -84,45 +92,22 @@ export function routeInbound(store: Store, config: AppConfig, msg: InboundMessag
       title: titleOf(msg.text),
       service: extractService(msg.text),
       createdBy: msg.senderId,
-    });
-    investigationId = investigation.id;
-    const runId = addRound(store, config, investigation.id, msg);
-    store.finishInbound(inbound.id, "processed");
-    return {
-      decision: { kind: "new_investigation", sessionCode: investigation.session_code },
-      investigationId,
-      runId,
-      sessionCode: investigation.session_code,
-    };
-  }
-
-  const runId = addRound(store, config, investigationId, msg);
-  const investigation = store.getInvestigation(investigationId);
-  if (investigation && !investigation.service) {
-    const service = extractService(msg.text);
-    if (service) store.setInvestigationService(investigationId, service);
-  }
-  store.finishInbound(inbound.id, "processed");
-  return { decision: { kind: "continue_investigation", investigationId }, investigationId, runId };
+    },
+  };
 }
 
-function addRound(store: Store, config: AppConfig, investigationId: string, msg: InboundMessage): string {
-  const message = store.insertMessage({
-    investigationId,
-    provider: msg.provider,
-    accountId: msg.accountId,
-    externalMessageId: msg.externalMessageId,
-    rootId: msg.rootId,
-    threadId: msg.threadId,
-    senderId: msg.senderId,
-    senderName: msg.senderName,
-    text: msg.text,
-    receivedAt: msg.receivedAt,
-  });
-  const run = store.createRun({
-    investigationId,
-    messageId: message.id,
+/** 统一入口：所有来源（飞书 / Web / 未来平台）都走这一条原子入队。 */
+export function routeInbound(store: Store, config: AppConfig, msg: InboundMessage): IntakeResult {
+  const accepted = store.acceptInbound(msg, {
     maxAttempts: config.scheduler.maxAttempts,
+    plan: (m) => planRoute(store, m),
   });
-  return run.id;
+  return {
+    decision: accepted.decision,
+    investigationId: accepted.investigationId,
+    runId: accepted.runId,
+    messageId: accepted.messageId,
+    round: accepted.round,
+    sessionCode: accepted.sessionCode,
+  };
 }

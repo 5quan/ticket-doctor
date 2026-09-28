@@ -15,7 +15,7 @@ export function isRetryable(code: RunErrorCode): boolean {
 }
 
 export function isTerminalRunStatus(status: RunStatus): boolean {
-  return status === "succeeded" || status === "failed";
+  return status === "succeeded" || status === "failed" || status === "cancelled";
 }
 
 export type FailureTransition =

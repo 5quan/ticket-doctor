@@ -10,10 +10,10 @@ export type InvestigationStatus = "open" | "closed";
 
 /**
  * 一轮诊断的执行状态。
- * queued → running → succeeded | failed | interrupted
+ * queued → running → succeeded | failed | cancelled
  * interrupted → queued（有限重试）
  */
-export type RunStatus = "queued" | "running" | "succeeded" | "failed" | "interrupted";
+export type RunStatus = "queued" | "running" | "succeeded" | "failed" | "interrupted" | "cancelled";
 
 /** 报告材料完整性，与"执行是否成功"正交。 */
 export type ReportCompleteness = "complete" | "partial";
@@ -29,15 +29,19 @@ export type RunErrorCode =
   | "rate_limited" // 限流，可重试
   | "budget_iterations" // 迭代预算耗尽，不可重试
   | "budget_tools" // 工具调用预算耗尽，不可重试
+  | "cancelled" // 用户显式取消，不可重试
   | "invalid_input" // 输入/权限/配置错误，不可重试
   | "auth" // 凭证错误，不可重试
   | "runtime_error"; // 未分类
 
 // ---------- 输入侧 ----------
 
-/** 平台无关的入站消息（飞书事件归一化后的结果）。 */
+/** 入站来源：IM 平台走飞书适配器，Web 由 Host 直接接收。 */
+export type InboundProvider = "feishu" | "web";
+
+/** 平台无关的入站消息（飞书事件归一化 / Web 请求归一化后的结果）。 */
 export interface InboundMessage {
-  provider: "feishu";
+  provider: InboundProvider;
   accountId: string;
   /** 平台消息 ID，用于事件去重与消息映射。 */
   externalMessageId: string;
