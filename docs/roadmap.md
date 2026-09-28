@@ -61,8 +61,8 @@
 - [x] Web 会话页面（列表 / 时间线 / 进度 / 报告 + SSE 实时刷新，无框架无构建）
 - [x] 故障注入：超时 / 运行中取消 / 租约回收后会话恢复 / 僵尸提交被拒（`tests/integration/fault.test.ts`）
 - [x] docker-compose / Dockerfile 部署清单（host + adapter + 数据卷 + 源码/日志只读挂载）
-- [ ] 镜像构建与整链路验证（本机网络慢，构建中）
-- [ ] Host 重启的进程级验证
+- [x] 镜像构建与整链路验证（compose 起 host/adapter，Web/飞书事件/投递均跑通）
+- [x] Host 重启的进程级验证（强杀 → 重启 → 轮次恢复且不重复入队/追加输入）
 
 ---
 

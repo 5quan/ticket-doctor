@@ -59,7 +59,8 @@
 | 独立 Agent Runner | Host 每轮 spawn Node 子进程；NDJSON 协议；Host 校验代次后代为落库；单进程崩溃只判本轮 | ✅ 阶段2 |
 | Host Web API + SSE | `/api/agent/*`：message/investigations/events(SSE replay)/runs cancel·retry/deliveries claim·result | ✅ 阶段4 |
 | Web 会话页面 | Host 托管静态页（`src/host/web/`）：列表/时间线/轮次状态与取消重试/证据报告，SSE 自动重连 | ✅ 阶段4 |
-| Go 接入适配器 | `adapters/go`：飞书事件归一化、fail-closed mention 门控、转发 Host、投递轮询发送 | ◐ 阶段3（Webhook） |
+| Go 接入适配器 | `adapters/go`：飞书事件归一化、fail-closed mention 门控、签名校验/Encrypt Key 解密、转发 Host、投递轮询发送 | ◐ 阶段3（Webhook，长连接待做） |
+| 故障与部署 | Host 强杀重启恢复（进程级测试）；Dockerfile + docker-compose（host/adapter + 数据卷 + 只读挂载），compose 整链路冒烟通过 | ✅ 阶段5 |
 | 测试 | TS 76 个（单元 + 集成）+ Go adapter 测试，`npm test` / `npm run test:go` 全绿 | ✅ |
 
 **未实现 / 明确边界**
@@ -142,7 +143,7 @@ npm run worker           # 只跑 worker
 
 **已落地**：逐次落盘（T3/O1/O2/O3/P1）；评测 Benchmark **M1**（harness + `checkout-timeout` 场景 5 case + 打分器，`npm run eval`）。
 
-**下一步（阶段三/五收口）**：Go 适配器长连接与真正签名校验、多平台（钉钉/Slack）；Web 登录与权限；阶段五 Host 重启进程级验证与 docker-compose 部署。
+**下一步（阶段三收口）**：Go 适配器**长连接模式**与多平台（钉钉/Slack）；Web 登录与权限；`search_code` 改“有界预览 + 路径清单”；独立审计 Agent。
 
 **阶段二下一步**：用真实模型迭代 `rules.md`（基线已出：召回 90% / 精确 30.7% / 正确率 80%），修掉「材料不足仍给 supported 结论」与「引用干扰证据」；随后独立审计 Agent。详见 `docs/eval-design.md`。
 

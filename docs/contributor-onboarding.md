@@ -148,12 +148,13 @@ fixtures/             样例日志与样例仓库（demo 用）
 
 ## 7. 任务菜单（挑一个做，从易到难）
 
-> 每项都给了「目标 / 验收 / 主要文件」。建议先做 ★ 的那两个，见效快、风险低。
+> 每项都给了「目标 / 验收 / 主要文件」。T1/T2 已完成（见 `tests/integration/host-restart.test.ts` 与 docker compose）；
+> 下一步建议从 T3 / T4 / T5 / T9 里挑。
 
 | # | 任务 | 目标 / 验收 | 主要文件 | 难度 | token 友好 |
 |---|---|---|---|---|---|
-| ★T1 | **Host 重启进程级验证** | 脚本化：起 Host → 提交消息 → 运行中 `kill -9` → 重启 → 轮次被回收重跑/恢复完成，且会话不重复追加用户输入。产出集成测试或脚本 | `src/storage/store.ts`、`tests/integration/fault.test.ts`、`src/entrypoints/host.ts` | 中 | 高（可大量试错） |
-| ★T2 | **docker 构建 + compose 冒烟** | `docker compose up -d --build` 后 `/api/agent/capabilities` 通、Web 页可开、消息能跑完一轮；把步骤写进 `docs/handover.md` / README | `Dockerfile`、`adapters/go/Dockerfile`、`docker-compose.yml` | 低 | 低 |
+| ✅T1 | **Host 重启进程级验证（已完成）** | 见 `tests/integration/host-restart.test.ts`：SIGKILL → 重启 → 轮次恢复、不重复入队/追加输入 | — | — | — |
+| ✅T2 | **docker 构建 + compose 冒烟（已完成）** | 两镜像构建通过；compose 起 host/adapter，Web/飞书事件/投递均跑通 | — | — | — |
 | T3 | **Go 适配器长连接模式** | 除 Webhook 外支持飞书 WSClient 长连接接收事件（无需公网回调）；与现有转发逻辑复用 | `adapters/go/internal/feishu/`、`internal/adapter/` | 高 | 高 |
 | T4 | **多平台抽象（钉钉/Slack）** | 把飞书下沉为一个 `Platform` 实现，新增第二个平台只需实现「归一化 + 发送」两个方法 | `adapters/go/internal/` | 高 | 高 |
 | T5 | **Web 页面增强** | 进度按轮次/阶段展示、证据与假设互跳、失败原因高亮、移动端可用；保持无框架 | `src/host/web/`、`src/host/server.ts` | 中 | 高 |
