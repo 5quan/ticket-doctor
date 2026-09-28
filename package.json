@@ -1,6 +1,6 @@
 {
   "name": "ticket-doctor",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "飞书 Bug 消息自动预检 Agent：只读日志与源码诊断，同一线程多轮追问",
   "type": "module",
