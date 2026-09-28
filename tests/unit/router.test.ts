@@ -57,6 +57,13 @@ test("回复机器人消息（parent_id 映射）归入原调查", () => {
   assert.equal(follow.investigationId, first.investigationId);
 });
 
+test("p2p 私聊无需 @ 也能新建调查（与 mention-gate 一致）", () => {
+  const store = memoryStore();
+  const result = routeInbound(store, testConfig(), msg({ chatType: "p2p", mentionedBot: false, text: "下单报错" }));
+  assert.equal(result.decision.kind, "new_investigation");
+  assert.ok(result.investigationId);
+});
+
 test("无法关联且未 @ 的消息不猜归属", () => {
   const store = memoryStore();
   const result = routeInbound(store, testConfig(), msg({ mentionedBot: false, text: "随便聊聊" }));

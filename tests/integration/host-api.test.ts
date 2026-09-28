@@ -161,6 +161,37 @@ test("投递交给外部适配器：claim → result 可靠收敛", async () => 
   assert.equal(empty.json.delivery, null);
 });
 
+test("外部投递重试到达上限后落 failed（不会无限重试）", async () => {
+  const inv = store.createInvestigation({
+    sessionCode: "code-delivery-cap",
+    provider: "feishu",
+    accountId: "default",
+    chatId: "oc_cap",
+  });
+  store.enqueueDelivery({
+    investigationId: inv.id,
+    runId: "run_cap",
+    kind: "report",
+    content: "报告",
+    idempotencyKey: "report:cap",
+  });
+  const maxAttempts = config.delivery.maxAttempts;
+  for (let expected = 1; expected <= maxAttempts; expected++) {
+    const claim = await post("/api/agent/deliveries/claim", {});
+    assert.ok(claim.json.delivery, `第 ${expected} 次应能领取`);
+    assert.equal(claim.json.delivery.attempt, expected);
+    const r = await post(`/api/agent/deliveries/${claim.json.delivery.id}/result`, {
+      attempt: expected,
+      outcome: "retry",
+      error: "临时失败",
+    });
+    assert.equal(r.json.ok, true);
+    await new Promise((resolve) => setTimeout(resolve, 15 * expected));
+  }
+  const after = await post("/api/agent/deliveries/claim", {});
+  assert.equal(after.json.delivery, null, "超限后应落 failed，不再可领取");
+});
+
 test("SSE 先 replay 已保存事件，再推送新事件", async () => {
   const stream = "inv-sse-test";
   eventStore.publish(stream, "report", { reportId: "r1", completeness: "complete" });

@@ -91,8 +91,9 @@ export function planRoute(
     };
   }
 
-  // @ 门控是 IM 概念：Web 来源不需要 @；IM 来源无归属时必须 @ 才允许新建。
-  if (msg.provider !== "web" && !msg.mentionedBot) {
+  // @ 门控只针对群聊：Web 来源与 p2p 私聊无需 @（与 mention-gate 语义保持一致）。
+  // 无归属的群聊消息必须 @ 机器人才允许新建调查。
+  if (msg.provider !== "web" && msg.chatType === "group" && !msg.mentionedBot) {
     return { reject: "unroutable", reason: "请从根消息 @机器人 发起新的调查" };
   }
 

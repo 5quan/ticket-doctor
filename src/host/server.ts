@@ -250,15 +250,19 @@ export function createHostServer(deps: HostServerDeps): HostServer {
         return sendJson(res, 400, { error: "outcome 非法" });
       }
       const attempt = Number(body.attempt);
+      // 重试次数上限由 Host 掌控：适配器只报“可重试”，超限即落 failed，避免无限重试。
+      const effectiveOutcome = outcome === "retry" && attempt >= config.delivery.maxAttempts ? "failed" : outcome;
       const ok = store.settleDelivery({
         id: deliveryResult[1],
         attempt,
-        outcome,
+        outcome: effectiveOutcome,
         providerMessageId: typeof body.providerMessageId === "string" ? body.providerMessageId : undefined,
         error: typeof body.error === "string" ? body.error : undefined,
         // 退避策略留在 Host：重试等待随时间递增，避免适配器侧自旋。
         availableAt:
-          outcome === "retry" ? Date.now() + config.delivery.baseBackoffMs * Math.max(1, attempt) : undefined,
+          effectiveOutcome === "retry"
+            ? Date.now() + config.delivery.baseBackoffMs * Math.max(1, attempt)
+            : undefined,
       });
       return sendJson(res, ok ? 200 : 409, { ok });
     }
