@@ -136,7 +136,7 @@
 | H4 | Host Web API + SSE | ✅ message/investigations/events(SSE replay)/cancel/retry/deliveries | 补鉴权与 CORS 白名单（当前开放） | 已完成 | P0 |
 | H5 | Go 接入适配器 | ◐ 飞书 Webhook + fail-closed 门控 + 投递轮询 | 长连接模式、真签名校验、钉钉/Slack、多平台注册 | 进行中 | P1 |
 | H6 | Web 会话页面 | ✅ Host 托管静态页（`src/host/web/`）：调查列表 / 消息时间线 / 轮次状态与取消重试 / 证据报告 / SSE 实时事件；浏览器自带 Last-Event-ID 重连 | 登录与权限（当前无）、移动端优化 | 已完成 | P1 |
-| H7 | 阶段五故障注入与部署 | ✅ 已覆盖：超时、运行中取消、租约回收后恢复、僵尸提交被拒（`fault.test.ts`）、Runner 崩溃、投递不确定态 | 补 Host 重启的进程级验证；docker-compose（host+adapter+卷） | 进行中 | P0 |
+| H7 | 阶段五故障注入与部署 | ✅ 故障注入已覆盖（`fault.test.ts` 等）；✅ 已提供 `Dockerfile` + `adapters/go/Dockerfile` + `docker-compose.yml`（host/adapter + 数据卷 + 只读挂载） | 补镜像构建验证与 Host 重启进程级验证 | 进行中 | P0 |
 
 ---
 

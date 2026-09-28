@@ -29,6 +29,18 @@ cd adapters/go && go run .  # Go 接入适配器：飞书事件 → Host；Host 
 
 Web 会话页：Host 启动后访问 `http://<host>:3000/`（无需构建，无框架）。
 
+### Docker Compose 部署
+
+```bash
+cp .env.example .env          # 填 LARK_* / DEEPSEEK_API_KEY
+# 可选：TD_REPOS_DIR / TD_LOG_DIR_HOST 指定要挂载的源码仓库与日志目录
+docker compose up -d --build   # host(3000) + adapter(3002)
+```
+
+- `host`：Web API/SSE + 调度 + Runner（`TD_RUNNER_MODE=process`、`TD_FEISHU_DIRECT=false`）。
+- `adapter`：Go 接入适配器；飞书事件回调指向 `http://<adapter>:3002/feishu/events`。
+- 源码与日志**只读挂载**（`:ro`），数据卷 `ticket-data:/data` 持久化 SQLite。
+
 ## 架构
 
 ```text
