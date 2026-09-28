@@ -52,6 +52,18 @@ export class EvidenceRegistry {
     return record;
   }
 
+  /**
+   * 从已签发记录恢复登记表（Host 端重建 Runner 上报的证据，用于引用校验）。
+   * 不重新截断：记录原样来自 Runner 的工具执行。
+   */
+  load(records: EvidenceRecord[]): void {
+    for (const record of records) {
+      this.entries.set(record.evidenceId, record);
+      const n = Number(record.evidenceId.replace(/^E/, ""));
+      if (Number.isFinite(n) && n > this.counter) this.counter = n;
+    }
+  }
+
   get(id: string): EvidenceRecord | undefined {
     return this.entries.get(id);
   }

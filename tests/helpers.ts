@@ -18,7 +18,7 @@ export function testConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     projectRoot: ROOT,
     dbPath: ":memory:",
     sessionDir: join(ROOT, "data", "sessions"),
-    scheduler: { workerCount: 1, pollIntervalMs: 5, heartbeatMs: 10, leaseMs: 60_000, maxAttempts: 2, retryDelayMs: 5 },
+    scheduler: { workerCount: 1, pollIntervalMs: 5, heartbeatMs: 10, leaseMs: 60_000, maxAttempts: 2, retryDelayMs: 5, runnerMode: "inprocess" },
     diagnosis: {
       engine: "fake",
       provider: "deepseek",
@@ -33,6 +33,7 @@ export function testConfig(overrides: Partial<AppConfig> = {}): AppConfig {
       compactionEnabled: true,
     },
     feishu: { botOpenId: "ou_bot", requireMention: true },
+    host: { host: "127.0.0.1", port: 0, sseReplayLimit: 1000, feishuDirect: false },
     sources: { logDir: join(ROOT, "fixtures", "samples"), repoDir: ROOT, allowedServices: [], allowedRepos: [], repos: [] },
     delivery: { maxAttempts: 3, baseBackoffMs: 10 },
   };

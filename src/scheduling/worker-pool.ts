@@ -3,9 +3,14 @@
 // 每个 worker 循环：回收过期租约 → 领取一个待执行轮次 → 执行。同一调查最多一个执行者
 // 由 claimNextRun 的 SQL 保证；不同调查可并行。首版不做运行中动态扩缩容。
 import { executeRun, type OrchestratorDeps } from "../diagnosis/orchestrator.ts";
+import type { ClaimedRun } from "../storage/store.ts";
+
+/** 一轮诊断的执行方式：默认内联（executeRun）；生产可注入独立 Runner 子进程执行器。 */
+export type RunExecutor = (claimed: ClaimedRun) => Promise<void>;
 
 export interface WorkerPoolOptions extends OrchestratorDeps {
   workerCount: number;
+  execute?: RunExecutor;
 }
 
 export interface WorkerPool {
@@ -21,12 +26,13 @@ function sleep(ms: number): Promise<void> {
 export function startWorkerPool(opts: WorkerPoolOptions): WorkerPool {
   let stopped = false;
   const loops: Promise<void>[] = [];
+  const execute: RunExecutor = opts.execute ?? ((claimed) => executeRun(opts, claimed));
 
   async function runOnce(workerId: string): Promise<boolean> {
     opts.store.recoverExpiredLeases();
     const claimed = opts.store.claimNextRun(workerId, opts.config.scheduler.leaseMs);
     if (!claimed) return false;
-    await executeRun(opts, claimed);
+    await execute(claimed);
     return true;
   }
 

@@ -40,7 +40,23 @@ export function extractService(text: string): string | undefined {
 }
 
 /** 纯路由判断：不写库，只返回"该建新调查 / 该续接谁 / 该拒绝"。 */
-export function planRoute(store: Store, msg: InboundMessage): InboundPlan | InboundRejection {
+export function planRoute(
+  store: Store,
+  msg: InboundMessage,
+  forcedInvestigationId?: string,
+): InboundPlan | InboundRejection {
+  // 显式指定的调查优先（Web 按 investigationId 续接）。
+  if (forcedInvestigationId) {
+    const forced = store.getInvestigation(forcedInvestigationId);
+    if (forced) {
+      return {
+        decision: "continue_investigation",
+        investigationId: forced.id,
+        servicePatch: extractService(msg.text),
+      };
+    }
+  }
+
   const code = extractSessionCode(msg.text);
   let investigationId: string | undefined;
 
@@ -97,10 +113,15 @@ export function planRoute(store: Store, msg: InboundMessage): InboundPlan | Inbo
 }
 
 /** 统一入口：所有来源（飞书 / Web / 未来平台）都走这一条原子入队。 */
-export function routeInbound(store: Store, config: AppConfig, msg: InboundMessage): IntakeResult {
+export function routeInbound(
+  store: Store,
+  config: AppConfig,
+  msg: InboundMessage,
+  opts: { forcedInvestigationId?: string } = {},
+): IntakeResult {
   const accepted = store.acceptInbound(msg, {
     maxAttempts: config.scheduler.maxAttempts,
-    plan: (m) => planRoute(store, m),
+    plan: (m) => planRoute(store, m, opts.forcedInvestigationId),
   });
   return {
     decision: accepted.decision,

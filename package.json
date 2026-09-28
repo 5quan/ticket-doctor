@@ -10,6 +10,7 @@
     "eval": "node --experimental-strip-types src/evals/cli.ts",
     "preeval": "node scripts/init-eval-fixture.mjs",
     "gateway": "node --experimental-strip-types src/entrypoints/gateway.ts",
+    "host": "node --experimental-strip-types src/entrypoints/host.ts",
     "worker": "node --experimental-strip-types src/entrypoints/worker.ts",
     "typecheck": "tsc --noEmit",
     "test": "node --experimental-strip-types --test tests/unit/*.test.ts tests/integration/*.test.ts",

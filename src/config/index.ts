@@ -25,6 +25,8 @@ export interface SchedulerConfig {
   leaseMs: number;
   maxAttempts: number;
   retryDelayMs: number;
+  /** 执行模式：inprocess=worker 内联执行（测试/评测）；process=独立 Runner 子进程（生产）。 */
+  runnerMode: "inprocess" | "process";
 }
 
 export interface DiagnosisConfig {
@@ -56,6 +58,19 @@ export interface FeishuConfig {
   logLevel?: string;
 }
 
+export interface HostConfig {
+  /** Host Web API / SSE 监听地址。 */
+  host: string;
+  port: number;
+  /** SSE 断线重连单次 replay 上限。 */
+  sseReplayLimit: number;
+  /**
+   * 飞书是否由 Host 进程内直连（过渡开关）。
+   * 新架构由 Go 接入适配器调用 /api/agent/message；迁移期可置 true 保留旧链路。
+   */
+  feishuDirect: boolean;
+}
+
 export interface SourcesConfig {
   logDir: string;
   repoDir: string;
@@ -72,6 +87,7 @@ export interface AppConfig {
   scheduler: SchedulerConfig;
   diagnosis: DiagnosisConfig;
   feishu: FeishuConfig;
+  host: HostConfig;
   sources: SourcesConfig;
   delivery: { maxAttempts: number; baseBackoffMs: number };
   projectRoot: string;
@@ -116,6 +132,7 @@ export function loadConfig(opts: { envFile?: string } = {}): AppConfig {
       leaseMs: num("TD_LEASE_MS", 60_000),
       maxAttempts: num("TD_MAX_ATTEMPTS", 2),
       retryDelayMs: num("TD_RETRY_DELAY_MS", 3_000),
+      runnerMode: process.env.TD_RUNNER_MODE === "process" ? "process" : "inprocess",
     },
     diagnosis: {
       engine: process.env.TD_ENGINE === "pi" ? "pi" : "fake",
@@ -137,6 +154,12 @@ export function loadConfig(opts: { envFile?: string } = {}): AppConfig {
       botOpenId: process.env.FEISHU_BOT_OPEN_ID,
       requireMention: process.env.FEISHU_REQUIRE_MENTION !== "false",
       logLevel: process.env.FEISHU_LOG_LEVEL,
+    },
+    host: {
+      host: process.env.TD_HOST ?? "0.0.0.0",
+      port: num("TD_HOST_PORT", 3000),
+      sseReplayLimit: num("TD_SSE_REPLAY_LIMIT", 1000),
+      feishuDirect: process.env.TD_FEISHU_DIRECT !== "false",
     },
     sources: {
       logDir: process.env.TD_LOG_DIR ?? join(PROJECT_ROOT, "fixtures", "samples"),
