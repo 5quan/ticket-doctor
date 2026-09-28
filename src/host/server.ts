@@ -189,6 +189,47 @@ export function createHostServer(deps: HostServerDeps): HostServer {
       return sendJson(res, 200, result);
     }
 
+    // ---- 出站投递交给外部平台适配器（Go）发送，Host 保持可靠状态机 ----
+    if (req.method === "POST" && path === "/api/agent/deliveries/claim") {
+      store.recoverExpiredDeliveries();
+      const delivery = store.claimNextDelivery(config.scheduler.leaseMs);
+      if (!delivery) return sendJson(res, 200, { delivery: null });
+      const investigation = store.getInvestigation(delivery.investigation_id);
+      return sendJson(res, 200, {
+        delivery: {
+          id: delivery.id,
+          attempt: delivery.attempt,
+          kind: delivery.kind,
+          content: delivery.content,
+          targetMessageId: delivery.target_message_id,
+          chatId: investigation?.chat_id ?? null,
+          provider: investigation?.provider ?? null,
+          sessionCode: investigation?.session_code ?? null,
+        },
+      });
+    }
+
+    const deliveryResult = path.match(/^\/api\/agent\/deliveries\/([^/]+)\/result$/);
+    if (req.method === "POST" && deliveryResult) {
+      const body = (await readBody(req)) as Record<string, unknown>;
+      const outcome = body.outcome;
+      if (outcome !== "sent" && outcome !== "retry" && outcome !== "uncertain" && outcome !== "failed") {
+        return sendJson(res, 400, { error: "outcome 非法" });
+      }
+      const attempt = Number(body.attempt);
+      const ok = store.settleDelivery({
+        id: deliveryResult[1],
+        attempt,
+        outcome,
+        providerMessageId: typeof body.providerMessageId === "string" ? body.providerMessageId : undefined,
+        error: typeof body.error === "string" ? body.error : undefined,
+        // 退避策略留在 Host：重试等待随时间递增，避免适配器侧自旋。
+        availableAt:
+          outcome === "retry" ? Date.now() + config.delivery.baseBackoffMs * Math.max(1, attempt) : undefined,
+      });
+      return sendJson(res, ok ? 200 : 409, { ok });
+    }
+
     const retry = path.match(/^\/api\/agent\/runs\/([^/]+)\/retry$/);
     if (req.method === "POST" && retry) {
       const run = store.getRun(retry[1]);

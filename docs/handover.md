@@ -55,7 +55,11 @@
 | 投递 | 待发送记录、退避重试、**不确定态**、平台消息 ID | ✅ 真机回复成功 |
 | 会话持久化（单存储） | pi 会话条目原样落 `session_entries`（按调查单调 `seq`）；引擎读回写 seed 文件给 pi 重建、崩溃时 `reconcileSession` 补未决工具结果并 `Agent.continue()`；JSONL 已移除 | ✅ |
 | 评测 harness（离线） | `npm run eval`：加载 benchmark → 复用生产链路跑诊断 → 打分（证据召回率/引用精确率/决策正确率）→ 结果 JSONL | ✅ M1 |
-| 测试 | 58 个（单元 + 集成），`npm test` 全绿 | ✅ |
+| Host 统一入口 + 队列 | 原子入队（去重+关联+消息+轮次同事务）、按会话严格轮次串行、会话间公平、显式取消、来源路由 | ✅ 阶段1 |
+| 独立 Agent Runner | Host 每轮 spawn Node 子进程；NDJSON 协议；Host 校验代次后代为落库；单进程崩溃只判本轮 | ✅ 阶段2 |
+| Host Web API + SSE | `/api/agent/*`：message/investigations/events(SSE replay)/runs cancel·retry/deliveries claim·result | ✅ 阶段4 |
+| Go 接入适配器 | `adapters/go`：飞书事件归一化、fail-closed mention 门控、转发 Host、投递轮询发送 | ◐ 阶段3（Webhook） |
+| 测试 | TS 76 个（单元 + 集成）+ Go adapter 测试，`npm test` / `npm run test:go` 全绿 | ✅ |
 
 **未实现 / 明确边界**
 
@@ -123,12 +127,21 @@ npm run worker           # 只跑 worker
 
 ## 六、当前进度与下一步
 
+**本轮已落地（Host / Runner / 接入层重构）**：见 `docs/host-runner-design.md`（含与平台文档的差异、迁移、接口、验收）。
+
+- 阶段 1：Host 统一入口 + 原子入队 + 按会话严格轮次 + 会话间公平 + 取消 + 来源路由。
+- 阶段 2：独立 Agent Runner 子进程 + Host 监管 + NDJSON 回写（`TD_RUNNER_MODE=process`）。
+- 阶段 4：Host Web API + EventStore/SSE replay + 投递 claim/result（供适配器发送）。
+- 阶段 3：Go 接入适配器骨架（飞书 Webhook + 投递轮询），`adapters/go`。
+
 **阶段一剩余 P0**
 
 1. 落盘前**脱敏**（S1）——你已决定暂缓。
 2. 时区展示统一（报告材料范围已本地化）。
 
 **已落地**：逐次落盘（T3/O1/O2/O3/P1）；评测 Benchmark **M1**（harness + `checkout-timeout` 场景 5 case + 打分器，`npm run eval`）。
+
+**下一步（阶段三/五收口）**：Go 适配器长连接与签名校验、多平台；Web 会话页面；阶段五故障注入（Host 重启/强杀/投递不确定态）与 docker-compose 部署。
 
 **阶段二下一步**：用真实模型迭代 `rules.md`（基线已出：召回 90% / 精确 30.7% / 正确率 80%），修掉「材料不足仍给 supported 结论」与「引用干扰证据」；随后独立审计 Agent。详见 `docs/eval-design.md`。
 

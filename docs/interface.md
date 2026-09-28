@@ -312,3 +312,42 @@ Worker claimNextRun() → executeRun()            src/diagnosis/orchestrator.ts
 - **工具可观测（T3）**：每次工具执行的 pi `callId / 入参 / 耗时 / 成败 / 结果规模` 落 `tool_executions`。
 - 可观测：`run_events` 记录生命周期事件 `run_started / engine_finished / report_saved / reply_saved / run_error / commit_rejected`。
 - 回放：按调查读 `session_entries` + `tool_executions` + `evidence`，无需文件。
+
+---
+
+## 九、Host / Runner / 接入层接口（新增）
+
+> 设计与差异见 `docs/host-runner-design.md`。以下为对外契约。
+
+### 9.1 Host Web API（`src/host/server.ts`）
+
+| 方法 | 路径 | 调用方 | 说明 |
+|---|---|---|---|
+| POST | `/api/agent/message` | Go 适配器 / Web | 统一入站；`provider=feishu/web`，可带 `investigationId` 指定续接 |
+| GET | `/api/agent/investigations` | Web | 调查列表（含最新轮次状态） |
+| GET | `/api/agent/investigations/:id` | Web | 消息时间线 / 轮次 / 最新报告 |
+| GET | `/api/agent/investigations/:id/events` | Web | SSE；`Last-Event-ID` 或 `lastEventId` 触发 replay |
+| POST | `/api/agent/runs/:id/cancel` | Web | 取消当前轮次（终态、不自动重试） |
+| POST | `/api/agent/runs/:id/retry` | Web | 人工重试 failed/cancelled 轮次 |
+| POST | `/api/agent/deliveries/claim` | Go 适配器 | 领取一条待发送记录（返回 chatId/target/content） |
+| POST | `/api/agent/deliveries/:id/result` | Go 适配器 | 上交 `sent/retry/uncertain/failed`，带 `attempt` 守卫 |
+
+入站消息字段：`provider, accountId, externalMessageId, chatId, chatType, rootId?, threadId?, parentId?, mentionedBot, senderId?, senderName?, text, receivedAt`。
+
+### 9.2 Host ↔ Runner（`src/runner/protocol.ts`）
+
+- stdin：一行 `RunnerTask` JSON；之后可发 `{"type":"cancel"}`。
+- stdout NDJSON：`ready | session_entry | tool_execution | progress | result | error`。
+- 结果 `result`：`kind=report` 带 `draft + evidence[] + scope + missingMaterial`；`kind=reply` 带 `text + reason`。
+- Runner 不碰数据库；Host 校验代次后代为写入 `session_entries` / `tool_executions` / `reports`。
+
+### 9.3 事件流（`events` 表 / EventStore）
+
+- 每次状态变化 `publish(stream=investigationId, type, payload)`，先落库（全局自增 `id`）再通知订阅者。
+- SSE `id:` = 事件 id；断线重连带最后 id 即补发缺失事件，不重不漏。
+- 典型事件：`message_accepted / run_started / prepared / report / reply / run_error / cancelled / cancel_requested / retry_requested`。
+
+### 9.4 来源与回复路由
+
+- 每轮保存 `runs.source`；只有 IM 来源（`provider != web`）才产生 `deliveries`，Web 来源只进 EventStore/SSE。
+- 追问 / 失败通知沿用本轮回复目标。

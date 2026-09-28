@@ -17,36 +17,37 @@ npm test            # 单元 + 集成测试
 npm run typecheck
 ```
 
-接真实飞书（长连接，无需公网回调）：
+接真实飞书（新架构：Host + 独立 Runner + Go 接入适配器）：
 
 ```bash
-cp .env.example .env        # 填 FEISHU_APP_ID / FEISHU_APP_SECRET / DEEPSEEK_API_KEY
-npm run gateway             # 飞书接入 + 投递 + 内嵌 worker
-# 或者分进程部署：
-npm run worker
-npm run gateway
+cp .env.example .env        # 填 LARK_* / FEISHU_* / DEEPSEEK_API_KEY
+TD_RUNNER_MODE=process TD_FEISHU_DIRECT=false npm run host   # Host：Web API + SSE + 调度 + Runner
+cd adapters/go && go run .  # Go 接入适配器：飞书事件 → Host；Host 待发送 → 飞书
 ```
+
+迁移期仍可用旧单进程链路（Host 内直连飞书、worker 内联执行）：`npm run gateway`。
 
 ## 架构
 
 ```text
-飞书事件
-  │  长连接（WSClient）
-  ▼
-Gateway ── mention 门控 ── 会话路由 ──► SQLite（inbound_events / investigations / messages / runs）
-  │
-  ▼
-Worker 池（默认 4）：领取待执行轮次（同调查串行、不同调查并行、租约 + 代次守卫）
-  │
-  ├─ DiagnosisEngine（fake 离线 / pi 真实）
-  ├─ 工具箱：query_logs / search_code / read_code（限长、限次、签发证据 ID）
-  └─ 报告校验：引用存在性、版本一致性、无证据强制降级
-  │
-  ▼
-SQLite（evidence / reports / deliveries，与终态同一事务提交）
-  │
-  ▼
-投递模块：回复原消息 / 新建消息，失败分类重试，结果不确定记为 uncertain
+飞书事件 ──► Go 接入适配器 ──HTTP──► Host Web Channel（POST /api/agent/message）
+Web 前端 ──HTTP/SSE──────────────► Host
+                                        │  原子入队（去重+关联+消息+轮次同事务）
+                                        ▼
+                              SQLite：investigations / messages / runs(round) / events …
+                                        │
+                     SessionQueue：会话内严格轮次串行、会话间公平、全局 ≤4
+                                        │
+                         RunnerManager：spawn 独立 Node 子进程（每轮一个）
+                                        │  NDJSON（条目/工具/进度/结果）
+                    Host 校验代次后代为落库 → finalize（证据+报告+终态+投递同事务）
+                                        │
+              ┌─────────────────────────┴─────────────────────────┐
+              ▼                                                     ▼
+   投递（IM 来源）：Host 待发送记录 ──► Go 适配器 ──► 飞书       EventStore ──► SSE ──► Web
+
+Runner 内部：pi 引擎（fake/pi）+ 只读工具箱 query_logs / search_code / read_code
+            + 证据签发（E#）+ 报告草稿；不碰数据库。
 ```
 
 分层依赖方向：`domain ← storage / intake / scheduling / delivery / agent / sources / integrations / entrypoints`。
@@ -56,19 +57,22 @@ SQLite（evidence / reports / deliveries，与终态同一事务提交）
 
 ```text
 src/
-├─ entrypoints/     gateway.ts / worker.ts / demo.ts / bootstrap.ts
+├─ entrypoints/     host.ts（Host 入口）/ runner.ts（子进程）/ gateway.ts / worker.ts / demo.ts / bootstrap.ts
 ├─ config/          环境变量集中解析
 ├─ domain/          类型、状态机、会话标号、报告渲染（纯函数）
-├─ storage/         SQLite（node:sqlite）、迁移、Store
-├─ intake/          事件去重 + 会话路由
-├─ scheduling/      worker 池、租约、回收
-├─ diagnosis/       编排、证据登记、报告校验
+├─ storage/         SQLite（node:sqlite）、迁移、Store（原子入队、按轮次调度、事件）
+├─ intake/          路由计划 + 统一原子入队
+├─ scheduling/      worker 池、租约、回收（可注入 Runner 执行器）
+├─ host/            HTTP API + SSE、EventStore、RunnerManager（子进程监管）
+├─ runner/          Host↔Runner NDJSON 协议
+├─ diagnosis/       内联编排、证据登记、报告校验、提交边界（finalize）
 ├─ agent/           pi 引擎 / 假引擎 / 工具箱 / 工厂
 ├─ sources/         日志源、Git 源码源（端口 + 实现）
 ├─ delivery/        待发送记录、重试与不确定态
 ├─ integrations/
-│  └─ feishu/       SDK 客户端、mention 门控、事件归一化、网关逻辑
-migrations/         001_init.sql
+│  └─ feishu/       SDK 客户端、mention 门控、事件归一化、网关逻辑（过渡期）
+adapters/go/        Go 接入适配器（协议解析 + 事件转发 + 平台发送）
+migrations/         001…005
 tests/              unit/ + integration/
 fixtures/           样例日志与样例仓库（demo 用）
 ```
@@ -107,5 +111,6 @@ fixtures/           样例日志与样例仓库（demo 用）
 ## 当前边界
 
 - 真实日志平台适配器（SLS/ELK）尚未实现，当前为本地文件日志源。
-- pi 引擎每轮使用独立内存会话 + `contextSummary` 传递多轮上下文；pi 会话文件持久化未接入。
-- 无管理前端；用 SQLite/事件表与日志排查。
+- 会话条目已进 SQLite（`session_entries`），pi 按 seq 读回重建；不再用 JSONL 持久化。
+- Web 前端仅有 API/SSE，会话页面（列表/时间线/报告）待做；无权限与身份限制。
+- Go 适配器当前为飞书 Webhook 回调；长连接（WSClient）与多平台（钉钉/Slack）待扩展。

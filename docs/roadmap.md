@@ -48,6 +48,20 @@
 
 ---
 
+## 架构演进：Host / Runner / 接入层（对齐平台文档）
+
+> 设计见 `docs/host-runner-design.md`。
+
+- [x] Host 统一入口 + 原子入队 + 按会话严格轮次串行 + 会话间公平 + 显式取消（阶段1）
+- [x] 独立 Agent Runner 子进程 + Host 监管 + NDJSON 回写（阶段2）
+- [x] Host Web API + EventStore/SSE replay + 投递 claim/result（阶段4）
+- [x] Go 接入适配器骨架（飞书 Webhook + 投递轮询）
+- [ ] Go 适配器长连接模式 + 签名校验 + 钉钉/Slack
+- [ ] Web 会话页面（列表 / 时间线 / 报告）
+- [ ] 阶段五：故障注入（Host 重启 / 强杀 / 投递不确定态）与 docker-compose 部署
+
+---
+
 ## 阶段三：扩展（按触发条件）
 
 | 事项 | 触发条件 | 说明 |

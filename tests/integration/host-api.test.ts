@@ -94,6 +94,51 @@ test("取消与重试接口改变轮次状态", async () => {
   assert.equal(retried.json.status, "queued");
 });
 
+test("投递交给外部适配器：claim → result 可靠收敛", async () => {
+  // 造一条待发送记录（飞书来源，需要回 IM）
+  const inv = store.createInvestigation({
+    sessionCode: "code-delivery",
+    provider: "feishu",
+    accountId: "default",
+    chatId: "oc_delivery",
+  });
+  const message = store.insertMessage({
+    investigationId: inv.id,
+    provider: "feishu",
+    accountId: "default",
+    externalMessageId: "om_delivery",
+    text: "问题",
+    receivedAt: Date.now(),
+  });
+  const run = store.createRun({ investigationId: inv.id, messageId: message.id, maxAttempts: 3 });
+  store.enqueueDelivery({
+    investigationId: inv.id,
+    runId: run.id,
+    kind: "report",
+    targetMessageId: "om_delivery",
+    content: "【预检报告】...",
+    idempotencyKey: `report:${run.id}`,
+  });
+
+  const claim = await post("/api/agent/deliveries/claim", {});
+  assert.ok(claim.json.delivery);
+  assert.equal(claim.json.delivery.chatId, "oc_delivery");
+  assert.equal(claim.json.delivery.targetMessageId, "om_delivery");
+  const { id, attempt } = claim.json.delivery;
+
+  // 过期 attempt 不能覆盖
+  const stale = await post(`/api/agent/deliveries/${id}/result`, { attempt: attempt + 1, outcome: "sent" });
+  assert.equal(stale.status, 409);
+  const settled = await post(`/api/agent/deliveries/${id}/result`, {
+    attempt,
+    outcome: "sent",
+    providerMessageId: "om_reply_1",
+  });
+  assert.equal(settled.json.ok, true);
+  const empty = await post("/api/agent/deliveries/claim", {});
+  assert.equal(empty.json.delivery, null);
+});
+
 test("SSE 先 replay 已保存事件，再推送新事件", async () => {
   const stream = "inv-sse-test";
   eventStore.publish(stream, "report", { reportId: "r1", completeness: "complete" });

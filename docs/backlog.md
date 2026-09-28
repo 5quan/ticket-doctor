@@ -110,7 +110,7 @@
 
 | # | 议题 | 现状 | 建议 | 状态 | 优先级 |
 |---|---|---|---|---|---|
-| A1 | IM 通道抽象（预留） | 入口只有飞书；事件归一化已做（`InboundMessage`） | 把飞书下沉为 channel 实现，预留 channel 接口；多入口（web/终端）不改核心编排 | 待办 | P2 |
+| A1 | IM 通道抽象（预留） | ✅ 已有 Host 统一入口 `POST /api/agent/message` + `InboundMessage`（provider=feishu/web），Go 适配器负责平台协议 | 多入口（web/钉钉/Slack）不改核心编排；补 channel 工厂与平台注册 | 已完成（主干） | P2 |
 | A2 | 知识包接口（**不叫 skill**） | 无 skill 机制也不必要（诊断流程固定、工具常驻）；但场景领域知识需按场景加载 | 预留「知识包（scenario knowledge pack）」接口，**不引入 skill 路由**；知识（怎么想）与工具（可调能力）分开 | 待办 | P2 |
 | A3 | 场景规则结构化（条目化） | `rules.md` 现为自由文本 | 改为条目化 bullet（`id + tags + helpful/harmful + text`），分「该记/不该记/检索顺序与阈值」；增量 delta 更新、程序合并（照 ACE） | 待办 | P1 |
 | A4 | 低质量结果（证据不足/材料缺失）→ 标注待验证 / 路由人工（不丢弃） | 现在只出一份报告，证据不足与充分不区分 | 触发条件用**证据充分性/完整性/校验结果**（程序可判），**不用置信度**；显式标注「待人工复核/待验证」并路由（@ 人 / 进待办），不静默当结论 | 待办 | P1 |
@@ -121,6 +121,22 @@
 | A9 | 复跑/回放工具 | 有会话 JSONL，但无「重建输入并复跑」的工具 | 提供按 run 回放/复跑，定位「为什么这么判」 | 待办 | P2 |
 | A10 | 证据可信度分级 + 外部内容 untrusted | 所有证据同权；日志/用户输入可被注入 | 给证据加 trust 级别（code/config=authoritative，log=observed，user=reported，外部内容=untrusted），程序签发；用于推理优先级、校验与安全 | 待办 | P2 |
 | A11 | 冲突证据显式化 | 证据矛盾时模型可能只挑一个 | 强制显式呈现冲突（「倾向 A 但 B 未排除」），作为审计 Agent 的天然输入 | 待办 | P2 |
+
+---
+
+## 十三、Host / Runner / 接入层（对齐平台文档）
+
+> 设计见 `docs/host-runner-design.md`。
+
+| # | 议题 | 现状 | 建议 | 状态 | 优先级 |
+|---|---|---|---|---|---|
+| H1 | Host 统一入口原子入队 | ✅ 去重+关联+存消息+建轮次同事务（`Store.acceptInbound`） | — | 已完成 | P0 |
+| H2 | 按会话严格轮次调度 | ✅ `runs.round` + 队首约束 + 会话间公平 + 取消 | 补调度公平性/饥饿的专项测试 | 已完成 | P0 |
+| H3 | 独立 Agent Runner | ✅ `TD_RUNNER_MODE=process`，每轮独立子进程，Host 监管 | 长驻 Runner 池（减少冷启动）待评估 | 已完成 | P0 |
+| H4 | Host Web API + SSE | ✅ message/investigations/events(SSE replay)/cancel/retry/deliveries | 补鉴权与 CORS 白名单（当前开放） | 已完成 | P0 |
+| H5 | Go 接入适配器 | ◐ 飞书 Webhook + fail-closed 门控 + 投递轮询 | 长连接模式、真签名校验、钉钉/Slack、多平台注册 | 进行中 | P1 |
+| H6 | Web 会话页面 | 仅 API/SSE | 列表 / 时间线 / 当前进度 / 证据报告 | 待办 | P1 |
+| H7 | 阶段五故障注入与部署 | 已有取消/崩溃测试 | Host 重启、强杀、投递不确定态、重复请求；docker-compose（host+adapter+卷） | 待办 | P0 |
 
 ---
 

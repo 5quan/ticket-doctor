@@ -1,0 +1,52 @@
+# Go 接入适配器
+
+企业 IM / Webhook 的**外部接入层**（对应平台文档 `03-外部接入层`）。它把飞书事件转换成
+Host Web Channel 能理解的请求，再把 Host 的出站投递发送回飞书。
+
+**明确不做**：不启动 Agent、不管会话、不做队列与并发控制、不执行工具。
+
+```
+飞书事件 ──POST /feishu/events──► Go 适配器 ──POST /api/agent/message──► Host
+Host 待发送记录 ◄──POST /deliveries/claim── Go 适配器 ──► 飞书发送 ──► POST /deliveries/:id/result
+```
+
+## 运行
+
+```bash
+cd adapters/go
+go build ./...
+go test ./...
+
+ADAPTER_ADDR=0.0.0.0:3002 \
+HOST_API_BASE=http://127.0.0.1:3000/api/agent \
+LARK_APP_ID=... LARK_APP_SECRET=... LARK_VERIFICATION_TOKEN=... LARK_BOT_OPEN_ID=ou_... \
+go run .
+```
+
+飞书后台把事件回调地址指到 `http(s)://<adapter>/feishu/events`（也支持长连接方式，
+当前实现为 Webhook 回调）。URL 校验（`challenge`）与 token 校验已实现。
+
+## 配置
+
+| 变量 | 默认 | 说明 |
+|---|---|---|
+| `ADAPTER_ADDR` | `0.0.0.0:3002` | 监听地址 |
+| `HOST_API_BASE` | `http://127.0.0.1:3000/api/agent` | Host Web Channel 基址 |
+| `HOST_TIMEOUT_MS` | `5000` | 调用 Host 超时 |
+| `LARK_APP_ID` / `LARK_APP_SECRET` | — | 飞书应用凭证（发送用） |
+| `LARK_VERIFICATION_TOKEN` | — | 事件回调校验 token |
+| `LARK_BOT_OPEN_ID` | — | 机器人 open_id；未知时群聊 fail-closed |
+| `ADAPTER_REQUIRE_MENTION` | `true` | 群聊是否必须 @机器人 |
+| `LARK_API_BASE` | `https://open.feishu.cn/open-apis` | OpenAPI 基址（测试可覆盖） |
+| `ADAPTER_POLL_INTERVAL_MS` | `1000` | 投递轮询间隔 |
+
+## 职责边界
+
+| 组件 | 职责 |
+|---|---|
+| Go 适配器 | 平台事件接入、token/参数校验、fail-closed mention 门控、转发 Host、平台消息发送 |
+| Host Web Channel | 接收消息、原子入队、调度、持久化、SSE |
+| Agent Runner | 由 Host 启动子进程执行诊断，只上报结构化结果 |
+
+失败处理：平台签名/token 错误 → 拒绝；Host 不可用 → 返回 5xx 让平台重投；
+发送结果不确定（超时/网络中断）→ 上报 `uncertain`，不做无限重试。

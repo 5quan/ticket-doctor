@@ -1191,6 +1191,63 @@ export class Store {
       );
   }
 
+  getDelivery(id: string): DeliveryRow | undefined {
+    return this.db.prepare("SELECT * FROM deliveries WHERE id = ?").get(id) as DeliveryRow | undefined;
+  }
+
+  /**
+   * 外部发送者（Go 适配器）上交投递结果。带"仍处于 sending 且 attempt 匹配"守卫，
+   * 避免过期发送者覆盖新一次尝试的状态。
+   */
+  settleDelivery(input: {
+    id: string;
+    attempt: number;
+    outcome: "sent" | "retry" | "uncertain" | "failed";
+    providerMessageId?: string;
+    error?: string;
+    availableAt?: number;
+    now?: number;
+  }): boolean {
+    const now = input.now ?? Date.now();
+    return transaction(this.db, () => {
+      const row = this.db
+        .prepare("SELECT id FROM deliveries WHERE id = ? AND status = 'sending' AND attempt = ?")
+        .get(input.id, input.attempt) as { id: string } | undefined;
+      if (!row) return false;
+      switch (input.outcome) {
+        case "sent":
+          this.db
+            .prepare(
+              "UPDATE deliveries SET status = 'sent', provider_message_id = ?, lease_expires_at = NULL, delivered_at = ?, error = NULL, updated_at = ? WHERE id = ?",
+            )
+            .run(input.providerMessageId ?? null, now, now, input.id);
+          break;
+        case "retry":
+          this.db
+            .prepare(
+              "UPDATE deliveries SET status = 'pending', available_at = ?, lease_expires_at = NULL, error = ?, updated_at = ? WHERE id = ?",
+            )
+            .run(input.availableAt ?? now, input.error ?? null, now, input.id);
+          break;
+        case "uncertain":
+          this.db
+            .prepare(
+              "UPDATE deliveries SET status = 'uncertain', lease_expires_at = NULL, error = ?, updated_at = ? WHERE id = ?",
+            )
+            .run(input.error ?? null, now, input.id);
+          break;
+        case "failed":
+          this.db
+            .prepare(
+              "UPDATE deliveries SET status = 'failed', lease_expires_at = NULL, error = ?, updated_at = ? WHERE id = ?",
+            )
+            .run(input.error ?? null, now, input.id);
+          break;
+      }
+      return true;
+    });
+  }
+
   claimNextDelivery(leaseMs: number, now = Date.now()): DeliveryRow | undefined {
     return transaction(this.db, () => {
       const row = this.db
