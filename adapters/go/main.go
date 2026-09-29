@@ -83,14 +83,23 @@ func main() {
 }
 
 // startLongConn 为每个启用平台启动长连接事件源；缺实现/缺凭据直接报错（不静默）。
+// 先全部校验再启动，避免“已起一半才 Fatal”。
 func startLongConn(ctx context.Context, core *adapter.Adapter, platforms []platform.Platform) {
+	type binding struct {
+		platform platform.Platform
+		source   eventsource.Source
+	}
+	bindings := make([]binding, 0, len(platforms))
 	for _, p := range platforms {
 		src := p.LongConn()
 		if src == nil {
 			log.Fatalf("[adapter] 平台 %s 不支持长连接（未实现或缺少 LARK_APP_ID/LARK_APP_SECRET）", p.Name())
 		}
-		go restartLoop(ctx, src, sourceHandler(ctx, core, p))
-		log.Printf("[adapter] 已启动长连接事件源：platform=%s source=%s", p.Name(), src.Name())
+		bindings = append(bindings, binding{platform: p, source: src})
+	}
+	for _, b := range bindings {
+		go restartLoop(ctx, b.source, sourceHandler(ctx, core, b.platform))
+		log.Printf("[adapter] 已启动长连接事件源：platform=%s source=%s", b.platform.Name(), b.source.Name())
 	}
 }
 
