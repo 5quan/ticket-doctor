@@ -1,6 +1,9 @@
 // 集成测试：Host 监管的独立 Runner 子进程（真实 spawn），验证结果回写与故障隔离。
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import { rmSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import type { InboundMessage } from "../../src/domain/types.ts";
@@ -48,6 +51,50 @@ test("独立 Runner 子进程执行一轮诊断并由 Host 回写报告", async 
   assert.ok(store.listSessionEntries(routed.investigationId!).length >= 1);
   // 工具执行可观测（fake 引擎至少查一次日志）
   assert.ok(store.getRun(claimed.run.id)!.session_seq >= 1);
+  // 证据经 IPC 两阶段提交：工具 commit 时已入库（阶段 3），带 uid 与批次溯源
+  const evidence = store.listEvidenceByInvestigation(routed.investigationId!);
+  assert.ok(evidence.length >= 1, "fake 引擎查日志应产生证据");
+  for (const row of evidence) {
+    assert.ok(row.evidence_uid, "每条证据应有 uid");
+    assert.ok(row.batch_id, "每条证据应溯源到批次");
+  }
+});
+
+test("Runner 输出非法协议行 → 本轮失败（不再忽略）", async () => {
+  const store = memoryStore();
+  const cfg = config();
+  const routed = routeInbound(store, cfg, msg({ externalMessageId: "om_proc_garbage" }));
+  const claimed = store.claimNextRun("w1", 60_000)!;
+  const entry = join(tmpdir(), `bad-runner-${randomUUID()}.mjs`);
+  writeFileSync(entry, `process.stdout.write("this is not json\\n");\nsetTimeout(() => process.exit(3), 200);\n`);
+  try {
+    const execute = createRunnerExecutor({ store, config: cfg, runnerEntry: entry });
+    await execute(claimed);
+    assert.equal(store.getRun(claimed.run.id)!.status, "failed", "非法协议行应判本轮失败");
+    assert.equal(store.getReportByRun(claimed.run.id), undefined);
+  } finally {
+    rmSync(entry, { force: true });
+    assert.ok(routed.investigationId);
+  }
+});
+
+test("Runner 协议版本不匹配 → 拒绝本轮（D12 硬失败）", async () => {
+  const store = memoryStore();
+  const cfg = config();
+  routeInbound(store, cfg, msg({ externalMessageId: "om_proc_version" }));
+  const claimed = store.claimNextRun("w1", 60_000)!;
+  const entry = join(tmpdir(), `old-runner-${randomUUID()}.mjs`);
+  writeFileSync(
+    entry,
+    `process.stdout.write(JSON.stringify({type:"ready",protocolVersion:1}) + "\\n");\nsetTimeout(() => process.exit(0), 300);\n`,
+  );
+  try {
+    const execute = createRunnerExecutor({ store, config: cfg, runnerEntry: entry });
+    await execute(claimed);
+    assert.equal(store.getRun(claimed.run.id)!.status, "failed", "协议版本不匹配应判本轮失败");
+  } finally {
+    rmSync(entry, { force: true });
+  }
 });
 
 test("两个 Runner 并发执行互不影响", async () => {

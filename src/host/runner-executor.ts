@@ -9,7 +9,13 @@ import { join } from "node:path";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { AppConfig } from "../config/index.ts";
 import { classifyRunError, failRun, finalizeEngineResult } from "../diagnosis/finalize.ts";
-import type { RunnerMessage, RunnerTask } from "../runner/protocol.ts";
+import {
+  EVIDENCE_PROTOCOL_VERSION,
+  encodeMessage,
+  type RunnerControl,
+  type RunnerMessage,
+  type RunnerTask,
+} from "../runner/protocol.ts";
 import type { ClaimedRun, Store } from "../storage/store.ts";
 import type { EventStore } from "./event-store.ts";
 
@@ -43,6 +49,7 @@ export function createRunnerExecutor(deps: RunnerExecutorDeps): RunExecutor {
       investigationId: investigation.id,
       text: message.text,
       receivedAt: message.received_at,
+      protocolVersion: EVIDENCE_PROTOCOL_VERSION,
       service: investigation.service ?? undefined,
       environment: investigation.environment ?? undefined,
       contextSummary: investigation.context_summary ?? undefined,
@@ -52,6 +59,10 @@ export function createRunnerExecutor(deps: RunnerExecutorDeps): RunExecutor {
       diagnosis: config.diagnosis,
       sources: config.sources,
     };
+    // 发送前协议版本校验（D12）：不匹配不派发，判本轮失败
+    if (task.protocolVersion !== EVIDENCE_PROTOCOL_VERSION) {
+      return failRun(deps, claimed, "runtime_error", "Runner 任务协议版本不匹配");
+    }
 
     return new Promise<void>((resolve) => {
       let child: ChildProcessWithoutNullStreams;
@@ -87,10 +98,13 @@ export function createRunnerExecutor(deps: RunnerExecutorDeps): RunExecutor {
         resolve();
       };
       const sendCancel = () => {
+        sendControl({ type: "cancel" });
+      };
+      const sendControl = (control: RunnerControl) => {
         try {
-          child.stdin.write(`${JSON.stringify({ type: "cancel" })}\n`);
+          child.stdin.write(encodeMessage(control));
         } catch {
-          // stdin 已关闭
+          // stdin 已关闭（Runner 已退出）；其结果会经 exit 分支收敛
         }
       };
 
@@ -112,8 +126,19 @@ export function createRunnerExecutor(deps: RunnerExecutorDeps): RunExecutor {
 
       const handleMessage = (message_: RunnerMessage): void => {
         switch (message_.type) {
-          case "ready":
+          case "ready": {
+            if (message_.protocolVersion !== EVIDENCE_PROTOCOL_VERSION) {
+              resultSeen = true;
+              void failRun(
+                deps,
+                claimed,
+                "runtime_error",
+                `Runner 协议版本不匹配：runner=${message_.protocolVersion} host=${EVIDENCE_PROTOCOL_VERSION}`,
+              );
+              done();
+            }
             return;
+          }
           case "session_entry":
             store.appendSessionEntry({
               investigationId: investigation.id,
@@ -131,6 +156,36 @@ export function createRunnerExecutor(deps: RunnerExecutorDeps): RunExecutor {
               ...message_.record,
             });
             return;
+          case "evidence_commit": {
+            // 身份由 Host 从实际派发任务注入（D4），不信任 Runner 自带身份字段
+            let response: RunnerControl;
+            try {
+              const committed = store.commitEvidenceBatch({
+                batchId: message_.batchId,
+                tool: message_.tool,
+                toolCallId: message_.toolCallId,
+                payloadHash: message_.payloadHash,
+                items: message_.items,
+                result: message_.result,
+                investigationId: investigation.id,
+                runId: run.id,
+                attemptId: claimed.attemptId,
+                generation: claimed.generation,
+              });
+              response = committed.ok
+                ? { type: "evidence_ack", batchId: message_.batchId, refs: committed.refs }
+                : { type: "evidence_reject", batchId: message_.batchId, code: committed.code, message: committed.message };
+            } catch (err) {
+              response = {
+                type: "evidence_reject",
+                batchId: message_.batchId,
+                code: "internal",
+                message: err instanceof Error ? err.message : String(err),
+              };
+            }
+            sendControl(response);
+            return;
+          }
           case "progress":
             store.appendRunEvent(run.id, claimed.attemptId, message_.name, message_.payload ?? null);
             try {
@@ -146,7 +201,6 @@ export function createRunnerExecutor(deps: RunnerExecutorDeps): RunExecutor {
               investigation,
               message,
               result,
-              evidence: result.kind === "report" ? result.evidence : undefined,
               scope: result.kind === "report" ? result.scope : undefined,
               missingMaterial: result.kind === "report" ? result.missingMaterial : undefined,
               toolCalls: result.toolCalls,
@@ -185,9 +239,16 @@ export function createRunnerExecutor(deps: RunnerExecutorDeps): RunExecutor {
             try {
               handleMessage(JSON.parse(line) as RunnerMessage);
             } catch {
-              // 忽略非法行（stderr 才是日志，stdout 只应出现协议消息）
+              // stdout 只应出现协议消息：解析失败 = 协议被破坏，终止本轮（不再忽略非法行）
+              if (!resultSeen) {
+                resultSeen = true;
+                void failRun(deps, claimed, "runtime_error", `Runner 输出非法协议行：${line.slice(0, 120)}`);
+              }
+              done();
+              return;
             }
           }
+          if (settled) return;
           idx = buffer.indexOf("\n");
         }
       });

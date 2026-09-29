@@ -1,8 +1,8 @@
 // Agent Runner 入口：由 Host 作为独立子进程启动，只负责执行诊断，不碰数据库。
 //
 // 运行：node --experimental-strip-types src/entrypoints/runner.ts
-// stdin：一行任务 JSON；之后可下发 {"type":"cancel"}
-// stdout：NDJSON 结构化消息（session_entry / tool_execution / progress / result / error）
+// stdin：一行任务 JSON；之后可下发 cancel / evidence_ack / evidence_reject
+// stdout：NDJSON 结构化消息（session_entry / tool_execution / evidence_commit / progress / result / error）
 // stderr：运行日志
 import { randomUUID } from "node:crypto";
 import readline from "node:readline";
@@ -10,10 +10,15 @@ import { buildEngine } from "../agent/factory.ts";
 import type { SessionSink, ToolExecutionRecord } from "../agent/types.ts";
 import type { AppConfig } from "../config/index.ts";
 import { renderDiagnosisInput } from "../agent/input-text.ts";
-import { MemoryEvidenceSink } from "../evidence/memory-sink.ts";
-import { evidenceRefToRecord } from "../evidence/util.ts";
+import { IpcEvidenceSink } from "../evidence/ipc-sink.ts";
 import { prepareDiagnosis } from "../diagnosis/prepare.ts";
-import { encodeMessage, type RunnerMessage, type RunnerTask } from "../runner/protocol.ts";
+import {
+  EVIDENCE_PROTOCOL_VERSION,
+  encodeMessage,
+  type RunnerControl,
+  type RunnerMessage,
+  type RunnerTask,
+} from "../runner/protocol.ts";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 
 function log(message: string): void {
@@ -81,14 +86,24 @@ class IpcSessionSink implements SessionSink {
 }
 
 async function runTask(task: RunnerTask, controller: AbortController): Promise<void> {
+  if (task.protocolVersion !== EVIDENCE_PROTOCOL_VERSION) {
+    log(`协议版本不匹配：task=${task.protocolVersion} runner=${EVIDENCE_PROTOCOL_VERSION}`);
+    await emitFinal({
+      type: "error",
+      error: { code: "protocol_mismatch", message: "Runner 与 Host 的协议版本不一致" },
+    });
+    return;
+  }
+
   const config = runnerConfig(task);
   const engine = buildEngine(config);
   const sink = new IpcSessionSink(task);
-  emit({ type: "ready" });
+  // 证据两阶段提交（D4/D9）：evidence_commit 写 stdout，等待 Host 的 evidence_ack/reject
+  const ipcEvidenceSink = new IpcEvidenceSink({ emit: (message) => emit(message), signal: controller.signal });
+  evidenceSink = ipcEvidenceSink;
+  emit({ type: "ready", protocolVersion: EVIDENCE_PROTOCOL_VERSION });
 
   try {
-    // 过渡期（阶段 3 前）：Runner 内用内存 sink 签发，证据随 result 上报、Host 代为落库。
-    const evidenceSink = new MemoryEvidenceSink();
     const { input, scope, toolbox, missingMaterial } = await prepareDiagnosis(config, {
       investigationId: task.investigationId,
       runId: task.runId,
@@ -98,7 +113,7 @@ async function runTask(task: RunnerTask, controller: AbortController): Promise<v
       environment: task.environment,
       contextSummary: task.contextSummary,
       signal: controller.signal,
-      sink: evidenceSink,
+      sink: ipcEvidenceSink,
     });
     if (!sink.resumed) sink.appendUserMessage(renderDiagnosisInput(input));
     emit({ type: "progress", name: "prepared", payload: { services: scope.services, repos: scope.repos.length } });
@@ -123,9 +138,7 @@ async function runTask(task: RunnerTask, controller: AbortController): Promise<v
       result: {
         kind: "report",
         draft: result.draft,
-        // 过渡期（阶段 3 前）：Runner 用内存 sink 签发，证据随 result 上报由 Host 代为落库；
-        // 协议切换后证据在工具 commit 时经 IPC 实时落库，result 不再携带。
-        evidence: evidenceSink.all().map((ref) => evidenceRefToRecord(ref, task.runId)),
+        // 证据已在工具 commit 时经 IPC 落库（D8）；result 只带草稿与范围
         scope,
         missingMaterial,
         toolCalls: result.toolCalls,
@@ -143,6 +156,8 @@ async function runTask(task: RunnerTask, controller: AbortController): Promise<v
 const controller = new AbortController();
 const rl = readline.createInterface({ input: process.stdin });
 let started = false;
+/** runTask 启动时注入；ack/reject 回执经此分发到等待中的 commit。 */
+let evidenceSink: IpcEvidenceSink | undefined;
 
 rl.on("line", (line) => {
   const trimmed = line.trim();
@@ -166,13 +181,15 @@ rl.on("line", (line) => {
     return;
   }
   try {
-    const control = JSON.parse(trimmed) as { type?: string };
+    const control = JSON.parse(trimmed) as RunnerControl;
     if (control.type === "cancel") {
       log("收到取消请求");
       controller.abort();
+    } else if (!evidenceSink?.handleControl(control)) {
+      log(`未知控制消息：${String((control as { type?: string }).type)}`);
     }
   } catch {
-    // 忽略非法控制行
+    // 忽略非法控制行（Host→Runner 方向不作协议硬失败，避免误杀正常轮次）
   }
 });
 

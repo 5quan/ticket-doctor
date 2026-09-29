@@ -1,13 +1,18 @@
 // Host ↔ Agent Runner 的结构化进程通信协议（NDJSON over stdio）。
 //
 // 约定（对齐平台文档 04/05）：
-//   * Host 通过 stdin 下发任务（一行 JSON），可后续下发 {type:"cancel"}；
+//   * Host 通过 stdin 下发任务（一行 JSON），可后续下发 cancel / evidence_ack / evidence_reject；
 //   * Runner 通过 stdout 逐行上报结构化消息，业务结果与运行日志分离（日志走 stderr）；
-//   * Runner 不碰数据库：会话条目 / 工具执行 / 进度 / 结果都由 Host 校验后代为落库。
+//   * Runner 不碰数据库：会话条目 / 工具执行 / 证据批次 / 进度 / 结果都由 Host 校验后代为落库；
+//   * 协议版本硬校验（D12）：不匹配即拒绝本轮，不做双向协商（Runner 由 Host 同仓库 spawn）。
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { ToolExecutionRecord } from "../agent/types.ts";
 import type { DiagnosisConfig, SourcesConfig } from "../config/index.ts";
-import type { EvidenceRecord, MaterialScope, ReportDraft } from "../domain/types.ts";
+import type { EvidenceItem, EvidenceRef } from "../evidence/types.ts";
+import type { MaterialScope, ReportDraft } from "../domain/types.ts";
+
+/** 证据持久化协议版本（docs/evidence-uid-design.md §6 / D12）。 */
+export const EVIDENCE_PROTOCOL_VERSION = 2;
 
 export interface RunnerTask {
   runId: string;
@@ -17,6 +22,8 @@ export interface RunnerTask {
   /** 本轮原始输入文本（含或不含会话标号均可，Runner 内部剥离）。 */
   text: string;
   receivedAt: number;
+  /** 协议版本：与 EVIDENCE_PROTOCOL_VERSION 不一致即拒绝执行。 */
+  protocolVersion: number;
   service?: string;
   environment?: string;
   contextSummary?: string;
@@ -33,7 +40,6 @@ export type RunnerResult =
   | {
       kind: "report";
       draft: ReportDraft;
-      evidence: EvidenceRecord[];
       scope: MaterialScope;
       missingMaterial: string[];
       toolCalls: number;
@@ -50,19 +56,36 @@ export type RunnerResult =
     };
 
 export type RunnerMessage =
-  | { type: "ready" }
+  | { type: "ready"; protocolVersion: number }
   | { type: "session_entry"; entry: SessionEntry }
   | { type: "tool_execution"; record: ToolExecutionRecord }
   | { type: "progress"; name: string; payload?: unknown }
   | { type: "result"; result: RunnerResult }
-  | { type: "error"; error: { code: string; message: string } };
+  | { type: "error"; error: { code: string; message: string } }
+  // 工具两阶段提交（D3/D4）：Runner 只带批次内容，身份由 Host 从实际派发任务注入
+  | {
+      type: "evidence_commit";
+      batchId: string;
+      tool: string;
+      toolCallId: string;
+      payloadHash: string;
+      items: EvidenceItem[];
+      result: unknown;
+    };
 
-export interface RunnerControl {
-  type: "cancel";
-}
+/** Host → Runner 的控制消息（与 cancel 共用 stdin 通道）。 */
+export type RunnerControl =
+  | { type: "cancel" }
+  | { type: "evidence_ack"; batchId: string; refs: EvidenceRef[] }
+  | {
+      type: "evidence_reject";
+      batchId: string;
+      code: "lease_lost" | "conflict" | "content_conflict" | "internal";
+      message: string;
+    };
 
 /** 一行一个 JSON 消息的编解码。 */
-export function encodeMessage(message: RunnerMessage): string {
+export function encodeMessage(message: RunnerMessage | RunnerControl): string {
   return `${JSON.stringify(message)}\n`;
 }
 

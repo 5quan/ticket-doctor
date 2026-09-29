@@ -74,8 +74,6 @@ export interface FinalizeArgs {
   investigation: InvestigationRow;
   message: MessageRow;
   result: EngineResult;
-  /** 报告路径必填：Runner 上报的证据（已签发）。 */
-  evidence?: EvidenceRecord[];
   scope?: MaterialScope;
   missingMaterial?: string[];
   toolCalls: number;
@@ -125,10 +123,8 @@ export function finalizeEngineResult(
   }
 
   const registry = new EvidenceRegistry(claimed.run.id, config.diagnosis.maxResultChars);
-  // D8：证据已在工具 commit 时入库。校验按调查内已持久化证据 hydrate（跨轮引用随后续阶段开放）；
-  // 过渡期 Runner（内存 sink）上报的证据仍叠加在校验视图与落库参数里，阶段 3 协议切换后移除。
+  // D8：证据已在工具 commit 时入库（两条路径均然）；校验按调查内已持久化证据 hydrate。
   registry.load((store.listEvidenceByInvestigation(args.investigation.id) as EvidenceRow[]).map(evidenceRowToRecord));
-  if (args.evidence && args.evidence.length > 0) registry.load(args.evidence);
   const draft = {
     ...args.result.draft,
     missingMaterial: [...args.result.draft.missingMaterial, ...(args.missingMaterial ?? [])],
@@ -159,9 +155,8 @@ export function finalizeEngineResult(
     round,
     completeness: report.completeness,
     reportContent: report,
-    // D8：内联路径的证据已在工具 commit 时落库，这里不再重写；
-    // 仅过渡期 Runner 上报的证据（内存 sink）经此入库，阶段 3 协议切换后为空。
-    evidence: args.evidence ?? [],
+    // D8：证据已在工具 commit 时落库；finalize 只写报告 + 终态 + 投递
+    evidence: [],
     delivery: deliverToIm
       ? {
           kind: "report",
