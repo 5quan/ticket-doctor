@@ -155,7 +155,7 @@ fixtures/             样例日志与样例仓库（demo 用）
 |---|---|---|---|---|---|
 | ✅T1 | **Host 重启进程级验证（已完成）** | 见 `tests/integration/host-restart.test.ts`：SIGKILL → 重启 → 轮次恢复、不重复入队/追加输入 | — | — | — |
 | ✅T2 | **docker 构建 + compose 冒烟（已完成）** | 两镜像构建通过；compose 起 host/adapter，Web/飞书事件/投递均跑通 | — | — | — |
-| T3 | **Go 适配器长连接模式** | 除 Webhook 外支持飞书 WSClient 长连接接收事件（无需公网回调）；与现有转发逻辑复用 | `adapters/go/internal/feishu/`、`internal/adapter/` | 高 | 高 |
+| T3 | **Go 适配器长连接模式（S3）** | 官方 `larkws` 实现 `eventsource.Source`，`ADAPTER_MODE=webhook|ws`；**实施方案见 `docs/adapter-longconn-design.md`** | `adapters/go/internal/eventsource/`、`internal/platform/feishu/longconn.go`、`main.go`、`internal/adapter/` | 高 | 高 |
 | ✅T4 | **多平台抽象（钉钉/Slack）（已完成）** | `Platform` 接口（归一化/校验/发送/长连接）已就位，飞书已迁入；新增第二个平台只需实现接口并在 `BuildPlatforms` 注册（OQ-37） | `adapters/go/internal/platform/` | 高 | 高 |
 | T5 | **Web 页面增强** | 进度按轮次/阶段展示、证据与假设互跳、失败原因高亮、移动端可用；保持无框架 | `src/host/web/`、`src/host/server.ts` | 中 | 高 |
 | ✅T6 | **证据持久化 + 稳定 UID（已完成，OQ-38）** | 工具返回前两阶段提交（材料先落盘再给模型）+ `evidence_uid`/调查内短号续签 + 崩溃恢复 + 报告 v1/v2；按 `docs/evidence-uid-design.md` §11 全部落地 | `src/evidence/`、`src/agent/toolbox.ts`、`src/diagnosis/*`、`src/host/runner-executor.ts`、`src/runner/protocol.ts`、`migrations/006` | 高 | 高 |
