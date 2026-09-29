@@ -178,7 +178,8 @@ export function createHostServer(deps: HostServerDeps): HostServer {
         messages: store.listMessages(investigation.id),
         runs: store.listRunsByInvestigation(investigation.id),
         report: report ? { ...report, content: safeParse(report.content) } : null,
-        evidence: report ? store.listEvidence(report.run_id) : [],
+        // 调查级证据列表（§9.3）：含 evidence_uid / batch_id / run_id，v1/v2 报告都能解析
+        evidence: store.listEvidenceByInvestigation(investigation.id),
       });
     }
 

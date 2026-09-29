@@ -193,6 +193,31 @@ export interface EvidenceBatchRow {
   created_at: number;
 }
 
+/** evidence 表行 → 证据 ref（校验解析、恢复重建、幂等返回共用）。 */
+export function evidenceRowToRef(row: EvidenceRow): EvidenceRef {
+  return {
+    kind: row.kind as EvidenceItem["kind"],
+    source: row.source,
+    excerpt: row.excerpt,
+    ...(row.time_ms !== null ? { time: row.time_ms } : {}),
+    ...(row.level !== null ? { level: row.level } : {}),
+    ...(row.repo_id && row.sha && row.path
+      ? {
+          codeRef: {
+            repoId: row.repo_id,
+            sha: row.sha,
+            path: row.path,
+            startLine: asNumber(row.start_line ?? 0),
+            endLine: asNumber(row.end_line ?? 0),
+          },
+        }
+      : {}),
+    evidenceUid: row.evidence_uid ?? "",
+    evidenceId: row.evidence_id,
+    truncated: asNumber(row.truncated) === 1,
+  };
+}
+
 export class Store {
   readonly db: Db;
   constructor(db: Db) {
@@ -718,6 +743,8 @@ export class Store {
     /** 需要回复到 IM 时提供；Web 发起的轮次不提供（结果只进 EventStore/SSE）。 */
     delivery?: { kind: string; targetMessageId?: string; content: string; idempotencyKey: string };
     contextSummary: string;
+    /** 报告引用格式版本（D7）：2 = evidenceIds 为 evidence_uid；缺省 1 = 历史 run 级 E#。 */
+    referenceFormatVersion?: number;
     now?: number;
   }): { ok: boolean; reportId: string } {
     const now = input.now ?? Date.now();
@@ -756,7 +783,7 @@ export class Store {
       const reportId = randomUUID();
       this.db
         .prepare(
-          "INSERT INTO reports (id, investigation_id, run_id, completeness, content, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+          "INSERT INTO reports (id, investigation_id, run_id, completeness, content, created_at, reference_format_version) VALUES (?, ?, ?, ?, ?, ?, ?)",
         )
         .run(
           reportId,
@@ -765,6 +792,7 @@ export class Store {
           input.completeness,
           JSON.stringify(input.reportContent),
           now,
+          input.referenceFormatVersion ?? 1,
         );
       this.db
         .prepare(
@@ -1256,27 +1284,21 @@ export class Store {
 
   /** 批次内证据（按 item_index 序）的 ref 视图：恢复重建与幂等返回共用。 */
   listEvidenceRefsByBatch(batchId: string): EvidenceRef[] {
-    return (this.evidenceRowsByBatch(batchId) as EvidenceRow[]).map((r) => ({
-      kind: r.kind as EvidenceItem["kind"],
-      source: r.source,
-      excerpt: r.excerpt,
-      ...(r.time_ms !== null ? { time: r.time_ms } : {}),
-      ...(r.level !== null ? { level: r.level } : {}),
-      ...(r.repo_id && r.sha && r.path
-        ? {
-            codeRef: {
-              repoId: r.repo_id,
-              sha: r.sha,
-              path: r.path,
-              startLine: asNumber(r.start_line ?? 0),
-              endLine: asNumber(r.end_line ?? 0),
-            },
-          }
-        : {}),
-      evidenceUid: r.evidence_uid ?? "",
-      evidenceId: r.evidence_id,
-      truncated: asNumber(r.truncated) === 1,
-    }));
+    return (this.evidenceRowsByBatch(batchId) as EvidenceRow[]).map(evidenceRowToRef);
+  }
+
+  /** 按 UID 查调查内证据（报告 v2 引用解析）。 */
+  getEvidenceByUid(investigationId: string, evidenceUid: string): EvidenceRow | undefined {
+    return this.db
+      .prepare("SELECT * FROM evidence WHERE investigation_id = ? AND evidence_uid = ?")
+      .get(investigationId, evidenceUid) as EvidenceRow | undefined;
+  }
+
+  /** 按 (runId, evidenceId) 查证据（历史报告 v1 引用解析）。 */
+  getEvidenceByRunAndId(runId: string, evidenceId: string): EvidenceRow | undefined {
+    return this.db
+      .prepare("SELECT * FROM evidence WHERE run_id = ? AND evidence_id = ?")
+      .get(runId, evidenceId) as EvidenceRow | undefined;
   }
 
   listEvidence(runId: string): Array<{

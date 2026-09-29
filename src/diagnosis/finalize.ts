@@ -5,38 +5,12 @@
 import type { AppConfig } from "../config/index.ts";
 import { renderReportText } from "../domain/report.ts";
 import { onFailure } from "../domain/run-state.ts";
-import type { DiagnosisReport, EvidenceRecord, MaterialScope, RunErrorCode } from "../domain/types.ts";
+import type { DiagnosisReport, MaterialScope, RunErrorCode } from "../domain/types.ts";
 import type { EventStore } from "../host/event-store.ts";
 import type { EngineResult } from "../agent/types.ts";
-import type { ClaimedRun, InvestigationRow, MessageRow, Store, EvidenceRow } from "../storage/store.ts";
-import { asNumber } from "../storage/db.ts";
-import { EvidenceRegistry } from "./evidence.ts";
+import type { ClaimedRun, InvestigationRow, MessageRow, Store } from "../storage/store.ts";
+import { StoreEvidenceResolver } from "../evidence/store-resolver.ts";
 import { validateDraft } from "./validate.ts";
-
-/** evidence 表行 → 证据记录（校验 registry hydrate 用；历史行与 UID 行同构）。 */
-function evidenceRowToRecord(row: EvidenceRow): EvidenceRecord {
-  return {
-    evidenceId: row.evidence_id,
-    runId: row.run_id,
-    kind: row.kind as EvidenceRecord["kind"],
-    source: row.source,
-    excerpt: row.excerpt,
-    truncated: asNumber(row.truncated) === 1,
-    ...(row.time_ms !== null ? { time: row.time_ms } : {}),
-    ...(row.level !== null ? { level: row.level } : {}),
-    ...(row.repo_id && row.sha && row.path
-      ? {
-          codeRef: {
-            repoId: row.repo_id,
-            sha: row.sha,
-            path: row.path,
-            startLine: asNumber(row.start_line ?? 0),
-            endLine: asNumber(row.end_line ?? 0),
-          },
-        }
-      : {}),
-  };
-}
 
 export interface FinalizeDeps {
   store: Store;
@@ -122,30 +96,38 @@ export function finalizeEngineResult(
     return { ok: true, kind: "reply", delivered: deliverToIm };
   }
 
-  const registry = new EvidenceRegistry(claimed.run.id, config.diagnosis.maxResultChars);
-  // D8：证据已在工具 commit 时入库（两条路径均然）；校验按调查内已持久化证据 hydrate。
-  registry.load((store.listEvidenceByInvestigation(args.investigation.id) as EvidenceRow[]).map(evidenceRowToRecord));
   const draft = {
     ...args.result.draft,
     missingMaterial: [...args.result.draft.missingMaterial, ...(args.missingMaterial ?? [])],
   };
   const scope = args.scope ?? EMPTY_SCOPE;
+  // 证据已在工具 commit 时入库（D8）；校验按调查内已持久化证据解析（§9），跨调查结构性不可达。
+  const resolver = new StoreEvidenceResolver(store, args.investigation.id, claimed.run.id);
   const { report } = validateDraft(draft, {
-    registry,
+    resolver,
     scope,
+    investigationId: args.investigation.id,
     executionLimits: [
       `工具调用 ${args.toolCalls}/${config.diagnosis.maxToolCalls}`,
       `时间预算 ${config.diagnosis.timeoutMs}ms`,
     ],
   });
 
-  const content = renderReportText(report, {
-    investigationId: args.investigation.id,
-    sessionCode: args.investigation.session_code,
-    round,
-    title: args.investigation.title ?? undefined,
-    question: args.question,
-  });
+  // v2 报告的 evidenceIds 已统一为 uid；展示层用 uid → 短号映射还原成 [E#]（§9.2.4）
+  const evidenceLabels = new Map(
+    resolver.listByInvestigation(args.investigation.id).map((r) => [r.evidenceUid, r.evidenceId]),
+  );
+  const content = renderReportText(
+    report,
+    {
+      investigationId: args.investigation.id,
+      sessionCode: args.investigation.session_code,
+      round,
+      title: args.investigation.title ?? undefined,
+      question: args.question,
+    },
+    evidenceLabels,
+  );
 
   const finalized = store.finalizeSuccess({
     runId: claimed.run.id,
@@ -157,6 +139,8 @@ export function finalizeEngineResult(
     reportContent: report,
     // D8：证据已在工具 commit 时落库；finalize 只写报告 + 终态 + 投递
     evidence: [],
+    // D7：新报告引用格式为 v2（evidenceIds = evidence_uid）
+    referenceFormatVersion: 2,
     delivery: deliverToIm
       ? {
           kind: "report",

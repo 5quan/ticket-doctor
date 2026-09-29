@@ -164,10 +164,17 @@
       $("report").innerHTML = "";
       return;
     }
-    const evidenceById = new Map((data.evidence || []).map((e) => [e.evidence_id, e]));
+    // 证据解析（§9.3）：v2 引用为 evidence_uid，v1 为历史 run 级 E#；不要把新旧裸 E# 混进同一 Map
+    const evidenceRows = data.evidence || [];
+    const byUid = new Map(evidenceRows.filter((e) => e.evidence_uid).map((e) => [e.evidence_uid, e]));
+    const byRunShort = new Map(evidenceRows.map((e) => [`${e.run_id}|${e.evidence_id}`, e]));
+    const reportRunId = data.report && data.report.run_id;
+    const shortLabel = (id) => (id.length > 12 ? `${id.slice(0, 8)}…` : id);
     const evidenceText = (id) => {
-      const e = evidenceById.get(id);
-      return e ? `<span class="evidence" title="${esc(e.source)}">${esc(e.evidence_id)}</span>` : `<span class="evidence">${esc(id)}</span>`;
+      const e = byUid.get(id) || byRunShort.get(`${reportRunId}|${id}`) || byRunShort.get(`|${id}`);
+      return e
+        ? `<span class="evidence" title="${esc(e.source)}（第 ${esc(e.run_id.slice(0, 8))} 轮记录）">${esc(e.evidence_id)}</span>`
+        : `<span class="evidence" title="${esc(id)}">${esc(shortLabel(id))}</span>`;
     };
     const list = (items) => (items && items.length ? `<ul>${items.map((i) => `<li>${esc(i)}</li>`).join("")}</ul>` : '<div class="muted">无</div>');
 

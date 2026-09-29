@@ -106,7 +106,7 @@ export async function prepareDiagnosis(config: AppConfig, params: PrepareParams)
     allowedRepos: config.sources.allowedRepos,
   };
 
-  const sink = params.sink ?? new MemoryEvidenceSink();
+  const sink = params.sink ?? new MemoryEvidenceSink(params.runId);
   const logSource =
     params.logSource ??
     new FileLogSource({ dir: config.sources.logDir, allowedServices: config.sources.allowedServices });

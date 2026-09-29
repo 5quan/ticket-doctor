@@ -56,7 +56,11 @@ function fmtScope(scope: MaterialScope): string {
   ].join("\n");
 }
 
-export function renderReportText(report: DiagnosisReport, view: ReportView): string {
+export function renderReportText(
+  report: DiagnosisReport,
+  view: ReportView,
+  evidenceLabels?: ReadonlyMap<string, string>,
+): string {
   const lines: string[] = [];
   lines.push(`【预检报告】${view.title ? view.title : "Bug 预检"}`);
   lines.push(`调查 ${view.investigationId} · 第 ${view.round} 轮 · 材料${report.completeness === "complete" ? "完整" : "不完整"}`);
@@ -76,7 +80,8 @@ export function renderReportText(report: DiagnosisReport, view: ReportView): str
     lines.push("- 暂无足够材料形成假设");
   } else {
     report.hypotheses.forEach((h, i) => {
-      const refs = h.evidenceIds.length > 0 ? ` [证据 ${h.evidenceIds.join(",")}]` : "";
+      // v2 报告的 evidenceIds 为 uid：用映射还原成 [E#]；映射缺失时显示短前缀（§9.2.4）
+      const refs = h.evidenceIds.length > 0 ? ` [证据 ${h.evidenceIds.map(label).join(",")}]` : "";
       lines.push(`${i + 1}. (${h.confidence}/${h.status}) ${h.cause}${refs}`);
     });
   }
@@ -113,4 +118,10 @@ export function renderReportText(report: DiagnosisReport, view: ReportView): str
   lines.push("（本报告为开发接手前的预检，根因请以开发确认为准。回复本消息可继续补充材料。）");
   lines.push(buildSessionMarker(view.sessionCode));
   return lines.join("\n");
+
+  function label(id: string): string {
+    const mapped = evidenceLabels?.get(id);
+    if (mapped) return mapped;
+    return id.length > 12 ? `${id.slice(0, 8)}…` : id;
+  }
 }
