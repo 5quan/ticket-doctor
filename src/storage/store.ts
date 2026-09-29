@@ -4,6 +4,8 @@
 // 所有涉及代次（generation）的写操作都必须带 generation 守卫，过期执行者的提交会被拒绝。
 import { randomUUID } from "node:crypto";
 import type { InboundMessage, InvestigationStatus, ReportCompleteness, RunErrorCode, RunStatus } from "../domain/types.ts";
+import type { EvidenceItem, EvidenceRef } from "../evidence/types.ts";
+import { evidencePayloadHash, evidenceSourceOf } from "../evidence/util.ts";
 import { asNumber, transaction, type Db } from "./db.ts";
 
 export interface InvestigationRow {
@@ -153,6 +155,42 @@ export interface DeliveryRow {
   provider_message_id: string | null;
   attempt: number;
   available_at: number;
+}
+
+/** evidence 表行（含 006 迁移新增的 UID/批次列；历史行这三列可为 null）。 */
+export interface EvidenceRow {
+  run_id: string;
+  evidence_id: string;
+  investigation_id: string;
+  kind: string;
+  source: string;
+  excerpt: string;
+  truncated: number;
+  time_ms: number | null;
+  level: string | null;
+  repo_id: string | null;
+  sha: string | null;
+  path: string | null;
+  start_line: number | null;
+  end_line: number | null;
+  created_at: number;
+  evidence_uid: string | null;
+  batch_id: string | null;
+  item_index: number | null;
+}
+
+/** evidence_batches 表行：一次工具调用的证据批次（恢复与幂等的查找键）。 */
+export interface EvidenceBatchRow {
+  batch_id: string;
+  investigation_id: string;
+  run_id: string;
+  attempt_id: string;
+  generation: number;
+  tool: string;
+  tool_call_id: string;
+  payload_hash: string;
+  result_json: string;
+  created_at: number;
 }
 
 export class Store {
@@ -1071,47 +1109,173 @@ export class Store {
 
   // ---------- evidence ----------
 
-  insertEvidence(
-    runId: string,
-    investigationId: string,
-    items: Array<{
-      evidenceId: string;
-      kind: string;
-      source: string;
-      excerpt: string;
-      truncated: boolean;
-      time?: number;
-      level?: string;
-      codeRef?: { repoId: string; sha: string; path: string; startLine: number; endLine: number };
-    }>,
-  ): void {
-    const stmt = this.db.prepare(
-      `INSERT OR IGNORE INTO evidence
-         (run_id, evidence_id, investigation_id, kind, source, excerpt, truncated, time_ms, level,
-          repo_id, sha, path, start_line, end_line, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    );
-    transaction(this.db, () => {
-      for (const item of items) {
-        stmt.run(
-          runId,
-          item.evidenceId,
-          investigationId,
-          item.kind,
-          item.source,
-          item.excerpt,
-          item.truncated ? 1 : 0,
-          item.time ?? null,
-          item.level ?? null,
-          item.codeRef?.repoId ?? null,
-          item.codeRef?.sha ?? null,
-          item.codeRef?.path ?? null,
-          item.codeRef?.startLine ?? null,
-          item.codeRef?.endLine ?? null,
-          Date.now(),
+  /**
+   * 工具证据批次提交（两阶段提交的 Host 侧，docs/evidence-uid-design.md §5.2）。
+   *
+   * 事务内：代次守卫 → payload hash 重算比对 → 批次幂等/冲突判定 → 写批次 →
+   * 调查内短号续签（新号从历史最大 n+1 起，> 所有历史行，与旧数据无冲突）→ 逐条分配 uid 落库。
+   * 失败路径（lease_lost/conflict）不产生任何半批数据；uid 撞唯一索引（理论不会）→ content_conflict。
+   */
+  commitEvidenceBatch(input: {
+    batchId: string;
+    tool: string;
+    toolCallId: string;
+    payloadHash: string;
+    items: EvidenceItem[];
+    result: unknown;
+    investigationId: string;
+    runId: string;
+    attemptId: string;
+    generation: number;
+  }): { ok: true; refs: EvidenceRef[] } | { ok: false; code: "lease_lost" | "conflict" | "content_conflict"; message: string } {
+    try {
+      return transaction(this.db, () => {
+        const guard = this.db
+          .prepare("SELECT id FROM runs WHERE id = ? AND generation = ? AND status = 'running'")
+          .get(input.runId, input.generation);
+        if (!guard) return { ok: false as const, code: "lease_lost" as const, message: "执行租约已失效，证据提交被拒" };
+
+        const hash = evidencePayloadHash(input.items);
+        if (hash !== input.payloadHash) {
+          return { ok: false as const, code: "conflict" as const, message: "payload 与 payload_hash 不一致" };
+        }
+
+        const existing = this.db.prepare("SELECT * FROM evidence_batches WHERE batch_id = ?").get(input.batchId) as
+          | EvidenceBatchRow
+          | undefined;
+        if (existing) {
+          if (existing.payload_hash !== hash) {
+            return { ok: false as const, code: "conflict" as const, message: "同批次 payload_hash 不一致" };
+          }
+          return { ok: true as const, refs: this.evidenceRefsByBatch(input.batchId) };
+        }
+
+        const sameCall = this.db
+          .prepare("SELECT batch_id FROM evidence_batches WHERE run_id = ? AND tool_call_id = ?")
+          .get(input.runId, input.toolCallId) as { batch_id: string } | undefined;
+        if (sameCall) {
+          return {
+            ok: false as const,
+            code: "conflict" as const,
+            message: `tool_call ${input.toolCallId} 已绑定批次 ${sameCall.batch_id}`,
+          };
+        }
+
+        this.db
+          .prepare(
+            `INSERT INTO evidence_batches
+               (batch_id, investigation_id, run_id, attempt_id, generation, tool, tool_call_id, payload_hash, result_json, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            input.batchId,
+            input.investigationId,
+            input.runId,
+            input.attemptId,
+            input.generation,
+            input.tool,
+            input.toolCallId,
+            hash,
+            JSON.stringify(input.result ?? null),
+            Date.now(),
+          );
+
+        const maxRow = this.db
+          .prepare(
+            "SELECT MAX(CAST(SUBSTR(evidence_id, 2) AS INTEGER)) AS n FROM evidence WHERE investigation_id = ? AND evidence_id GLOB 'E[0-9]*'",
+          )
+          .get(input.investigationId) as { n: number | bigint | null };
+        let n = asNumber(maxRow.n ?? 0);
+
+        const insert = this.db.prepare(
+          `INSERT INTO evidence
+             (run_id, evidence_id, investigation_id, kind, source, excerpt, truncated, time_ms, level,
+              repo_id, sha, path, start_line, end_line, created_at, evidence_uid, batch_id, item_index)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         );
+        const refs: EvidenceRef[] = [];
+        input.items.forEach((item, index) => {
+          n += 1;
+          const evidenceId = `E${n}`;
+          const uid = randomUUID();
+          insert.run(
+            input.runId,
+            evidenceId,
+            input.investigationId,
+            item.kind,
+            evidenceSourceOf(item),
+            item.excerpt,
+            (item.truncated ?? false) ? 1 : 0,
+            item.time ?? null,
+            item.level ?? null,
+            item.codeRef?.repoId ?? null,
+            item.codeRef?.sha ?? null,
+            item.codeRef?.path ?? null,
+            item.codeRef?.startLine ?? null,
+            item.codeRef?.endLine ?? null,
+            Date.now(),
+            uid,
+            input.batchId,
+            index,
+          );
+          refs.push({ ...item, evidenceUid: uid, evidenceId, truncated: item.truncated ?? false });
+        });
+        return { ok: true as const, refs };
+      });
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("UNIQUE constraint failed")) {
+        return { ok: false, code: "content_conflict", message: "evidence_uid 冲突（理论不应发生）" };
       }
-    });
+      throw err;
+    }
+  }
+
+  /** 调查级证据列表（校验 hydrate 与 Web 展示用）；编号序按数值而非字典序。 */
+  listEvidenceByInvestigation(investigationId: string): EvidenceRow[] {
+    return this.db
+      .prepare(
+        "SELECT * FROM evidence WHERE investigation_id = ? ORDER BY created_at ASC, CAST(SUBSTR(evidence_id, 2) AS INTEGER) ASC",
+      )
+      .all(investigationId) as never;
+  }
+
+  /** 按 (runId, toolCallId) 找回已提交批次及其证据（崩溃恢复的查找键，D5）。 */
+  getBatchByToolCall(runId: string, toolCallId: string): { batch: EvidenceBatchRow; evidence: EvidenceRow[] } | undefined {
+    const batch = this.db
+      .prepare("SELECT * FROM evidence_batches WHERE run_id = ? AND tool_call_id = ?")
+      .get(runId, toolCallId) as EvidenceBatchRow | undefined;
+    if (!batch) return undefined;
+    return { batch, evidence: this.evidenceRowsByBatch(batch.batch_id) };
+  }
+
+  private evidenceRowsByBatch(batchId: string): EvidenceRow[] {
+    return this.db
+      .prepare("SELECT * FROM evidence WHERE batch_id = ? ORDER BY item_index ASC")
+      .all(batchId) as never;
+  }
+
+  private evidenceRefsByBatch(batchId: string): EvidenceRef[] {
+    return (this.evidenceRowsByBatch(batchId) as EvidenceRow[]).map((r) => ({
+      kind: r.kind as EvidenceItem["kind"],
+      source: r.source,
+      excerpt: r.excerpt,
+      ...(r.time_ms !== null ? { time: r.time_ms } : {}),
+      ...(r.level !== null ? { level: r.level } : {}),
+      ...(r.repo_id && r.sha && r.path
+        ? {
+            codeRef: {
+              repoId: r.repo_id,
+              sha: r.sha,
+              path: r.path,
+              startLine: asNumber(r.start_line ?? 0),
+              endLine: asNumber(r.end_line ?? 0),
+            },
+          }
+        : {}),
+      evidenceUid: r.evidence_uid ?? "",
+      evidenceId: r.evidence_id,
+      truncated: asNumber(r.truncated) === 1,
+    }));
   }
 
   listEvidence(runId: string): Array<{
