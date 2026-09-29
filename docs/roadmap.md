@@ -38,7 +38,7 @@
 ## 阶段二：评测与效果优化（进行中）
 
 - [x] **评测 Benchmark（RSI）— M1**：harness + `checkout-timeout` 5 case + 打分器（`npm run eval`）。真实模型基线：证据召回率 90% / 引用精确率 30.7% / 决策正确率 80%。详见 `docs/eval-design.md`。
-- [ ] **修评测打分器（P0，先做）**：报告 v2 的 `evidenceIds` 是 `evidence_uid`，但 `src/evals/scorer.ts` 仍按 `E#` 建索引 → 精确率/正确率虚低（实测 0%）；属打分 bug，非模型退化。见 `docs/session-handover.md §4`。
+- [x] **修评测打分器（P0）**：已修——`scorer` 同时按 `evidence_uid` 与 `E#` 建索引，`EvidenceRecord` 增 `evidenceUid`；fake 基线修正为**召回 70% / 精确 20% / 正确率 60%**（修复前误报 0%）。见 `docs/session-handover.md §4`。
 - [ ] **评测 Benchmark（RSI）— M2**：`rules.md` 条目化 + 增量 delta + 程序合并（照 ACE）；Pareto + μ_f（照 GEPA）；扩样本（20~30）、judge 版正确率、独立 test 集、CI 门禁。
 - [ ] **评测 Benchmark（RSI）— M3**：L1 自动迭代（`docs/evolve-protocol.md`）、场景迁移验证。
 - [ ] **独立上下文审计 Agent**：证据充分性审查，结构化输出已确认事实/疑似原因/补证请求（OQ-30）。

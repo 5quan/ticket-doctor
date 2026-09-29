@@ -20,7 +20,12 @@ export function scoreCase(c: BenchmarkCase, evidence: EvidenceRecord[], report: 
   const matchedGold = gold.filter((g) => evidence.some((e) => evidenceMatches(e, g)));
   const missedGold = gold.filter((g) => !matchedGold.includes(g)).map(describeLocator);
 
-  const byId = new Map(evidence.map((e) => [e.evidenceId, e]));
+  // 报告 v2 的 evidenceIds 是 evidence_uid，v1 是 run 级 E#；两种都建索引。
+  const byId = new Map<string, EvidenceRecord>();
+  for (const e of evidence) {
+    byId.set(e.evidenceId, e);
+    if (e.evidenceUid) byId.set(e.evidenceUid, e);
+  }
   const cited = report.hypotheses
     .flatMap((h) => h.evidenceIds)
     .map((id) => byId.get(id))

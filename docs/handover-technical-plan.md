@@ -284,7 +284,7 @@ type Platform interface {
 |---|---|---|---|
 | S1 | 5.4 `search_code` 有界预览 | 无 | ✅ 已完成 |
 | S2 | 5.2 多平台抽象（先抽接口+飞书迁入） | 无 | ✅ 已完成 |
-| S0 | **修评测打分器** | 无 | ✅ 待做（**最高优先**）：报告 v2 的 `evidenceIds` 是 uid，scorer 仍按 `E#` 建索引 → 精确率/正确率虚低；见 `docs/session-handover.md §4` |
+| S0 | **修评测打分器** | 无 | ✅ 已完成（v0.3.1）：scorer 同时按 uid 与 E# 建索引；fake 基线修正为 70/20/60 |
 | S3 | 5.1 Go 长连接（SDK） | S2 | 需真实凭据人工验证 |
 | S4 | 5.3 弃用 Host 内直连 | S3 | 一次性清理（注意 `demo.ts` 仍用 `createFeishuGateway`） |
 | S5 | 5.5 证据持久化 + 稳定 UID | 独立 | ✅ 已实现（OQ-38，阶段 1~6；`docs/evidence-uid-design.md`） |

@@ -68,6 +68,26 @@ test("命中 gold 且引用正确 → 三项全满", () => {
   assert.equal(s.correct, true);
 });
 
+test("报告 v2：引用 evidence_uid 也能命中（打分器回归）", () => {
+  const c = baseCase({
+    gold: {
+      answer: "库存超时",
+      evidence: [{ kind: "log", level: "ERROR", substring: "InventoryClient 调用库存服务失败 timeout" }],
+    },
+  });
+  const ev = [
+    { ...logEvidence("E1", "ERROR", "InventoryClient 调用库存服务失败 timeout after 3000ms"), evidenceUid: "uid-1" },
+  ];
+  const s = scoreCase(
+    c,
+    ev,
+    report([{ cause: "库存超时", confidence: "high", status: "supported", evidenceIds: ["uid-1"] }]),
+  );
+  assert.equal(s.recall, 1);
+  assert.equal(s.precision, 1, "uid 引用应能解析出证据（v2 报告）");
+  assert.equal(s.correct, true);
+});
+
 test("被干扰证据带偏 → 不正确且记录引用干扰", () => {
   const c = baseCase({
     gold: {

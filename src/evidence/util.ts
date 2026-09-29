@@ -36,6 +36,7 @@ export function evidenceSourceOf(item: EvidenceItem): string {
 export function evidenceRefToRecord(ref: EvidenceRef, runId: string): EvidenceRecord {
   return {
     evidenceId: ref.evidenceId,
+    ...(ref.evidenceUid ? { evidenceUid: ref.evidenceUid } : {}),
     runId,
     kind: ref.kind,
     source: ref.source ?? evidenceSourceOf(ref),

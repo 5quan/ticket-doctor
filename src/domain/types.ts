@@ -136,6 +136,8 @@ export interface CodeLocator {
 /** 程序签发证据：模型只引用 evidenceId，不负责复述来源与位置。 */
 export interface EvidenceRecord {
   evidenceId: string;
+  /** 稳定身份（证据 v2）；历史/内存路径可能没有。报告 v2 的引用用 uid。 */
+  evidenceUid?: string;
   runId: string;
   kind: EvidenceKind;
   source: string;

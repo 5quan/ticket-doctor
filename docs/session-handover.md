@@ -82,21 +82,18 @@
 
 ---
 
-## 4. 当前最高优先：修评测打分器（真的坏了）
+## 4. 评测打分器（已修复，v0.3.1）
 
-`npm run eval` 实测：召回 70% / 精确 20% / **正确率 0%**。
+**曾经的 bug**：报告 v2 的 `evidenceIds` 存的是 **`evidence_uid`**（`validate.ts`），但
+`src/evals/scorer.ts` 的 `byId` 仍按 **`E#`** 建索引，且 `evidenceRefToRecord` 丢掉了 `evidenceUid`
+→ `byId.get(uid)` 恒 undefined → 诊断类精确率与正确率虚低（实测正确率 **0%**）。
 
-**根因**（不是 D6 去重，是打分器没跟上证据 v2）：
-- `src/diagnosis/validate.ts:125`：报告 v2 的 `evidenceIds` 写的是 **`evidence_uid`**；
-- `src/evals/scorer.ts:23`：`byId = new Map(evidence.map(e => [e.evidenceId, e]))` 仍按 **`E#`** 建索引；
-- `src/evidence/util.ts` 的 `evidenceRefToRecord` 丢掉了 `evidenceUid`。
+**修复**：`EvidenceRecord` 增可选 `evidenceUid`；`evidenceRefToRecord` 带上；`scorer` 同时按
+`evidenceId` 与 `evidenceUid` 建键；新增 v2 打分回归测试（`tests/unit/scorer.test.ts`）。
 
-结果 `byId.get(uid)` 恒 undefined → 诊断类精确率 0、正确率恒 0（**是打分 bug，不是模型退化**）。
-`docs/open-questions.md` OQ-38 里写的"50%/20%/0%"也与实测 70% 不符。
-
-**修法（小）**：`EvidenceRecord` 加可选 `evidenceUid`，`evidenceRefToRecord` 带上；`scorer` 建索引时同时按
-`evidenceId` 与 `evidenceUid` 建键。修完重跑 baseline 并更新 OQ-38 数字。
-**不修的话，阶段二 S7 的所有指标都不可信。**
+**修正后 fake 基线**：`npm run eval` → 召回 **70%** / 精确 **20%** / 正确率 **60%**。
+剩余低分（精确率 20%、ct-004 代码证据缺失、ct-005 材料不足仍 supported）是**真实效果问题**，
+交给阶段二 rules / 审计 Agent，不是打分 bug。
 
 ---
 
@@ -134,7 +131,7 @@ npm run demo        # 离线端到端冒烟
 
 | 优先级 | 任务 | 说明 |
 |---|---|---|
-| **P0** | 修评测打分器（§4） | 小、必须先做，否则指标不可信 |
+| ✅ | ~~修评测打分器（§4）~~ | 已完成（v0.3.1）；fake 基线 70/20/60 |
 | **P0** | S3 Go 长连接 | 官方 `larkws` 实现 `eventsource.Source`，`ADAPTER_MODE=webhook|ws`；需真实凭据人工验证 |
 | P1 | S4 弃用 Host 内直连 | 删 `TD_FEISHU_DIRECT`、`src/integrations/feishu` SDK 路径（**注意 `demo.ts` 也用 `createFeishuGateway`**） |
 | P1 | 独立审计 Agent（OQ-30） | Runner 内新上下文，输出结构化判定，Host 确定性应用 |
