@@ -144,7 +144,7 @@ npm run worker           # 只跑 worker
 
 **下一步（阶段三收口）**：Go 适配器**长连接模式**（S3，官方 SDK，需真实凭据人工验证）；独立审计 Agent。已完成：**证据作用域调查级的迁移与回滚方案定稿**（S5 方案，`docs/evidence-scope-design.md`，已被 `docs/evidence-uid-design.md` 取代）；多平台抽象 + 飞书迁入（S2，OQ-37）；`search_code` 有界预览 + 路径清单（S1，OQ-36）；`list_files` 路径层。
 
-**进行中：无**——**证据持久化 + 稳定 UID 已全部落地（6 个阶段完成，OQ-38）**：006 迁移 + 批次事务；工具先持久化后返回；协议 v2 + Runner IPC sink；崩溃恢复；报告 v1/v2 共存 + 调查级展示；评测走 Store sink（离线基线：召回 50% / 精确 20% / 正确率 0%，D6 口径，见 `docs/eval-design.md`）。
+**进行中：无**——**飞书触发链路修复已落地（门控单点化 + `-help` 机械回复，OQ-39，`docs/feishu-trigger-design.md`）**：适配器只归一化转发（线程回复免 @ 不再丢）、门控与 mechanical 由 Host `planRoute` 单点决策、`ADAPTER_REQUIRE_MENTION` 废弃；为 S3 长连接扫清门控改动。此前已完成：证据持久化 + 稳定 UID（6 阶段，OQ-38）；多平台抽象 + 飞书迁入（S2，OQ-37）；`search_code` 有界预览（S1，OQ-36）；`list_files` 路径层。
 
 **阶段二下一步**：用真实模型迭代 `rules.md`（基线已出：召回 90% / 精确 30.7% / 正确率 80%），修掉「材料不足仍给 supported 结论」与「引用干扰证据」；随后独立审计 Agent。详见 `docs/eval-design.md`。
 

@@ -131,6 +131,10 @@ type Source interface {
 
 ### 5.2 [阶段三] 多平台抽象：钉钉 / Slack（T4）
 
+> **注（已实施的前置修复）**：飞书触发链路修复（门控单点化到 Host `planRoute` + `-help` 机械回复）
+> 已完成（OQ-39，`docs/feishu-trigger-design.md`）。多平台实现时：`Platform.Normalize` 只做协议
+> 解析/归一化（不做 @ 门控），mechanical 回复走 `Send`；各平台的"是否需要 @"配置应挂到 provider 维度。
+
 **目标/验收**：把飞书下沉为一个 `Platform` 实现；新增第二个平台只需实现该接口，**不改 Host**。
 
 **技术方案**：定义平台接口，Webhook 路由与投递循环都按平台分发。

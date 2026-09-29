@@ -264,6 +264,19 @@ Worker claimNextRun() → executeRun()            src/diagnosis/orchestrator.ts
 投递循环 processDeliveriesOnce() → FeishuClient.send() → reply / create
 ```
 
+> 上图为 Host 直连旧链路（`TD_FEISHU_DIRECT=true`）。**经 Go 适配器的新链路**（生产）门控已单点化：
+>
+> ```text
+> 飞书事件 → Go 适配器（Normalize：非 text/空文本忽略，不做 @ 门控）
+>   → POST /api/agent/message → Host planRoute（唯一门控权威，src/intake/router.ts）
+>       ├─ 标号/root/thread/parent 命中调查 → 续接（免 @）
+>       ├─ 未命中 + 群聊 + requireMention + 未 @ → unroutable（fail-closed）
+>       ├─ 门控通过 + text==-help（非 web）→ { decision:"mechanical", mechanicalText }
+>       │     适配器对原消息线程内回复（best-effort），不建调查、不进 deliveries
+>       └─ 其余 → 新建调查 + run
+> ```
+> `botOpenID` 未知时 `IsBotMentioned` 恒为 false（真 fail-closed）：群聊新会话必拒，线程回复不受影响。
+
 ### 8.2 模型可调用的工具
 
 | 工具 | 常驻 | 作用 | 约束 |
