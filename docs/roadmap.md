@@ -7,8 +7,8 @@
 
 | 阶段 | 目标 | 状态 |
 |---|---|---|
-| 一、闭环与治理观测 | 外部触发 → 只读取证 → 结论写回；会话/对话记录满足治理与观测 | 进行中 |
-| 二、评测与效果优化 | Benchmark 评测（RSI）、独立审计 Agent、提示词、skill/经验案例 | 进行中 |
+| 一、闭环与治理观测 | 外部触发 → 只读取证 → 结论写回；会话/对话记录满足治理与观测 | 接近完成（剩：时区统一；脱敏暂缓） |
+| 二、评测与效果优化 | Benchmark 评测（RSI）、独立审计 Agent、提示词、skill/经验案例 | 进行中（M1 已落，打分器待修） |
 | 三、扩展（按触发条件） | 生产诊断 MCP Server、真实日志平台、图片、多机/DB、前端、复现沙箱 | 未开始 |
 
 ---
@@ -17,13 +17,13 @@
 
 **已实现**
 
-- 飞书长连接接入、事件归一化、fail-closed mention 门控、会话路由（标号/线程字段）。
-- SQLite 持久化 + 状态机 + 租约/代次守卫 + 投递（重试/不确定态）。
-- 诊断引擎端口（fake/pi）+ 只读工具 + 证据签发与确定性校验。
-- 交互回复（闲聊/追问）+ 机械回复（`-help`）。
-- 工具结果总量上限 + pi compaction 兜底。
-- 会话日志落盘（逐次工具/消息/token/压缩，JSONL append-only + runs 指针汇总）。
-- 56 个测试，`npm test` 全绿。
+- 接入：Go 适配器（飞书 Webhook + 签名/解密 + 门控单点化 + `-help`）、Host 统一入口、路由与去重。
+- 持久化/调度：SQLite 单库（`session_entries`/`tool_executions`，**无 JSONL**）+ 租约/代次守卫 + 按会话严格轮次 + 投递（重试/不确定态）。
+- 执行：独立 Runner 子进程；引擎端口（fake/pi）+ 6 个只读工具（`query_logs/list_files/search_code/read_code/request_info/submit_report`）。
+- 证据：两阶段提交 + `evidence_uid` + 报告 v1/v2 + 崩溃恢复（OQ-38）。
+- 交互：闲聊/追问 + `-help` 机械回复（Host 出文案、适配器发送）。
+- 上下文防护：单条证据 + 单次工具结果双重截断 + pi compaction。
+- 测试：TS 126 + Go adapter，`npm test` / `npm run test:go` / `typecheck` 全绿。
 
 **待完成（P0）**
 
@@ -35,9 +35,10 @@
 
 ---
 
-## 阶段二：评测与效果优化（未开始）
+## 阶段二：评测与效果优化（进行中）
 
 - [x] **评测 Benchmark（RSI）— M1**：harness + `checkout-timeout` 5 case + 打分器（`npm run eval`）。真实模型基线：证据召回率 90% / 引用精确率 30.7% / 决策正确率 80%。详见 `docs/eval-design.md`。
+- [ ] **修评测打分器（P0，先做）**：报告 v2 的 `evidenceIds` 是 `evidence_uid`，但 `src/evals/scorer.ts` 仍按 `E#` 建索引 → 精确率/正确率虚低（实测 0%）；属打分 bug，非模型退化。见 `docs/session-handover.md §4`。
 - [ ] **评测 Benchmark（RSI）— M2**：`rules.md` 条目化 + 增量 delta + 程序合并（照 ACE）；Pareto + μ_f（照 GEPA）；扩样本（20~30）、judge 版正确率、独立 test 集、CI 门禁。
 - [ ] **评测 Benchmark（RSI）— M3**：L1 自动迭代（`docs/evolve-protocol.md`）、场景迁移验证。
 - [ ] **独立上下文审计 Agent**：证据充分性审查，结构化输出已确认事实/疑似原因/补证请求（OQ-30）。

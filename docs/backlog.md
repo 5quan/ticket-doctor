@@ -3,6 +3,7 @@
 状态：`待办` / `进行中` / `已完成` / `暂缓` / `待探讨`。优先级：P0 最高。
 
 > 路线图见 `roadmap.md`；问题与结论见 `open-questions.md`；接口约束见 `interface.md`。
+> **当前最高优先（P0）见 `docs/session-handover.md §6`：修评测打分器 → S3 长连接 → S4 弃用直连。**
 
 ## 一、飞书端触发的问题
 
@@ -17,9 +18,9 @@
 
 | # | 问题 | 现状 / 决策 | 待探讨点 | 状态 | 优先级 |
 |---|---|---|---|---|---|
-| T1 | 工具使用范围和效果待优化，不确定是否最优解 | 当前 4 个：`query_logs / search_code / read_code / submit_report` | 是否需要更多材料工具（如按 traceId 查、查部署记录、查历史相似 Bug）；哪些工具实际被模型高频使用、哪些形同虚设 | 待探讨 | P1 |
+| T1 | 工具使用范围和效果待优化，不确定是否最优解 | 当前 6 个：`query_logs / list_files / search_code / read_code / request_info / submit_report` | 是否需要更多材料工具（如按 traceId 查、查部署记录、查历史相似 Bug）；哪些工具实际被模型高频使用、哪些形同虚设 | 待探讨 | P1 |
 | T2 | 访问路径和权限需要探讨 | 工具在代码里做白名单与路径校验；pi 内置工具被全部关闭 | 权限边界到底划在哪：按服务/环境/仓库/群聊？是否需要审批？是否需要按人授权？ | 待探讨 | P1 |
-| T3 | **每个工具的信息都需要能够保存下来** | ✅ 已落：每次工具调用的入参、结果、耗时、成败、调用 ID 写入会话 JSONL（`tool_started / tool_completed`） | 留存期与脱敏另议（S1） | 已完成 | P0 |
+| T3 | **每个工具的信息都需要能够保存下来** | ✅ 已落：每次工具调用的入参、耗时、成败、输出规模写入 `tool_executions`（单库）；模型会话条目在 `session_entries` | 留存期与脱敏另议（S1） | 已完成 | P0 |
 | T4 | pi 内置 `read` 是否应该开放 | 当前 `noTools:"builtin"` 全关；用 `read_code` 代替 | 见文末“关于 pi 内置 read” | 待探讨 | P2 |
 | T5 | 工具缺少“路径层” | ✅ 已补 `list_files`（钉死 SHA 上 `git ls-tree -r --name-only`，glob 过滤 + 路径清单证据）；✅ `search_code` 已改“有界预览 + 路径清单”（清单 ≤20 文件 + 前 8 处预览，见 OQ-36） | 预览条数/清单上限按真实使用再调 | 已完成 | P1 |
 | T6 | 证据不足时 @ 相关人员补证 | `request_info` 只向触发者追问 | 支持在飞书话题 @ 指定人员补充业务背景/文档，作为补证渠道（注意权限与 scope） | 待办 | P2 |
@@ -28,8 +29,8 @@
 
 | # | 问题 | 现状 | 建议 | 状态 | 优先级 |
 |---|---|---|---|---|---|
-| O1 | 逐次工具调用未落盘 | ✅ 已落：会话 JSONL（`tool_started / tool_completed`）；`run_events` 保留生命周期事件 | 与 T3 合并完成 | 已完成 | P0 |
-| O2 | 模型对话未落盘 | ✅ 已落：pi `entry_appended` → 会话 JSONL（`message / usage / compaction`），可回放 | 见 P1 | 已完成 | P1 |
+| O1 | 逐次工具调用未落盘 | ✅ 已落：`tool_executions`（入参/耗时/成败/输出规模）；`run_events` 保留生命周期事件 | 与 T3 合并完成 | 已完成 | P0 |
+| O2 | 模型对话未落盘 | ✅ 已落：pi `entry_appended` → `session_entries`（`message / usage / compaction`），可回放 | 见 P1 | 已完成 | P1 |
 | O3 | token / 成本用量未记录 | ✅ 已落：usage 事件 + `runs` 表 token 汇总列 | 纳入预算待做（阶段二评测用） | 已完成 | P1 |
 | O4 | 进度未反馈 | 只在最终报告回复 | 补“已接收 / 开始执行”轻量回复 | 待办 | P2 |
 
@@ -37,7 +38,7 @@
 
 | # | 问题 | 现状 / 判断 | 建议 | 状态 | 优先级 |
 |---|---|---|---|---|---|
-| P1 | 模型对话 / 工具调用 / token 的持久化模型 | ✅ 已定：会话 JSONL（真相源）+ `runs` 指针/汇总 | 见 `docs/handover.md`；脱敏另议（S1） | 已完成 | P0 |
+| P1 | 模型对话 / 工具调用 / token 的持久化模型 | ✅ 已定：单库 `session_entries`（真相源）+ `tool_executions` + `runs`/`attempts` 汇总 | 见 `docs/session-log-design.md`；脱敏另议（S1） | 已完成 | P0 |
 | P2 | 是否引入 PostgreSQL | 当前单机 SQLite(WAL)，4 worker，写入量很小 | **单机阶段不必上**：PG 解决的是多进程/多机写入并发与运维，不是“持久化能力”；代价是 Store 全异步、迁移全部调用点。**触发条件**：多机部署、或单机写入成为瓶颈时再评估 | 待探讨 | P3 |
 | P3 | 跨轮上下文与证据传递 | ✅ 证据部分已实施（OQ-38）：`evidence_uid` 全局唯一、调查内短号续签跨轮不重置、历史证据可跨轮引用（报告 v2 引用 uid）；上下文仍只传上一轮报告摘要（有损） | 上下文复用（历史证据目录带入对话）另行设计；评测 M2 重跑基线（D6 口径变化） | 进行中 | P2 |
 | P4 | 会话持久化改为单库（SQLite） | ✅ 已实施 v0：`session_entries`（pi 条目 + 调查内 seq + 代次守卫）+ `tool_executions`；引擎读回写 seed 给 pi 重建、崩溃 `reconcileSession` 补收尾后 `Agent.continue()`；JSONL 移除 | 后续：证据作用域、回放 CLI（A9）、pi 升级后可去掉 seed 文件 | 已完成 | P2 |
@@ -47,7 +48,7 @@
 
 | # | 问题 | 现状 | 建议 | 状态 | 优先级 |
 |---|---|---|---|---|---|
-| S1 | 日志/源码未脱敏 | 工具输出原样进模型与 `evidence` 表，**无脱敏逻辑** | 工具边界脱敏（手机/邮箱/token/密钥/身份证），落盘前生效 | 待办 | P0 |
+| S1 | 日志/源码未脱敏 | 工具输出原样进模型与 `evidence` 表，**无脱敏逻辑** | 工具边界脱敏（手机/邮箱/token/密钥/身份证），落盘前生效 | 暂缓（用户已决定） | P0 |
 | S2 | 工具结果总大小未单独设限 | 已加“单次工具返回总字符数”上限（`TD_MAX_TOOL_RESULT_CHARS`，默认 8000），超出截断并提示；`read_code` 也改为只回已截断正文 | ✅ 已完成 | P2 |
 
 ## 六、材料源
@@ -61,7 +62,7 @@
 | # | 问题 | 现状 / 决策 | 状态 |
 |---|---|---|---|
 | R1 | 出站消息映射（回复机器人 → 归入原调查） | 依赖 `root_id`；未做 `provider_message_id → investigation` 反查 | **暂缓（已决定不做）** |
-| R2 | pi 会话文件持久化 | 有意不启用；当前用 `contextSummary` 传多轮 | 暂缓（并入 P1 一起定） |
+| R2 | pi 会话文件持久化 | ✅ 已并入 P4：`session_entries` 单库持久化 + seed 重建 | 已完成 |
 
 ## 八、工程与体验
 
@@ -99,7 +100,7 @@
 
 | # | 问题 | 现状 | 建议 | 状态 | 优先级 |
 |---|---|---|---|---|---|
-| D1 | 部署形态未固化 | 有 `gateway` / `worker` 两个入口，可内嵌 | Docker 单容器 + 只读挂载（repos/logs）+ 数据卷；镜像装 git | 待办 | P1 |
+| D1 | 部署形态未固化 | ✅ `Dockerfile` + `adapters/go/Dockerfile` + `docker-compose.yml`（host/adapter + 数据卷 + 源码/日志只读挂载）；已构建并整链路冒烟 | 真实环境（真实仓库/日志/凭据）部署演练 | 已完成 | P1 |
 | D2 | 仓库来源与更新 | 服务只读本地路径；云端未接 | 本地镜像 + 外部同步器（cron/CI/webhook）；凭据只给同步器 | 待办 | P1 |
 
 ---
@@ -118,7 +119,7 @@
 | A6 | 反馈表（接受率/修正率） | 无反馈采集 | 反馈晚到、异步，**单独表 + 单独入口**（引用报告判对/错/修正）；绑定 rules/model 版本；指标分母只算「有反馈的」 | 待办 | P2 |
 | A7 | 生产 run 版本绑定（provenance） | 生产 run 未记录 rules/prompt/模型/工具版本（eval 里记了 gitRev） | run 上记录版本指纹；是归因、反馈联动与回放的前提 | 待办 | P1 |
 | A8 | 生产→评测 flywheel | 评测集是手搓合成样例 | 把真实失败/人工修正沉淀为评测候选（人工标 gold 后入集），让评测集从现实长大 | 待办 | P2 |
-| A9 | 复跑/回放工具 | 有会话 JSONL，但无「重建输入并复跑」的工具 | 提供按 run 回放/复跑，定位「为什么这么判」 | 待办 | P2 |
+| A9 | 复跑/回放工具 | 有 `session_entries`/`tool_executions`，但无「重建输入并复跑」的工具 | 提供按 run 回放/复跑，定位「为什么这么判」 | 待办 | P2 |
 | A10 | 证据可信度分级 + 外部内容 untrusted | 所有证据同权；日志/用户输入可被注入 | 给证据加 trust 级别（code/config=authoritative，log=observed，user=reported，外部内容=untrusted），程序签发；用于推理优先级、校验与安全 | 待办 | P2 |
 | A11 | 冲突证据显式化 | 证据矛盾时模型可能只挑一个 | 强制显式呈现冲突（「倾向 A 但 B 未排除」），作为审计 Agent 的天然输入 | 待办 | P2 |
 
@@ -134,7 +135,7 @@
 | H2 | 按会话严格轮次调度 | ✅ `runs.round` + 队首约束 + 会话间公平 + 取消 | 补调度公平性/饥饿的专项测试 | 已完成 | P0 |
 | H3 | 独立 Agent Runner | ✅ `TD_RUNNER_MODE=process`，每轮独立子进程，Host 监管 | 长驻 Runner 池（减少冷启动）待评估 | 已完成 | P0 |
 | H4 | Host Web API + SSE | ✅ message/investigations/events(SSE replay)/cancel/retry/deliveries | 补鉴权与 CORS 白名单（当前开放） | 已完成 | P0 |
-| H5 | Go 接入适配器 | ◐ 飞书 Webhook + fail-closed 门控 + 投递轮询 | 长连接模式、真签名校验、钉钉/Slack、多平台注册 | 进行中 | P1 |
+| H5 | Go 接入适配器 | ✅ 飞书 Webhook（归一化/签名+解密/去重）+ 门控单点化 + `-help` + 投递轮询；✅ `internal/platform.Platform` 多平台接口 + 飞书迁入（OQ-37） | 长连接（S3）、钉钉/Slack 实装、每平台独立配置 | 进行中 | P1 |
 | H6 | Web 会话页面 | ✅ Host 托管静态页（`src/host/web/`）：调查列表 / 消息时间线 / 轮次状态与取消重试 / 证据报告 / SSE 实时事件；浏览器自带 Last-Event-ID 重连 | 登录与权限（当前无）、移动端优化 | 已完成 | P1 |
 | H7 | 阶段五故障注入与部署 | ✅ 故障注入（超时/取消/租约恢复/僵尸提交）；✅ Host 强杀重启进程级验证；✅ compose 镜像构建与整链路冒烟（Web/飞书事件/投递） | 真实环境（真实仓库+日志+飞书凭据）部署演练 | 已完成 | P0 |
 

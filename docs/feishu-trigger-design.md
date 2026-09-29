@@ -1,7 +1,9 @@
 # 飞书触发链路修复（门控单点化 + `-help` 机械回复）设计方案
 
-> 状态：**设计定稿，待实现**。范围小、风险低，建议在 S3 长连接之前先做（长连接复用同一 `HandleEvent`，修好后不必再动门控）。
-> 遵守 `docs/handover.md §7` 的 DoD：基线 → 一次一件 → typecheck/test（含 Go）→ 文档 → commit/push。
+> 状态：**已实现（7 步全部落地，见 OQ-39）**。实现提交：`67fe965`（`IsBotMentioned` fail-closed）、`7738880`（HELP_TEXT 共享）、
+> `6bf6d15`（Host 门控单点化）、`99ccdf2`（mechanicalText）、`93e204c`（适配器删门控 + mechanical 发送）、
+> `9dfd9c6`+`b44d746`（删 `ADAPTER_REQUIRE_MENTION`）、`d7408ab`（文档登记）。
+> 本文保留为实现依据与决策记录。
 
 ---
 

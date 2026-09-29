@@ -40,7 +40,7 @@
 
 | 模块 | 内容 | 状态 |
 |---|---|---|
-| 飞书接入 | 官方 SDK 长连接、事件归一化、fail-closed mention 门控 | ✅ 真机跑通 |
+| 飞书接入（经 Go 适配器） | Webhook：事件归一化、签名/Encrypt Key 解密、去重；@ 门控单点在 Host（群聊新会话必须 @）；`-help` 机械回复 | ◐ 长连接（S3）待做 |
 | 会话路由 | 标号 `[TD-xxxxxxxx]` / root / thread / parent；不同群不合并 | ✅ 真机跑通 |
 | 持久化 | SQLite(`node:sqlite`) schema：inbound/investigation/messages/runs/attempts/run_events/**session_entries/tool_executions**/evidence/reports/deliveries | ✅ |
 | 调度 | worker 池、同调查串行 / 不同调查并行、租约 + 代次守卫、过期回收 | ✅ |
@@ -61,7 +61,7 @@
 | Web 会话页面 | Host 托管静态页（`src/host/web/`）：列表/时间线/轮次状态与取消重试/证据报告，SSE 自动重连 | ✅ 阶段4 |
 | Go 接入适配器 | `adapters/go`：`Platform` 多平台接口（OQ-37）+ 飞书实现（事件归一化、fail-closed mention 门控、签名校验/Encrypt Key 解密、转发 Host、投递轮询发送）；钉钉/Slack 骨架；回调路由 `/{platform}/events`，投递按 provider 路由 | ◐ 阶段3（Webhook + 多平台抽象就位，长连接待做） |
 | 故障与部署 | Host 强杀重启恢复（进程级测试）；Dockerfile + docker-compose（host/adapter + 数据卷 + 只读挂载），compose 整链路冒烟通过 | ✅ 阶段5 |
-| 测试 | TS 119 个（单元 + 集成）+ Go adapter 测试，`npm test` / `npm run test:go` 全绿 | ✅ |
+| 测试 | TS 126 个（单元 + 集成）+ Go adapter 测试，`npm test` / `npm run test:go` / `typecheck` 全绿 | ✅ |
 
 **未实现 / 明确边界**
 
@@ -128,29 +128,21 @@ npm run worker           # 只跑 worker
 
 ## 六、当前进度与下一步
 
-**本轮已落地（Host / Runner / 接入层重构）**：见 `docs/host-runner-design.md`（含与平台文档的差异、迁移、接口、验收）。
+> **最新会话概要见 `docs/session-handover.md`（先读那个）**。本节只留长期口径。
+
+**已完成（主干闭环：外部触发 → 会话创建 → 执行 → 结果返回）**
 
 - 阶段 1：Host 统一入口 + 原子入队 + 按会话严格轮次 + 会话间公平 + 取消 + 来源路由。
 - 阶段 2：独立 Agent Runner 子进程 + Host 监管 + NDJSON 回写（`TD_RUNNER_MODE=process`）。
-- 阶段 4：Host Web API + EventStore/SSE replay + 投递 claim/result（供适配器发送）。
-- 阶段 3：Go 接入适配器骨架（飞书 Webhook + 投递轮询），`adapters/go`。
+- 阶段 4：Host Web API + EventStore/SSE replay + Web 会话页 + 投递 claim/result。
+- 阶段 3：Go 接入适配器（飞书 Webhook + 签名/解密 + 门控单点化 + `-help`；多平台接口 OQ-37）；**长连接 S3 待做**。
+- 阶段 5：故障注入 + Host 强杀重启 + docker-compose 整链路验证。
+- 证据：两阶段提交 + 稳定 UID + 报告 v1/v2（OQ-38）；工具 6 个（含 `list_files`、`search_code` 有界预览）。
+- 评测：M1 harness；**打分器未适配证据 v2（bug，优先修）**。
 
-**阶段一剩余 P0**
+**最高优先**：修评测打分器 → S3 长连接 → S4 弃用 Host 内直连 → 独立审计 Agent（OQ-30）→ 评测 M2/M3。
 
-1. 落盘前**脱敏**（S1）——你已决定暂缓。
-2. 时区展示统一（报告材料范围已本地化）。
-
-**已落地**：逐次落盘（T3/O1/O2/O3/P1）；评测 Benchmark **M1**（harness + `checkout-timeout` 场景 5 case + 打分器，`npm run eval`）。
-
-**下一步（阶段三收口）**：Go 适配器**长连接模式**（S3，官方 SDK，需真实凭据人工验证）；独立审计 Agent。已完成：**证据作用域调查级的迁移与回滚方案定稿**（S5 方案，`docs/evidence-scope-design.md`，已被 `docs/evidence-uid-design.md` 取代）；多平台抽象 + 飞书迁入（S2，OQ-37）；`search_code` 有界预览 + 路径清单（S1，OQ-36）；`list_files` 路径层。
-
-**进行中：无**——**飞书触发链路修复已落地（门控单点化 + `-help` 机械回复，OQ-39，`docs/feishu-trigger-design.md`）**：适配器只归一化转发（线程回复免 @ 不再丢）、门控与 mechanical 由 Host `planRoute` 单点决策、`ADAPTER_REQUIRE_MENTION` 废弃；为 S3 长连接扫清门控改动。此前已完成：证据持久化 + 稳定 UID（6 阶段，OQ-38）；多平台抽象 + 飞书迁入（S2，OQ-37）；`search_code` 有界预览（S1，OQ-36）；`list_files` 路径层。
-
-**阶段二下一步**：用真实模型迭代 `rules.md`（基线已出：召回 90% / 精确 30.7% / 正确率 80%），修掉「材料不足仍给 supported 结论」与「引用干扰证据」；随后独立审计 Agent。详见 `docs/eval-design.md`。
-
-**阶段三**：生产诊断 MCP Server（工具外化）、真实日志平台、图片等。
-
-**明确边界**：不复现、不写业务系统、不自动修复；生产只读。
+**暂缓/边界**：脱敏（S1）、出站消息映射；不做权限体系；不复现、不写业务系统、不自动修复；生产只读。
 
 ## 七、交接规程
 
@@ -158,7 +150,8 @@ npm run worker           # 只跑 worker
 
 ### 7.1 会话开始（阅读顺序）
 
-0. （新接手的 Agent）先读 `docs/contributor-onboarding.md` —— 十分钟上手 + 任务菜单；
+0. （新接手的 Agent）先读 `docs/session-handover.md` —— 最新会话概要；
+   再读 `docs/contributor-onboarding.md` —— 十分钟上手 + 任务菜单；
    再读 `docs/handover-technical-plan.md` —— 剩余工作的技术方案与推荐执行顺序。
 1. `docs/handover.md`（本文）—— 目标 / 实现 / 决策 / 进度 / 下一步。
 2. `docs/roadmap.md` —— 当前阶段与优先级。

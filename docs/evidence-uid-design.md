@@ -1,11 +1,14 @@
 # 证据持久化与稳定 UID 设计（Evidence Durability + Stable UID）
 
-> 状态：**设计定稿，待实现**。取代 `docs/evidence-scope-design.md`（那份的"选项 B：部分唯一索引 + seed 续号"不再单独实施，
-> 其"调查内短号续签"思想被本文 §3 吸收）。
-> 实现会话请按本文 §11 的顺序做，一次一件事，遵守 `docs/handover.md §7` 的 DoD。
-> 本文所有接口名/表名/常量为**建议实现细节**，以本文为准；偏离前先在 `docs/open-questions.md` 登记。
+> 状态：**已实现（阶段 1~6 全部落地，见 OQ-38）**。实现提交：`38a26e4`（迁移 006 + 批次事务）、`d6c5d42`（工具两阶段提交）、
+> `a48ac1c`（协议 v2）、`ae7ba93`（崩溃恢复）、`a6bdfab`（报告 v1/v2）、`fc75ec0`（评测走 Store sink）。
+> 取代 `docs/evidence-scope-design.md`（那份的"选项 B：部分唯一索引 + seed 续号"不再单独实施，其"调查内短号续签"思想被本文 §3 吸收）。
+> 本文保留为实现依据与决策记录；后续变更先在 `docs/open-questions.md` 登记。
+> **已知遗留**：离线评测打分器尚未适配 v2（报告 `evidenceIds` 是 uid，`src/evals/scorer.ts` 仍按 `E#` 建索引 → 精确率/正确率虚低），见 `docs/session-handover.md`。
 
 ---
+
+> 注：以下为设计原文（实现时按此落地，已由上面提交完成）。
 
 ## 0. 背景（代码事实，已核对）
 
