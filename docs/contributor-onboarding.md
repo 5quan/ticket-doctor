@@ -158,7 +158,7 @@ fixtures/             样例日志与样例仓库（demo 用）
 | T3 | **Go 适配器长连接模式** | 除 Webhook 外支持飞书 WSClient 长连接接收事件（无需公网回调）；与现有转发逻辑复用 | `adapters/go/internal/feishu/`、`internal/adapter/` | 高 | 高 |
 | ✅T4 | **多平台抽象（钉钉/Slack）（已完成）** | `Platform` 接口（归一化/校验/发送/长连接）已就位，飞书已迁入；新增第二个平台只需实现接口并在 `BuildPlatforms` 注册（OQ-37） | `adapters/go/internal/platform/` | 高 | 高 |
 | T5 | **Web 页面增强** | 进度按轮次/阶段展示、证据与假设互跳、失败原因高亮、移动端可用；保持无框架 | `src/host/web/`、`src/host/server.ts` | 中 | 高 |
-| T6 | **证据作用域提升到调查级** | `E#` 从 run 内唯一改为调查内唯一，跨轮可复用（见 `docs/open-questions.md` OQ-33）；迁移 + 校验适配 | `src/diagnosis/evidence.ts`、`src/diagnosis/validate.ts`、`migrations/`、`src/storage/store.ts` | 中 | 中 |
+| T6 | **证据作用域提升到调查级** | `E#` 从 run 内唯一改为调查内唯一，跨轮可复用；迁移与回滚方案已定稿（`docs/evidence-scope-design.md`），按其 §8 清单实现 | `src/diagnosis/evidence.ts`、`src/diagnosis/validate.ts`、`migrations/`、`src/storage/store.ts` | 中 | 中 |
 | ✅T7 | **`search_code` 有界预览 + 路径清单（已完成）** | 输出改为“按文件聚合的路径清单（≤20 文件）+ 前 8 处带 [E#] 的预览”；每处命中仍签 `E#`，validate 语义不变（OQ-36） | `src/agent/toolbox.ts`、`src/agent/pi-engine.ts` | 中 | 中 |
 | T8 | **tool_executions 回放** | 按调查展示每次工具调用（入参/耗时/成败/结果规模），供审计与排查 | `src/storage/store.ts`、`src/host/server.ts`、`src/host/web/` | 中 | 中 |
 | T9 | **独立审计 Agent（OQ-30）** | 把「证据是否充分」剥离到独立上下文，结构化输出已确认事实/疑似原因/补证请求 | `src/diagnosis/`、`src/agent/` | 高 | 高 |

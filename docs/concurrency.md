@@ -35,7 +35,7 @@
 | W7 | 投递"发没发出去不知道" → `uncertain` 后的收敛 | 有 uncertain 态 | 平台幂等 + 人工兜底 |
 | W8 | `claimNextRun` 与 `recoverExpiredLeases` 是两个事务，存在时序窗口 | `BEGIN IMMEDIATE` 串行 | 审计窗口是否可导致双领 |
 | W9 | `recordSessionLog` 的 attempt 维度更新按 `id + run + generation`；迟到写入语义 | 已加守卫 | 确认 abort 后迟到写入不会污染 |
-| W10 | `evidence` 主键 `(run_id, evidence_id)`；跨 attempt 复用 / 调查作用域改造 | run 内 E# 重开 | 见 OQ-33 证据作用域 |
+| W10 | `evidence` 主键 `(run_id, evidence_id)`；跨 attempt 复用 / 调查作用域改造 | run 内 E# 重开 | 方案已定稿：`docs/evidence-scope-design.md`（部分唯一索引 + seed 续号，轮次串行保证无编号竞争） |
 | W11 | ~~会话文件无锁~~ | **已消除**：会话条目进 SQLite `session_entries`，写者由 SQLite 事务串行化，无文件级撕裂 | — |
 | W12 | `investigations.context_summary / total_rounds` 无代次守卫（终态同事务更新） | finalize 事务内 | 审计是否可被迟到写入覆盖 |
 

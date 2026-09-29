@@ -97,5 +97,5 @@ Go 接入适配器（adapters/go）                  │
 
 - Go 适配器：长连接（WSClient）模式、钉钉/Slack、真正签名校验（当前为 token 校验）。
 - Web 会话页已提供（列表/时间线/进度/证据报告，SSE 实时刷新）；**登录与权限**待做（当前无限制），移动端待优化。
-- 证据作用域从 run 内 `E#` 提升到调查作用域（OQ-33）。
+- 证据作用域从 run 内 `E#` 提升到调查作用域（迁移与回滚方案见 `docs/evidence-scope-design.md`）。
 - 阶段五故障注入测试与部署收口（docker-compose：host + adapter + 数据卷）。

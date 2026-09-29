@@ -72,7 +72,7 @@
 - 独立上下文审计 Agent（证据充分性审查，见 `open-questions.md` OQ-30）。
 - 仓库同步器（本地只读镜像由外部更新）。
 - 出站消息映射（已决定暂缓）；跨轮证据复用。
-- 证据作用域仍为 run 内 `E#`（调查作用域待做，见 OQ-33）。
+- 证据作用域仍为 run 内 `E#`（调查作用域待做，迁移与回滚方案见 `docs/evidence-scope-design.md`）。
 
 **运行方式**
 
@@ -142,7 +142,7 @@ npm run worker           # 只跑 worker
 
 **已落地**：逐次落盘（T3/O1/O2/O3/P1）；评测 Benchmark **M1**（harness + `checkout-timeout` 场景 5 case + 打分器，`npm run eval`）。
 
-**下一步（阶段三收口）**：Go 适配器**长连接模式**（S3，官方 SDK）；Web 登录与权限；独立审计 Agent。已完成：多平台抽象 + 飞书迁入（S2，OQ-37）；`search_code` 有界预览 + 路径清单（S1，OQ-36）；`list_files` 路径层。
+**下一步（阶段三收口）**：Go 适配器**长连接模式**（S3，官方 SDK，需真实凭据人工验证）；独立审计 Agent。已完成：**证据作用域调查级的迁移与回滚方案定稿**（S5 方案，`docs/evidence-scope-design.md`，待独立会话实现）；多平台抽象 + 飞书迁入（S2，OQ-37）；`search_code` 有界预览 + 路径清单（S1，OQ-36）；`list_files` 路径层。
 
 **阶段二下一步**：用真实模型迭代 `rules.md`（基线已出：召回 90% / 精确 30.7% / 正确率 80%），修掉「材料不足仍给 supported 结论」与「引用干扰证据」；随后独立审计 Agent。详见 `docs/eval-design.md`。
 
