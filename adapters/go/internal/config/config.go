@@ -20,6 +20,10 @@ type Config struct {
 	// 调用 Host 的超时。
 	HostTimeout time.Duration
 
+	// 事件接入模式：webhook（默认，飞书回调到 /{platform}/events）| ws（飞书长连接）。
+	// 未知值在启动时直接报错。
+	Mode string
+
 	// 启用的平台列表（回调路由 /{platform}/events 与投递路由键）。
 	// 空缺省 ["feishu"]；未知平台名在启动时直接报错。
 	Platforms []string
@@ -36,6 +40,8 @@ type Config struct {
 	LarkAPIBase string
 	// 飞书 API 调用超时。
 	LarkTimeout time.Duration
+	// 长连接（larkws）SDK 日志级别：debug | info | warn | error；留空用 SDK 默认。
+	LarkLogLevel string
 
 	// 投递轮询间隔。
 	PollInterval time.Duration
@@ -95,6 +101,7 @@ func Load() Config {
 		Addr:              env("ADAPTER_ADDR", "0.0.0.0:3002"),
 		HostAPIBase:       env("HOST_API_BASE", "http://127.0.0.1:3000/api/agent"),
 		HostTimeout:       envDuration("HOST_TIMEOUT_MS", 5*time.Second),
+		Mode:              env("ADAPTER_MODE", "webhook"),
 		Platforms:         platforms,
 		AppID:             os.Getenv("LARK_APP_ID"),
 		AppSecret:         os.Getenv("LARK_APP_SECRET"),
@@ -103,6 +110,7 @@ func Load() Config {
 		BotOpenID:         os.Getenv("LARK_BOT_OPEN_ID"),
 		LarkAPIBase:       env("LARK_API_BASE", "https://open.feishu.cn/open-apis"),
 		LarkTimeout:       envDuration("LARK_TIMEOUT_MS", 5*time.Second),
+		LarkLogLevel:      os.Getenv("LARK_LOG_LEVEL"),
 		PollInterval:      envDuration("ADAPTER_POLL_INTERVAL_MS", 1000),
 	}
 }

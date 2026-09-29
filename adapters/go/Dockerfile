@@ -1,7 +1,8 @@
 # Go 接入适配器镜像：静态二进制 + 最小运行镜像。
 FROM golang:1.22-bookworm AS build
 WORKDIR /src
-COPY go.mod ./
+COPY go.mod go.sum ./
+RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 go build -trimpath -o /out/adapter .
 
