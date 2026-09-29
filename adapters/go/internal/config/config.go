@@ -5,6 +5,7 @@
 package config
 
 import (
+	"log"
 	"os"
 	"strconv"
 	"strings"
@@ -29,10 +30,8 @@ type Config struct {
 	VerificationToken string
 	// 事件订阅 Encrypt Key：配置后校验签名并解密 encrypt 事件体。
 	EncryptKey string
-	// 机器人 open_id；未知时群聊 fail-closed。
+	// 机器人 open_id；未配置时由 Host 门控按 fail-closed 拒绝群聊新会话（线程回复不受影响）。
 	BotOpenID string
-	// 群聊是否必须 @机器人（默认 true）。
-	RequireMention bool
 	// 飞书 OpenAPI 基址（测试可覆盖）。
 	LarkAPIBase string
 	// 飞书 API 调用超时。
@@ -87,6 +86,10 @@ func Load() Config {
 	platforms := envList("ADAPTER_PLATFORMS")
 	if len(platforms) == 0 {
 		platforms = []string{"feishu"}
+	}
+	// 门控已单点化到 Host（feishu-trigger-design §2.1）：ADAPTER_REQUIRE_MENTION 不再读取，仅提示。
+	if os.Getenv("ADAPTER_REQUIRE_MENTION") != "" {
+		log.Println("[adapter] 提示：ADAPTER_REQUIRE_MENTION 已废弃，@ 门控由 Host 决策（线程回复免 @）")
 	}
 	return Config{
 		Addr:              env("ADAPTER_ADDR", "0.0.0.0:3002"),

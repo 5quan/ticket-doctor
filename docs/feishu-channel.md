@@ -49,7 +49,9 @@ await ws.start({ eventDispatcher: dispatcher });
 
 - 每条机器人回复末尾都带 `[TD-xxxxxxxx]`，用户引用任意历史回复即可继续。
 - 不同群聊的调查**不自动合并**：所有查找都带 `chat_id`。
-- 群聊新会话默认必须 `@机器人`；已有线程的回复可免 @（可用 `FEISHU_REQUIRE_MENTION=false` 关闭）。
+- 群聊新会话默认必须 `@机器人`；**线程内回复/带标号续接可免 @**（可用 `FEISHU_REQUIRE_MENTION=false` 关闭）。
+  门控权威单点在 Host `planRoute`（`src/intake/router.ts`）：Go 适配器只归一化转发，不做 @ 丢弃——
+  `ADAPTER_REQUIRE_MENTION` 已废弃。`-help` 由 Host 返回机械文案（不建调查、不跑模型），适配器发送。
 
 ## 四、为什么这样不绕弯路
 

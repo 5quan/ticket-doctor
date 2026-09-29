@@ -37,17 +37,18 @@ Encrypt Key 签名校验（`X-Lark-Signature = sha256(timestamp+nonce+encryptKey
 | `LARK_APP_ID` / `LARK_APP_SECRET` | — | 飞书应用凭证（发送用） |
 | `LARK_VERIFICATION_TOKEN` | — | 事件回调校验 token |
 | `LARK_ENCRYPT_KEY` | — | 配置后校验 `X-Lark-Signature` 并 AES-256-CBC 解密 `encrypt` 事件体 |
-| `LARK_BOT_OPEN_ID` | — | 机器人 open_id；未知时群聊 fail-closed |
-| `ADAPTER_REQUIRE_MENTION` | `true` | 群聊是否必须 @机器人 |
+| `LARK_BOT_OPEN_ID` | — | 机器人 open_id；未配置时群聊新会话由 Host 门控 fail-closed 拒绝（线程回复不受影响） |
 | `LARK_API_BASE` | `https://open.feishu.cn/open-apis` | OpenAPI 基址（测试可覆盖） |
 | `ADAPTER_POLL_INTERVAL_MS` | `1000` | 投递轮询间隔 |
+
+> `ADAPTER_REQUIRE_MENTION` 已废弃：@ 门控由 Host 单点决策（`ADAPTER_REQUIRE_MENTION` 不再读取）。
 
 ## 职责边界
 
 | 组件 | 职责 |
 |---|---|
-| Go 适配器 | 平台事件接入、token/参数校验、fail-closed mention 门控、转发 Host、平台消息发送 |
-| Host Web Channel | 接收消息、原子入队、调度、持久化、SSE |
+| Go 适配器 | 平台事件接入、token/参数校验、归一化转发 Host（含 mechanical 发送）、平台消息发送；**不做 @ 门控** |
+| Host Web Channel | 接收消息、@ 门控与路由（`planRoute` 单点）、原子入队、调度、持久化、SSE |
 | Agent Runner | 由 Host 启动子进程执行诊断，只上报结构化结果 |
 
 失败处理：平台签名/token 错误 → 拒绝；Host 不可用 → 返回 5xx 让平台重投；
