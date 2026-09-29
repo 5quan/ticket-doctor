@@ -1,16 +1,23 @@
 // 评测运行器：逐 case 走生产同款链路（prepareDiagnosis → engine → validateDraft），再打分。
 //
-// 这里**不碰**飞书/调度/投递；证据经内存 sink（评测过渡，D13 阶段 6 切 Store sink）。
-import { join } from "node:path";
+// 证据走与线上一致的 Store sink（D13）：每个 case 一个 `:memory:` 库 + 合成 `running` run，
+// 工具 commit 真实落库、校验用 StoreEvidenceResolver 按调查解析；不碰飞书/调度/投递。
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { AppConfig } from "../config/index.ts";
 import type { DiagnosisEngine } from "../agent/types.ts";
-import { MemoryEvidenceSink } from "../evidence/memory-sink.ts";
+import { openDatabase, migrate } from "../storage/db.ts";
+import { Store } from "../storage/store.ts";
+import { StoreEvidenceSink } from "../evidence/store-sink.ts";
+import { StoreEvidenceResolver } from "../evidence/store-resolver.ts";
 import { evidenceRefToRecord } from "../evidence/util.ts";
 import { prepareDiagnosis } from "../diagnosis/prepare.ts";
 import { validateDraft } from "../diagnosis/validate.ts";
 import { describeLocator, loadBenchmark } from "./benchmark.ts";
 import { scoreCase } from "./scorer.ts";
 import type { CaseScore, ScenarioScore } from "./types.ts";
+
+const MIGRATIONS_DIR = join(dirname(dirname(dirname(fileURLToPath(import.meta.url)))), "migrations");
 
 export interface RunScenarioOptions {
   scenarioDir: string;
@@ -36,10 +43,35 @@ export async function runScenario(opts: RunScenarioOptions): Promise<ScenarioSco
     };
     const controller = new AbortController();
     const runId = `eval-${benchmark.scenario}-${c.id}`;
-    const sink = new MemoryEvidenceSink(runId);
+    // D13：评测与生产同一证据持久化路径——:memory: 库 + 合成 running run + Store sink/resolver
+    const db = openDatabase(":memory:");
+    migrate(db, MIGRATIONS_DIR);
+    const store = new Store(db);
+    const inv = store.createInvestigation({
+      sessionCode: runId,
+      provider: "web",
+      accountId: "eval",
+      chatId: "eval",
+    });
+    const message = store.insertMessage({
+      investigationId: inv.id,
+      provider: "web",
+      accountId: "eval",
+      externalMessageId: `${runId}-msg`,
+      text: c.question,
+      receivedAt: Date.parse(c.receivedAt),
+    });
+    store.createRun({ investigationId: inv.id, messageId: message.id, maxAttempts: 1 });
+    const claimed = store.claimNextRun("eval", 60_000)!;
+    const sink = new StoreEvidenceSink(store, {
+      investigationId: inv.id,
+      runId: claimed.run.id,
+      attemptId: claimed.attemptId,
+      generation: claimed.generation,
+    });
     const prepared = await prepareDiagnosis(config, {
-      investigationId: runId,
-      runId,
+      investigationId: inv.id,
+      runId: claimed.run.id,
       text: c.question,
       receivedAt: Date.parse(c.receivedAt),
       service: c.service,
@@ -64,13 +96,16 @@ export async function runScenario(opts: RunScenarioOptions): Promise<ScenarioSco
 
     const draft = result.draft;
     for (const m of prepared.missingMaterial) draft.missingMaterial.push(m);
-    const records = sink.all().map((ref) => evidenceRefToRecord(ref, runId));
+    const resolver = new StoreEvidenceResolver(store, inv.id, claimed.run.id);
     const { report } = validateDraft(draft, {
-      resolver: sink,
+      resolver,
       scope: prepared.scope,
-      investigationId: runId,
+      investigationId: inv.id,
       executionLimits: [],
     });
+    const records = resolver
+      .listByInvestigation(inv.id)
+      .map((ref) => evidenceRefToRecord(ref, runId));
     cases.push(scoreCase(c, records, report));
   }
 

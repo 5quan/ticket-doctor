@@ -303,16 +303,17 @@ Worker claimNextRun() → executeRun()            src/diagnosis/orchestrator.ts
 
 ### 8.7 一次触发产生什么
 
-- 落库（全部在 SQLite，**单存储**）：`inbound_events` / `messages` / `investigations` / `runs` / `attempts` / `run_events` / `session_entries` / `tool_executions` / `evidence` / `reports` / `deliveries`。
+- 落库（全部在 SQLite，**单存储**）：`inbound_events` / `messages` / `investigations` / `runs` / `attempts` / `run_events` / `session_entries` / `tool_executions` / `evidence`（+ `evidence_batches`）/ `reports` / `deliveries`。
 - 出站：一条飞书消息（报告 / 闲聊回复 / 追问 / 提示）。
+- **证据持久化（两阶段提交，OQ-38）**：材料在**工具 commit 时**入库（不再等 finalize）——工具采集 → `sink.commit(batchId, tool, toolCallId, payloadHash, items)` → Host 事务内分配 `evidence_uid`（全局唯一身份）与调查内短号 `E{n}`（从历史最大编号续签）→ ACK 返回 refs 后工具才把带 `[E#]` 的文本交给模型（fail-closed）。批次表 `evidence_batches` 记录 `(run_id, tool_call_id)` 唯一键、payload 哈希与结构化结果，支撑幂等重投与崩溃恢复。报告 v2 的 `evidenceIds` 写 `evidence_uid`（`reports.reference_format_version=2`），历史报告 v1 按 `(run_id, E#)` 解析；`finalize` 只写报告 + 终态 + 投递。
 - **会话条目（`session_entries`）**：模型会话的每条 pi `SessionEntry`（message / tool_call+tool_result / compaction / model_change …）**原样存库**（`investigation_id, seq, entry_id, data(JSON)`），按调查单调 `seq`；不再是 JSONL 文件。
   - **首次执行**：编排层把本轮用户输入落成一条 user 条目，再交给引擎；**恢复**（本轮已有条目）不重复追加。
   - **重建**：引擎按 `seq` 读回条目 → 写成一次性 seed 文件交给 pi `SessionManager.open` 原生重建（树 / 压缩 / 上下文），run 后即删；seed 不是存储。
-  - **崩溃恢复**：`reconcileSession` 给“已发起但无结果”的 tool_call 补 `outcome unknown` 结果，再用 `Agent.continue()` 续跑。
+  - **崩溃恢复**：`reconcileSession` 给"已发起但无结果"的 tool_call 补结果——已提交批次命中 → 按共享渲染器重建保存原文补记（isError:false）；未命中 → `outcome unknown`；再用 `Agent.continue()` 续跑。
 - **写守卫**：`session_entries` 写入带 `generation` 守卫（过期/僵尸执行者被丢弃）；`runs.usage_*` 为该 run 全部尝试之和。
 - **工具可观测（T3）**：每次工具执行的 pi `callId / 入参 / 耗时 / 成败 / 结果规模` 落 `tool_executions`。
 - 可观测：`run_events` 记录生命周期事件 `run_started / engine_finished / report_saved / reply_saved / run_error / commit_rejected`。
-- 回放：按调查读 `session_entries` + `tool_executions` + `evidence`，无需文件。
+- 回放：按调查读 `session_entries` + `tool_executions` + `evidence`（+ `evidence_batches`），无需文件。
 
 ---
 

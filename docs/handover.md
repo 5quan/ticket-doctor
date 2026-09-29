@@ -51,7 +51,7 @@
 | 上下文防护 | 单条证据 + 单次工具结果双重截断，pi compaction 兜底 | ✅ |
 | 时间区分 | 上报时间（平台）+ 故障发生时间（从输入提取，宁漏勿错）；时间窗依据如实标注 | ✅ |
 | 版本钉死 | 有发生时间时按 `git rev-list --before` 钉当时 SHA（显式 rev 优先；钉不到记为缺失，不回退 HEAD） | ✅ |
-| 证据 | 程序签发 `E#`、报告只引用 ID、校验引用与版本、无证据强制降级 | ✅ |
+| 证据 | 两阶段提交（工具 commit 时落库，fail-closed）+ `evidence_uid` 全局唯一 + 调查内短号 `E{n}` 续签；报告只引用 ID（v2=uid，v1=run 级 E#）、校验引用与版本（D10 历史版本降级）、无证据强制降级；批次表支撑幂等与崩溃恢复（OQ-38） | ✅ |
 | 投递 | 待发送记录、退避重试、**不确定态**、平台消息 ID | ✅ 真机回复成功 |
 | 会话持久化（单存储） | pi 会话条目原样落 `session_entries`（按调查单调 `seq`）；引擎读回写 seed 文件给 pi 重建、崩溃时 `reconcileSession` 补未决工具结果并 `Agent.continue()`；JSONL 已移除 | ✅ |
 | 评测 harness（离线） | `npm run eval`：加载 benchmark → 复用生产链路跑诊断 → 打分（证据召回率/引用精确率/决策正确率）→ 结果 JSONL | ✅ M1 |
@@ -61,7 +61,7 @@
 | Web 会话页面 | Host 托管静态页（`src/host/web/`）：列表/时间线/轮次状态与取消重试/证据报告，SSE 自动重连 | ✅ 阶段4 |
 | Go 接入适配器 | `adapters/go`：`Platform` 多平台接口（OQ-37）+ 飞书实现（事件归一化、fail-closed mention 门控、签名校验/Encrypt Key 解密、转发 Host、投递轮询发送）；钉钉/Slack 骨架；回调路由 `/{platform}/events`，投递按 provider 路由 | ◐ 阶段3（Webhook + 多平台抽象就位，长连接待做） |
 | 故障与部署 | Host 强杀重启恢复（进程级测试）；Dockerfile + docker-compose（host/adapter + 数据卷 + 只读挂载），compose 整链路冒烟通过 | ✅ 阶段5 |
-| 测试 | TS 90 个（单元 + 集成）+ Go adapter 测试，`npm test` / `npm run test:go` 全绿 | ✅ |
+| 测试 | TS 119 个（单元 + 集成）+ Go adapter 测试，`npm test` / `npm run test:go` 全绿 | ✅ |
 
 **未实现 / 明确边界**
 
@@ -72,7 +72,7 @@
 - 独立上下文审计 Agent（证据充分性审查，见 `open-questions.md` OQ-30）。
 - 仓库同步器（本地只读镜像由外部更新）。
 - 出站消息映射（已决定暂缓）；跨轮证据复用。
-- 证据作用域仍为 run 内 `E#`（调查作用域待做，迁移与回滚方案见 `docs/evidence-scope-design.md`）。
+- 证据已升级为持久化 + 稳定 UID（OQ-38）：工具 commit 时入库、`evidence_uid` 全局唯一、调查内短号续签跨轮可引用；详见 `docs/evidence-uid-design.md`。
 
 **运行方式**
 
@@ -144,7 +144,7 @@ npm run worker           # 只跑 worker
 
 **下一步（阶段三收口）**：Go 适配器**长连接模式**（S3，官方 SDK，需真实凭据人工验证）；独立审计 Agent。已完成：**证据作用域调查级的迁移与回滚方案定稿**（S5 方案，`docs/evidence-scope-design.md`，已被 `docs/evidence-uid-design.md` 取代）；多平台抽象 + 飞书迁入（S2，OQ-37）；`search_code` 有界预览 + 路径清单（S1，OQ-36）；`list_files` 路径层。
 
-**进行中：证据持久化 + 稳定 UID（按 `docs/evidence-uid-design.md` §11 实施）**——阶段 1~5 已完成（006 迁移 + 批次事务；工具先持久化后返回；协议 v2 + Runner IPC；崩溃恢复；报告 v1/v2 共存：新报告 evidenceIds 写 uid、`validateDraft` 走 EvidenceResolver、跨轮引用通过、跨调查拒绝、D10 历史版本降级、调查级证据列表与 Web uid 渲染）。
+**进行中：无**——**证据持久化 + 稳定 UID 已全部落地（6 个阶段完成，OQ-38）**：006 迁移 + 批次事务；工具先持久化后返回；协议 v2 + Runner IPC sink；崩溃恢复；报告 v1/v2 共存 + 调查级展示；评测走 Store sink（离线基线：召回 50% / 精确 20% / 正确率 0%，D6 口径，见 `docs/eval-design.md`）。
 
 **阶段二下一步**：用真实模型迭代 `rules.md`（基线已出：召回 90% / 精确 30.7% / 正确率 80%），修掉「材料不足仍给 supported 结论」与「引用干扰证据」；随后独立审计 Agent。详见 `docs/eval-design.md`。
 

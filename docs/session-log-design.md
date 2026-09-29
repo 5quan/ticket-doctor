@@ -227,3 +227,20 @@ type SessionWrite =
 | flush 成本 | 只在 attempt 终态/关键检查点 flush；增量仍批量 append |
 | 与 pi 引擎的事件耦合 | 契约只在 ticket-doctor 侧；pi 的 `entry_appended` 仍映射为 `entry`，不依赖 pi 持久化 |
 | `value/list` 滥用成"新数据库" | 只允许放"恢复与审计必需"的状态，不放大块内容 |
+
+---
+
+## 附：证据批次与恢复（已实施，OQ-38）
+
+> 证据持久化与稳定 UID 的完整设计见 `docs/evidence-uid-design.md`；本节只描述与会话存储的交界。
+
+- **证据与条目的时序**：pi 的 assistant `toolCall` 条目先落 `session_entries`，工具执行时把材料
+  两阶段提交进 `evidence` + `evidence_batches`（Host 事务内分配 `evidence_uid` 与调查内短号 `E{n}`），
+  ACK 返回后工具才把带 `[E#]` 的文本作为 tool_result 返回给 pi 并落 `session_entries`。
+  因此"模型看到的引用"与"库里的材料"是同一时刻的事实。
+- **崩溃恢复**：`reconcileSession(entries, savedResults)`（纯函数）扫描"已发起但无结果"的 tool_call；
+  Host 按 `(run_id, tool_call_id)` 查已提交批次（`evidence_batches` 唯一键，D5），用共享渲染器
+  `renderEvidenceResult` 重建模型可见文本，命中 → 补记 `isError:false` 的保存结果；未命中 →
+  维持 `outcome unknown`（不编造成功）。已结束的历史条目不改写。
+- **回放**：按调查读 `session_entries` + `tool_executions` + `evidence`（+ `evidence_batches`），
+  批次的 `payload_hash` / `result_json` 支撑内容一致性核对。
