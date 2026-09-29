@@ -17,7 +17,7 @@
 
 **已实现**
 
-- 接入：Go 适配器（飞书 Webhook + 签名/解密 + 门控单点化 + `-help`）、Host 统一入口、路由与去重。
+- 接入：Go 适配器（飞书 Webhook + 长连接 `ADAPTER_MODE=ws` + 签名/解密 + 门控单点化 + `-help`）、Host 统一入口、路由与去重。
 - 持久化/调度：SQLite 单库（`session_entries`/`tool_executions`，**无 JSONL**）+ 租约/代次守卫 + 按会话严格轮次 + 投递（重试/不确定态）。
 - 执行：独立 Runner 子进程；引擎端口（fake/pi）+ 6 个只读工具（`query_logs/list_files/search_code/read_code/request_info/submit_report`）。
 - 证据：两阶段提交 + `evidence_uid` + 报告 v1/v2 + 崩溃恢复（OQ-38）。
@@ -60,7 +60,7 @@
 - [x] Host Web API + EventStore/SSE replay + 投递 claim/result（阶段4）
 - [x] Go 接入适配器骨架（飞书 Webhook + 投递轮询）
 - [x] 多平台抽象：`internal/platform.Platform` 接口 + 飞书迁入 + 钉钉/Slack 骨架（`ADAPTER_PLATFORMS`，OQ-37）
-- [ ] Go 适配器长连接模式（官方 larkws SDK，实现 `eventsource.Source`；需真实凭据人工验证）
+- [x] Go 适配器长连接模式（官方 larkws SDK，实现 `eventsource.Source`；`ADAPTER_MODE=ws`；真机人工验证待有凭据时执行）
 - [x] Web 会话页面（列表 / 时间线 / 进度 / 报告 + SSE 实时刷新，无框架无构建）
 - [x] 故障注入：超时 / 运行中取消 / 租约回收后会话恢复 / 僵尸提交被拒（`tests/integration/fault.test.ts`）
 - [x] docker-compose / Dockerfile 部署清单（host + adapter + 数据卷 + 源码/日志只读挂载）

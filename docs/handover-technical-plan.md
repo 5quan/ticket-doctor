@@ -100,6 +100,9 @@ IM 来源 → deliveries → Go 适配器发送；Web 来源 → EventStore(even
 
 > **详细实施方案见 `docs/adapter-longconn-design.md`（实施以此为准）**。
 > 前置修复已完成：`docs/feishu-trigger-design.md`（门控单点化 + `-help`），长连接只换事件入口，不再动门控。
+> **状态：✅ 已实现（S3，OQ-40）**。官方 Go SDK `github.com/larksuite/oapi-sdk-go/v3 v3.12.0`（`.../ws` + `.../event/dispatcher`）；
+> `LarkWSSource` + `Platform.LongConn()` + `Adapter.HandleSourceEvent` + `main` 模式分支/退避重连；单测已覆盖映射/凭据/跳过 Verify/退避。
+> **真机人工验证（§5.5）待具备飞书凭据时执行**（步骤已写入 `adapters/go/README.md`），不声称线上已验证。
 
 
 **目标/验收**：不暴露公网回调地址，Adapter 通过飞书长连接收事件；`@bot` 后 Host 能建调查，
@@ -285,7 +288,7 @@ type Platform interface {
 | S1 | 5.4 `search_code` 有界预览 | 无 | ✅ 已完成 |
 | S2 | 5.2 多平台抽象（先抽接口+飞书迁入） | 无 | ✅ 已完成 |
 | S0 | **修评测打分器** | 无 | ✅ 已完成（v0.3.1）：scorer 同时按 uid 与 E# 建索引；fake 基线修正为 70/20/60 |
-| S3 | 5.1 Go 长连接（SDK） | S2 | 需真实凭据人工验证 |
+| S3 | 5.1 Go 长连接（SDK） | S2 | ✅ 已完成（单测通过）；真机人工验证待有凭据时执行 |
 | S4 | 5.3 弃用 Host 内直连 | S3 | 一次性清理（注意 `demo.ts` 仍用 `createFeishuGateway`） |
 | S5 | 5.5 证据持久化 + 稳定 UID | 独立 | ✅ 已实现（OQ-38，阶段 1~6；`docs/evidence-uid-design.md`） |
 | S6 | 5.6 独立审计 Agent | 5.5 | 效果向 |

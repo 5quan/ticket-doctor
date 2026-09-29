@@ -135,7 +135,7 @@
 | H2 | 按会话严格轮次调度 | ✅ `runs.round` + 队首约束 + 会话间公平 + 取消 | 补调度公平性/饥饿的专项测试 | 已完成 | P0 |
 | H3 | 独立 Agent Runner | ✅ `TD_RUNNER_MODE=process`，每轮独立子进程，Host 监管 | 长驻 Runner 池（减少冷启动）待评估 | 已完成 | P0 |
 | H4 | Host Web API + SSE | ✅ message/investigations/events(SSE replay)/cancel/retry/deliveries | 补鉴权与 CORS 白名单（当前开放） | 已完成 | P0 |
-| H5 | Go 接入适配器 | ✅ 飞书 Webhook（归一化/签名+解密/去重）+ 门控单点化 + `-help` + 投递轮询；✅ `internal/platform.Platform` 多平台接口 + 飞书迁入（OQ-37） | 长连接（S3，方案 `docs/adapter-longconn-design.md`）、钉钉/Slack 实装、每平台独立配置 | 进行中 | P1 |
+| H5 | Go 接入适配器 | ✅ 飞书 Webhook（归一化/签名+解密/去重）+ 门控单点化 + `-help` + 投递轮询；✅ `internal/platform.Platform` 多平台接口 + 飞书迁入（OQ-37）；✅ 飞书长连接 `ADAPTER_MODE=ws`（官方 Go SDK，`LarkWSSource`+`HandleSourceEvent`+退避重连，OQ-40） | 真机人工验证（需飞书凭据）、钉钉/Slack 实装、每平台独立配置 | 进行中 | P1 |
 | H6 | Web 会话页面 | ✅ Host 托管静态页（`src/host/web/`）：调查列表 / 消息时间线 / 轮次状态与取消重试 / 证据报告 / SSE 实时事件；浏览器自带 Last-Event-ID 重连 | 登录与权限（当前无）、移动端优化 | 已完成 | P1 |
 | H7 | 阶段五故障注入与部署 | ✅ 故障注入（超时/取消/租约恢复/僵尸提交）；✅ Host 强杀重启进程级验证；✅ compose 镜像构建与整链路冒烟（Web/飞书事件/投递） | 真实环境（真实仓库+日志+飞书凭据）部署演练 | 已完成 | P0 |
 

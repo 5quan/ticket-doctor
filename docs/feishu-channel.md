@@ -18,6 +18,13 @@ await ws.start({ eventDispatcher: dispatcher });
 
 本项目只在 `src/integrations/feishu/client.ts` 里接触 SDK，业务层看到的是归一化后的事件。
 
+> **Go 适配器已实装（S3）**：实际投产的事件入口是 Go 适配器用**官方 Go SDK**
+> （`github.com/larksuite/oapi-sdk-go/v3` 的 `ws` 客户端，锁 v3.12.0）实现的
+> `adapters/go/internal/platform/feishu/longconn.go`，由 `ADAPTER_MODE=ws` 切换（默认 webhook 回退）。
+> 上面 Node SDK 的 `WSClient` 路径属 Host 内直连旧链路，随 S4 一并弃用。
+> 实装要点：SDK 负责握手/心跳/ACK/分片/重连；**成功才 ACK**（handler 返回非 nil → 重投，Host去重兜底）；
+> 长连接跳过 `VerifyRequest`（签名/token 是 Webhook 概念）。运行与人工验证见 `adapters/go/README.md`。
+
 ## 二、miniclaw 已经验证过的做法（可直接借鉴的部分）
 
 | 问题 | miniclaw 的做法 | 本项目对应 |

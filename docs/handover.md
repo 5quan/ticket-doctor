@@ -135,12 +135,12 @@ npm run worker           # 只跑 worker
 - 阶段 1：Host 统一入口 + 原子入队 + 按会话严格轮次 + 会话间公平 + 取消 + 来源路由。
 - 阶段 2：独立 Agent Runner 子进程 + Host 监管 + NDJSON 回写（`TD_RUNNER_MODE=process`）。
 - 阶段 4：Host Web API + EventStore/SSE replay + Web 会话页 + 投递 claim/result。
-- 阶段 3：Go 接入适配器（飞书 Webhook + 签名/解密 + 门控单点化 + `-help`；多平台接口 OQ-37）；**长连接 S3 待做**。
+- 阶段 3：Go 接入适配器（飞书 Webhook + 签名/解密 + 门控单点化 + `-help`；多平台接口 OQ-37）；**长连接 S3 已实现**（官方 Go SDK 锁 v3.12.0，`ADAPTER_MODE=ws`；真机人工验证待有凭据，OQ-40）。
 - 阶段 5：故障注入 + Host 强杀重启 + docker-compose 整链路验证。
 - 证据：两阶段提交 + 稳定 UID + 报告 v1/v2（OQ-38）；工具 6 个（含 `list_files`、`search_code` 有界预览）。
 - 评测：M1 harness；打分器已适配证据 v2（fake 基线 70/20/60）。
 
-**最高优先**：修评测打分器 → S3 长连接 → S4 弃用 Host 内直连 → 独立审计 Agent（OQ-30）→ 评测 M2/M3。
+**最高优先**：S4 弃用 Host 内直连 → 独立审计 Agent（OQ-30）→ 评测 M2/M3；S3 真机人工验证待有飞书凭据时执行。
 
 **暂缓/边界**：脱敏（S1）、出站消息映射；不做权限体系；不复现、不写业务系统、不自动修复；生产只读。
 

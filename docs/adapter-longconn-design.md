@@ -1,8 +1,16 @@
 # Go 适配器长连接模式（S3）实施方案
 
-> 状态：**设计定稿，待实现**。对应 `docs/handover-technical-plan.md §5.1`（S3）。
+> 状态：**已实施（S3）**。对应 `docs/handover-technical-plan.md §5.1`（S3）。
 > 前置已完成：多平台抽象（S2/OQ-37）、飞书触发修复（门控单点化/OQ-39）。
 > 遵守 `docs/handover.md §7` 的 DoD：基线 → 一次一件 → typecheck/test（含 Go）→ 文档 → commit/push。
+>
+> **实施记录（as-built，2025 会话）**：
+> - SDK：`github.com/larksuite/oapi-sdk-go/v3 v3.12.0`（锁版本）。包路径为 `.../v3/ws`（包名 `ws`，代码里别名 `larkws`）；
+>   事件分发器是 `.../v3/event/dispatcher`（`dispatcher.NewEventDispatcher`，设计稿误写作 `larkevent`）。
+> - `LarkWSSource` 复用官方 SDK 自带的自动重连（默认开启、无限次）；`main` 的 `restartLoop` 仅在 `Start` 返回后兜底重连，两者串行，不产生双连接（§7 风险表）。
+> - `receiveEventFromSDK` 显式映射：SDK 的 `EventSender` **无 `sender_name`**，故 `SenderName` 在长连接下为空（仅展示，不影响路由）。
+> - 新增 `Adapter.HandleSourceEvent` + 私有 `process/handleMessage`，与 Webhook 共用同一段归一化/转发/mechanical。
+> - 离线单测已覆盖 §5 的 1~4；**§5.5 真机验证尚未执行**（无真实凭据），步骤见 `adapters/go/README.md`。
 
 ---
 
