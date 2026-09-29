@@ -177,10 +177,10 @@ func TestPlatformLongConnCredentials(t *testing.T) {
 
 func TestParseLogLevel(t *testing.T) {
 	for value, want := range map[string]larkcore.LogLevel{
-		"debug": larkcore.LogLevelDebug,
-		"INFO":  larkcore.LogLevelInfo,
+		"debug":  larkcore.LogLevelDebug,
+		"INFO":   larkcore.LogLevelInfo,
 		" warn ": larkcore.LogLevelWarn,
-		"error": larkcore.LogLevelError,
+		"error":  larkcore.LogLevelError,
 	} {
 		got, ok := parseLogLevel(value)
 		if !ok || got != want {

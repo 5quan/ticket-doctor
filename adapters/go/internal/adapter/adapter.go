@@ -89,9 +89,21 @@ type HandleResult struct {
 	SessionCode string
 }
 
-// HandleEvent 归一化平台事件并转发 Host；门控权威在 Host（planRoute），
-// 适配器不再因"群聊未 @"丢弃消息——线程回复/带标号续接免 @ 由 Host 按上下文放行。
+// HandleEvent 处理 Webhook 回调：先由调用方（server）完成 VerifyRequest，再走 process。
 func (a *Adapter) HandleEvent(ctx context.Context, p platform.Platform, raw []byte, headers http.Header) (HandleResult, error) {
+	return a.process(ctx, p, raw, headers)
+}
+
+// HandleSourceEvent 处理来自事件源（长连接）的明文 Envelope，**跳过 VerifyRequest**：
+// WS 会话已由 SDK 用凭据鉴权，签名/verification token 是 Webhook 概念。
+// 与 Webhook 路径共用同一段 normalize → 门控 → Host 转发 → mechanical。
+func (a *Adapter) HandleSourceEvent(ctx context.Context, p platform.Platform, raw []byte) (HandleResult, error) {
+	return a.process(ctx, p, raw, nil)
+}
+
+// process 归一化平台事件并转发 Host；门控权威在 Host（planRoute），
+// 适配器不再因"群聊未 @"丢弃消息——线程回复/带标号续接免 @ 由 Host 按上下文放行。
+func (a *Adapter) process(ctx context.Context, p platform.Platform, raw []byte, headers http.Header) (HandleResult, error) {
 	message, ok, err := p.Normalize(raw, headers)
 	if err != nil {
 		return HandleResult{}, err
@@ -99,7 +111,11 @@ func (a *Adapter) HandleEvent(ctx context.Context, p platform.Platform, raw []by
 	if !ok {
 		return HandleResult{Status: "ignored", Reason: "unsupported_or_empty"}, nil
 	}
+	return a.handleMessage(ctx, p, message)
+}
 
+// handleMessage 处理已归一化的消息：转发 Host，并在 Host 拒绝时做 mechanical 线程内回复。
+func (a *Adapter) handleMessage(ctx context.Context, p platform.Platform, message hostapi.Message) (HandleResult, error) {
 	result, err := a.host.SubmitMessage(ctx, message)
 	if err != nil {
 		return HandleResult{}, err

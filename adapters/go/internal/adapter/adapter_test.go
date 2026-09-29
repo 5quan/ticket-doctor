@@ -497,7 +497,7 @@ func TestBuildPlatformsValidatesConfig(t *testing.T) {
 		t.Fatalf("feishu 平台应可构建：err=%v platforms=%v", err, platforms)
 	}
 	if platforms[0].LongConn() != nil {
-		t.Fatal("纯 Webhook 平台的 LongConn 应为 nil")
+		t.Fatal("缺凭据时 LongConn 应为 nil")
 	}
 
 	if _, err := BuildPlatforms(config.Config{Platforms: []string{"telegram"}}); err == nil {
@@ -505,5 +505,83 @@ func TestBuildPlatformsValidatesConfig(t *testing.T) {
 	}
 	if _, err := BuildPlatforms(config.Config{Platforms: []string{"feishu", "feishu"}}); err == nil {
 		t.Fatal("重复平台应报错")
+	}
+}
+
+// sourceEventBody 构造长连接投递的明文 Envelope（带 event_type，无 encrypt/token）。
+func sourceEventBody(t *testing.T, event *feishu.ReceiveEvent) []byte {
+	t.Helper()
+	raw, err := json.Marshal(feishu.Envelope{
+		Header: feishu.EventHeader{EventType: "im.message.receive_v1"},
+		Event:  event,
+	})
+	if err != nil {
+		t.Fatalf("序列化 Envelope 失败：%v", err)
+	}
+	return raw
+}
+
+// HandleSourceEvent 不走 VerifyRequest：即使配置了 EncryptKey/VerificationToken，明文 Envelope 也能处理并转发。
+func TestHandleSourceEventSkipsVerifyAndForwards(t *testing.T) {
+	lark := fakeLark()
+	defer lark.Close()
+	fake := &fakeHost{}
+	hostSrv := httptest.NewServer(fake.handler())
+	defer hostSrv.Close()
+	cfg := config.Config{
+		HostAPIBase:       hostSrv.URL,
+		Platforms:         []string{"feishu"},
+		AppID:             "app_1",
+		AppSecret:         "secret",
+		VerificationToken: "tok-should-not-matter",
+		EncryptKey:        "enc-key-should-not-matter",
+		BotOpenID:         "ou_bot",
+		LarkAPIBase:       lark.URL,
+		HostTimeout:       2e9,
+		LarkTimeout:       2e9,
+	}
+	platforms, err := BuildPlatforms(cfg)
+	if err != nil {
+		t.Fatalf("构建平台失败：%v", err)
+	}
+	core := New(cfg, hostclient.New(hostSrv.URL, cfg.HostTimeout), platforms)
+
+	result, err := core.HandleSourceEvent(context.Background(), corePlatform(t, core, "feishu"), sourceEventBody(t, groupEvent(true)))
+	if err != nil {
+		t.Fatalf("长连接明文 Envelope 不应因配置了加密/校验而失败：%v", err)
+	}
+	if result.Status != "forwarded" || result.SessionCode != "TD-abcd1234" {
+		t.Fatalf("结果异常：%+v", result)
+	}
+	if fake.forwarded.ChatID != "oc_1" || fake.forwarded.Text != "checkout-service 报错" {
+		t.Fatalf("转发内容错误：%+v", fake.forwarded)
+	}
+}
+
+// Host 不可用时应返回 error（长连接侧不 ACK，触发飞书重投）。
+func TestHandleSourceEventPropagatesHostError(t *testing.T) {
+	hostSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"error":"host down"}`))
+	}))
+	defer hostSrv.Close()
+	cfg := config.Config{
+		HostAPIBase: hostSrv.URL,
+		Platforms:   []string{"feishu"},
+		AppID:       "app_1",
+		AppSecret:   "secret",
+		BotOpenID:   "ou_bot",
+		LarkAPIBase: "http://127.0.0.1:1",
+		HostTimeout: 2e9,
+		LarkTimeout: 2e9,
+	}
+	platforms, err := BuildPlatforms(cfg)
+	if err != nil {
+		t.Fatalf("构建平台失败：%v", err)
+	}
+	core := New(cfg, hostclient.New(hostSrv.URL, cfg.HostTimeout), platforms)
+
+	if _, err := core.HandleSourceEvent(context.Background(), corePlatform(t, core, "feishu"), sourceEventBody(t, groupEvent(true))); err == nil {
+		t.Fatal("Host 不可用应返回 error（不 ACK，触发重投）")
 	}
 }
