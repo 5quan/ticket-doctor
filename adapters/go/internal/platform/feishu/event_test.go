@@ -62,8 +62,10 @@ func TestNormalizeRejectsBotAndNonText(t *testing.T) {
 func TestMentionDetectionFailsClosedWithoutBotID(t *testing.T) {
 	mentions := []Mention{{Key: "@_user_1"}}
 	mentions[0].ID.OpenID = "ou_other"
-	if !IsBotMentioned(mentions, "") {
-		t.Fatal("未知 bot open_id 时出现 mention 应视为可能被 @")
+	// botOpenID 未知时：一律视为"未被 @"（保守）。群聊新会话会被 Host 拒绝（fail-closed），
+	// 不能因为"@ 了别人"就误放行；线程内回复按上下文续接，不受此影响。
+	if IsBotMentioned(mentions, "") {
+		t.Fatal("botOpenID 未知时应返回 false（fail-closed），不能因任意 mention 放行")
 	}
 	if IsBotMentioned(mentions, "ou_bot") {
 		t.Fatal("明确 bot open_id 时非本人 mention 不应命中")

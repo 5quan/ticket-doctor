@@ -93,10 +93,11 @@ func removeMentionTokens(text string, mentions []Mention) string {
 	return strings.Join(lines, "\n")
 }
 
-// IsBotMentioned：未配置 bot open_id 时，只要出现任何 mention 就视为可能被 @（由门控 fail-closed）。
+// IsBotMentioned：无法验证机器人身份时（botOpenID 未知），一律视为"未被 @"（保守，fail-closed）；
+// 由 Host 按会话上下文决定拒绝与否——线程内回复仍可续接，群聊新会话必被拒（feishu-trigger-design §2.2）。
 func IsBotMentioned(mentions []Mention, botOpenID string) bool {
 	if botOpenID == "" {
-		return len(mentions) > 0
+		return false
 	}
 	for _, m := range mentions {
 		if m.ID.OpenID == botOpenID {
