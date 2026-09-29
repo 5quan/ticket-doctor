@@ -47,7 +47,7 @@
 | 诊断引擎 | 端口 + 假引擎（离线）+ pi 引擎（真实，SDK 隔离在单文件） | ✅ 真机两轮跑通 |
 | 交互回复 | 闲聊直接回复、必要时 `request_info` 反问追问；`submit_report` 提交即结束（`terminate`） | ✅ 新增 |
 | 机械回复 | 仅 `-help` 走程序固定回复（不建调查、不走模型）；其余消息一律交 LLM | ✅ 新增 |
-| 工具 | `query_logs / search_code / read_code / request_info / submit_report`，限次/限长/白名单 | ✅ |
+| 工具 | `query_logs / list_files / search_code / read_code / request_info / submit_report`，限次/限长/白名单；`search_code` 输出为「路径清单（≤20 文件）+ 前 8 处预览」（OQ-36） | ✅ |
 | 上下文防护 | 单条证据 + 单次工具结果双重截断，pi compaction 兜底 | ✅ |
 | 时间区分 | 上报时间（平台）+ 故障发生时间（从输入提取，宁漏勿错）；时间窗依据如实标注 | ✅ |
 | 版本钉死 | 有发生时间时按 `git rev-list --before` 钉当时 SHA（显式 rev 优先；钉不到记为缺失，不回退 HEAD） | ✅ |
@@ -61,7 +61,7 @@
 | Web 会话页面 | Host 托管静态页（`src/host/web/`）：列表/时间线/轮次状态与取消重试/证据报告，SSE 自动重连 | ✅ 阶段4 |
 | Go 接入适配器 | `adapters/go`：飞书事件归一化、fail-closed mention 门控、签名校验/Encrypt Key 解密、转发 Host、投递轮询发送 | ◐ 阶段3（Webhook，长连接待做） |
 | 故障与部署 | Host 强杀重启恢复（进程级测试）；Dockerfile + docker-compose（host/adapter + 数据卷 + 只读挂载），compose 整链路冒烟通过 | ✅ 阶段5 |
-| 测试 | TS 76 个（单元 + 集成）+ Go adapter 测试，`npm test` / `npm run test:go` 全绿 | ✅ |
+| 测试 | TS 90 个（单元 + 集成）+ Go adapter 测试，`npm test` / `npm run test:go` 全绿 | ✅ |
 
 **未实现 / 明确边界**
 
@@ -69,7 +69,6 @@
 - 脱敏。
 - 环境部署记录推断版本（当前按发生时间/HEAD 推断）。
 - 图片/截图处理（当前只处理 `text`）。
-- 路径层工具 `list_files`（照搬 pi `ls`/`find` 分层）。
 - 独立上下文审计 Agent（证据充分性审查，见 `open-questions.md` OQ-30）。
 - 仓库同步器（本地只读镜像由外部更新）。
 - 出站消息映射（已决定暂缓）；跨轮证据复用。
@@ -143,7 +142,7 @@ npm run worker           # 只跑 worker
 
 **已落地**：逐次落盘（T3/O1/O2/O3/P1）；评测 Benchmark **M1**（harness + `checkout-timeout` 场景 5 case + 打分器，`npm run eval`）。
 
-**下一步（阶段三收口）**：Go 适配器**长连接模式**与多平台（钉钉/Slack）；Web 登录与权限；`search_code` 改“有界预览 + 路径清单”；独立审计 Agent。
+**下一步（阶段三收口）**：Go 适配器**长连接模式**与多平台（钉钉/Slack）；Web 登录与权限；独立审计 Agent。`search_code` 已改"有界预览 + 路径清单"（S1，OQ-36）；`list_files` 路径层已完成。
 
 **阶段二下一步**：用真实模型迭代 `rules.md`（基线已出：召回 90% / 精确 30.7% / 正确率 80%），修掉「材料不足仍给 supported 结论」与「引用干扰证据」；随后独立审计 Agent。详见 `docs/eval-design.md`。
 

@@ -36,7 +36,7 @@
 | 仓库 / 分支 | `github.com/5quan/ticket-doctor` / `main` |
 | 基线提交 | `81f260f`（本地 = origin/main） |
 | 版本 | `package.json` 0.2.0，tag `v0.2.0`（更早里程碑；后续提交在其之上） |
-| 测试 | TS **87** 个（`npm test`）+ Go adapter（`npm run test:go`）全绿 |
+| 测试 | TS **90** 个（`npm test`）+ Go adapter（`npm run test:go`）全绿 |
 | 迁移 | `001_init` … `005_host_queue`（**新增迁移从 `006_` 起，禁止改历史迁移**） |
 | 运行 | `npm run host`（生产）/ `npm run gateway`（旧链路）/ `npm run demo`（离线）/ `npm run eval` |
 | 部署 | `Dockerfile` + `adapters/go/Dockerfile` + `docker-compose.yml`，已构建并冒烟通过 |
@@ -87,7 +87,7 @@ IM 来源 → deliveries → Go 适配器发送；Web 来源 → EventStore(even
 - **阶段 4**：Host Web API + EventStore/SSE replay；Web 会话页（列表/时间线/进度/证据报告）。
 - **阶段 3（部分）**：Go 适配器 Webhook + fail-closed mention 门控 + 签名校验/Encrypt Key 解密 + 投递轮询。
 - **阶段 5**：故障注入（超时/取消/租约恢复/僵尸提交）+ Host 强杀重启进程级验证 + compose 部署冒烟。
-- 工具：`list_files` 路径层完成（`search_code` 有界预览待做）。
+- 工具：`list_files` 路径层与 `search_code` 有界预览 + 路径清单均完成（见 OQ-36）。
 
 ---
 
@@ -263,7 +263,7 @@ type Platform interface {
 
 | 会话 | 任务 | 依赖 | 备注 |
 |---|---|---|---|
-| S1 | 5.4 `search_code` 有界预览 | 无 | 小、收益直接，先热身 |
+| S1 | 5.4 `search_code` 有界预览 | 无 | ✅ 已完成 |
 | S2 | 5.2 多平台抽象（先抽接口+飞书迁入） | 无 | 为 5.1 铺路 |
 | S3 | 5.1 Go 长连接（SDK） | S2 | 需真实凭据人工验证 |
 | S4 | 5.3 弃用 Host 内直连 | S3 | 一次性清理 |

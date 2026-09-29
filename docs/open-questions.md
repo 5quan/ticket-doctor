@@ -84,6 +84,7 @@
 | OQ-33 | 会话 JSONL 是否照搬 pi 的 durable storage 契约 | **已结论（被 OQ-34 取代）**。最终未采用 JSONL 契约，改为单库（SQLite）；仍借鉴其“恢复语义”。半截模型流不落盘（失败丢弃尾巴 + 整轮重试）。 | 已结论（取代） |
 | OQ-34 | 是否取消两个存储，收敛为单库（SQLite） | **已实施 v0**。会话条目进 `session_entries`，`tool_executions` 记工具；引擎读回写 seed 给 pi 重建、崩溃时 `reconcileSession` 补未决工具结果并 `Agent.continue()`；JSONL 与 pi 文件持久化已移出运行路径。详见 `docs/session-log-design.md §0.5`。 | 已完成 |
 | OQ-35 | 是否按平台文档改造为 Go 接入层 + Node Host + 独立 Runner | **已实施**。Go 只做平台接入/门控/转发/发送；Host 统一入口、原子入队、按会话严格轮次调度、EventStore/SSE、Runner 监管；Runner 每轮独立子进程、只上报不碰库。差异：队列按调查、并发 4、不做注入/定时/审批/权限。详见 `docs/host-runner-design.md`。 | 已完成（阶段3为骨架） |
+| OQ-36 | `search_code` 命中很多时的输出形态与证据签发口径 | **已实施（S1）**。输出改为「按文件聚合的路径清单（≤20 个文件，`path: 命中 n 处`）+ 前 8 处带 `[E#]` 的预览」，命中很多时不再回一堆片段；未预览命中提示用 glob 缩小范围或 `read_code` 读取。证据签发选「**每处命中仍签 `E#`**」（含未预览的命中，逐处可追溯；预览按签发顺序取前 8 处，模型看到的编号连续）：注册行为与原先完全一致，只有输出格式变，`validateDraft` 引用/版本语义不变、无需改动。glob 过滤与源侧 ≤50 条上限保留；`maxToolResultChars` 总量截断仍在。 | 已完成 |
 
 ---
 

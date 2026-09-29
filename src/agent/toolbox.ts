@@ -13,6 +13,10 @@ import type { CodeListArgs, CodeReadArgs, CodeSearchArgs, LogQueryArgs, Toolbox 
 
 export class ToolBudgetExceeded extends Error {}
 
+/** search_code 有界输出：路径清单最多列多少个文件、预览最多多少处命中（源本身另有 ≤50 上限）。 */
+const SEARCH_MAX_PATHS = 20;
+const SEARCH_PREVIEW_HITS = 8;
+
 export interface ToolboxDeps {
   logs: LogSource;
   code?: MultiRepoCodeSource;
@@ -110,15 +114,34 @@ export class DiagnosisToolbox implements Toolbox {
     const sha = target.revision!;
     const snippets = await target.search(args, this.deps.signal);
     if (snippets.length === 0) return "（没有匹配的代码片段）";
-    const lines = snippets.map((s) => {
-      const record = this.deps.evidence.register({
+
+    // 每处命中都登记证据（逐处可追溯）；输出改为“路径清单 + 前 K 处预览”，命中很多时不再回一堆片段。
+    const records = snippets.map((s) =>
+      this.deps.evidence.register({
         kind: "code",
         excerpt: s.text,
         codeRef: { repoId: target.repoId, sha, path: s.path, startLine: s.line, endLine: s.line },
-      });
-      return `[${record.evidenceId}] ${s.path}:${s.line}: ${record.excerpt}`;
+      }),
+    );
+
+    const hitsByPath = new Map<string, number>();
+    for (const s of snippets) hitsByPath.set(s.path, (hitsByPath.get(s.path) ?? 0) + 1);
+    const pathEntries = [...hitsByPath.entries()];
+    const pathLines = pathEntries.slice(0, SEARCH_MAX_PATHS).map(([path, count]) => `  ${path}: 命中 ${count} 处`);
+    if (pathEntries.length > SEARCH_MAX_PATHS) {
+      pathLines.push(`  （其余 ${pathEntries.length - SEARCH_MAX_PATHS} 个文件未列出，请用 glob 缩小范围）`);
+    }
+    const previewCount = Math.min(SEARCH_PREVIEW_HITS, snippets.length);
+    const previewLines = records.slice(0, previewCount).map((r, i) => {
+      const s = snippets[i]!;
+      return `[${r.evidenceId}] ${s.path}:${s.line}: ${r.excerpt}`;
     });
-    return this.assemble(`命中 ${snippets.length} 处代码：`, lines);
+    const omitted = snippets.length - previewCount;
+    const tail = omitted > 0 ? [`（其余 ${omitted} 处未预览：按文件清单用 glob 缩小范围，或用 read_code 读取具体位置）`] : [];
+    return this.assemble(
+      `命中 ${snippets.length} 处代码，分布在 ${pathEntries.length} 个文件；先列文件清单，再预览前 ${previewCount} 处：`,
+      [...pathLines, "", ...previewLines, ...tail],
+    );
   }
 
   async readCode(args: CodeReadArgs): Promise<string> {

@@ -12,7 +12,7 @@
 cd /opt/ticket-doctor
 npm install
 npm run typecheck        # tsc --noEmit，必须先绿
-npm test                 # TS 单元 + 集成（当前 83 个）
+npm test                 # TS 单元 + 集成（当前 90 个）
 npm run test:go          # Go 接入适配器测试（需要 go 1.22+）
 npm run demo             # 离线端到端：不接飞书、不调模型，跑通 消息→诊断→报告→投递
 npm run host             # 启动 Host：Web API + SSE + 调度 + Runner（默认 3000 端口）
@@ -141,7 +141,7 @@ fixtures/             样例日志与样例仓库（demo 用）
 - 已实现：飞书接入、会话路由、SQLite 持久化与状态机、租约/代次、可靠投递、只读工具与证据校验、
   评测 harness（M1）、Host 统一入口 + 原子入队 + 按会话严格轮次、独立 Runner 子进程、Host Web API + SSE、
   Web 会话页、Go 接入适配器（含签名校验/解密）、故障注入测试。
-- 测试：TS **83 个** + Go adapter 测试；`npm run demo` 离线可跑。
+- 测试：TS **90 个** + Go adapter 测试；`npm run demo` 离线可跑。
 - 阶段进度：路线图见 `docs/roadmap.md`。
 
 ---
@@ -159,7 +159,7 @@ fixtures/             样例日志与样例仓库（demo 用）
 | T4 | **多平台抽象（钉钉/Slack）** | 把飞书下沉为一个 `Platform` 实现，新增第二个平台只需实现「归一化 + 发送」两个方法 | `adapters/go/internal/` | 高 | 高 |
 | T5 | **Web 页面增强** | 进度按轮次/阶段展示、证据与假设互跳、失败原因高亮、移动端可用；保持无框架 | `src/host/web/`、`src/host/server.ts` | 中 | 高 |
 | T6 | **证据作用域提升到调查级** | `E#` 从 run 内唯一改为调查内唯一，跨轮可复用（见 `docs/open-questions.md` OQ-33）；迁移 + 校验适配 | `src/diagnosis/evidence.ts`、`src/diagnosis/validate.ts`、`migrations/`、`src/storage/store.ts` | 中 | 中 |
-| T7 | **`search_code` 有界预览 + 路径清单** | `list_files` 路径层已完成；把 `search_code` 从“命中片段”改为“有界预览 + 命中路径清单”，减少无关上下文 | `src/agent/toolbox.ts`、`src/sources/code.ts` | 中 | 中 |
+| ✅T7 | **`search_code` 有界预览 + 路径清单（已完成）** | 输出改为“按文件聚合的路径清单（≤20 文件）+ 前 8 处带 [E#] 的预览”；每处命中仍签 `E#`，validate 语义不变（OQ-36） | `src/agent/toolbox.ts`、`src/agent/pi-engine.ts` | 中 | 中 |
 | T8 | **tool_executions 回放** | 按调查展示每次工具调用（入参/耗时/成败/结果规模），供审计与排查 | `src/storage/store.ts`、`src/host/server.ts`、`src/host/web/` | 中 | 中 |
 | T9 | **独立审计 Agent（OQ-30）** | 把「证据是否充分」剥离到独立上下文，结构化输出已确认事实/疑似原因/补证请求 | `src/diagnosis/`、`src/agent/` | 高 | 高 |
 | T10 | **评测样本扩充 / judge** | 补 20~30 个真实或合成 case、加 judge 版正确率、独立 test 集 | `src/evals/`、`fixtures/` | 中 | 高 |

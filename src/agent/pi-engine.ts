@@ -241,7 +241,9 @@ export class PiDiagnosisEngine implements DiagnosisEngine {
     const searchCodeTool = defineTool({
       name: "search_code",
       label: "search_code",
-      description: "在本次运行的代码版本里按子串搜索，返回带 [E#] 的 文件:行号:内容。",
+      description:
+        "在本次运行的代码版本里按子串搜索。返回按文件聚合的命中清单（每个文件命中几处）与前几处带 [E#] 的预览；" +
+        "命中很多时先用 glob 缩小范围，再用 read_code 读取具体位置。",
       parameters: searchCodeSchema,
       execute: (id, params: Static<typeof searchCodeSchema>) =>
         timedTool(sink, "search_code", id, params, async () => {
