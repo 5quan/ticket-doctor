@@ -7,16 +7,21 @@ package config
 import (
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
 type Config struct {
-	// HTTP 监听地址（飞书事件回调 / 健康检查）。
+	// HTTP 监听地址（平台事件回调 / 健康检查）。
 	Addr string
 	// Host Web Channel 的 /api/agent 基址。
 	HostAPIBase string
 	// 调用 Host 的超时。
 	HostTimeout time.Duration
+
+	// 启用的平台列表（回调路由 /{platform}/events 与投递路由键）。
+	// 空缺省 ["feishu"]；未知平台名在启动时直接报错。
+	Platforms []string
 
 	// 飞书平台凭据与校验。
 	AppID             string
@@ -68,11 +73,26 @@ func envDuration(key string, fallback time.Duration) time.Duration {
 	return time.Duration(n) * time.Millisecond
 }
 
+func envList(key string) []string {
+	var out []string
+	for _, part := range strings.Split(os.Getenv(key), ",") {
+		if name := strings.TrimSpace(part); name != "" {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
 func Load() Config {
+	platforms := envList("ADAPTER_PLATFORMS")
+	if len(platforms) == 0 {
+		platforms = []string{"feishu"}
+	}
 	return Config{
 		Addr:              env("ADAPTER_ADDR", "0.0.0.0:3002"),
 		HostAPIBase:       env("HOST_API_BASE", "http://127.0.0.1:3000/api/agent"),
 		HostTimeout:       envDuration("HOST_TIMEOUT_MS", 5*time.Second),
+		Platforms:         platforms,
 		AppID:             os.Getenv("LARK_APP_ID"),
 		AppSecret:         os.Getenv("LARK_APP_SECRET"),
 		VerificationToken: os.Getenv("LARK_VERIFICATION_TOKEN"),

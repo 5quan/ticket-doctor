@@ -13,37 +13,19 @@ import (
 	"net/url"
 	"sync"
 	"time"
+
+	"ticket-doctor/adapter/internal/platform"
 )
 
-// SendErrorKind 表示发送失败的收敛语义，与 Host 的投递状态机对齐。
-type SendErrorKind string
-
-const (
-	// KindUncertain：发送结果未知（网络中断/超时），可能已送达。
-	KindUncertain SendErrorKind = "uncertain"
-	// KindRetryable：明确未送达且可重试（限流/平台 5xx）。
-	KindRetryable SendErrorKind = "retryable"
-	// KindFatal：明确不可恢复（参数/权限错误）。
-	KindFatal SendErrorKind = "fatal"
-)
-
-type SendError struct {
-	Kind SendErrorKind
-	Err  error
-}
-
-func (e *SendError) Error() string { return string(e.Kind) + ": " + e.Err.Error() }
-func (e *SendError) Unwrap() error { return e.Err }
-
-func classifyTransportError(err error) *SendError {
+func classifyTransportError(err error) *platform.SendError {
 	var netErr net.Error
 	if errors.As(err, &netErr) && netErr.Timeout() {
-		return &SendError{Kind: KindUncertain, Err: err}
+		return &platform.SendError{Kind: platform.KindUncertain, Err: err}
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
-		return &SendError{Kind: KindUncertain, Err: err}
+		return &platform.SendError{Kind: platform.KindUncertain, Err: err}
 	}
-	return &SendError{Kind: KindUncertain, Err: err}
+	return &platform.SendError{Kind: platform.KindUncertain, Err: err}
 }
 
 var retryableCodes = map[int]bool{99991400: true, 99991663: true, 429: true}
@@ -117,7 +99,7 @@ func (c *Client) tenantToken(ctx context.Context) (string, error) {
 func (c *Client) Send(ctx context.Context, chatID, targetMessageID, text string) (string, error) {
 	token, err := c.tenantToken(ctx)
 	if err != nil {
-		return "", &SendError{Kind: KindRetryable, Err: err}
+		return "", &platform.SendError{Kind: platform.KindRetryable, Err: err}
 	}
 	content, _ := json.Marshal(map[string]string{"text": text})
 
@@ -137,7 +119,7 @@ func (c *Client) Send(ctx context.Context, chatID, targetMessageID, text string)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
 	if err != nil {
-		return "", &SendError{Kind: KindUncertain, Err: err}
+		return "", &platform.SendError{Kind: platform.KindUncertain, Err: err}
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -157,16 +139,16 @@ func (c *Client) Send(ctx context.Context, chatID, targetMessageID, text string)
 	}
 	if err := json.Unmarshal(raw, &parsed); err != nil {
 		if resp.StatusCode >= 500 {
-			return "", &SendError{Kind: KindRetryable, Err: fmt.Errorf("飞书 %d: %s", resp.StatusCode, string(raw))}
+			return "", &platform.SendError{Kind: platform.KindRetryable, Err: fmt.Errorf("飞书 %d: %s", resp.StatusCode, string(raw))}
 		}
-		return "", &SendError{Kind: KindFatal, Err: fmt.Errorf("解析发送响应失败: %w", err)}
+		return "", &platform.SendError{Kind: platform.KindFatal, Err: fmt.Errorf("解析发送响应失败: %w", err)}
 	}
 	if parsed.Code != 0 {
-		kind := KindFatal
+		kind := platform.KindFatal
 		if retryableCodes[parsed.Code] || resp.StatusCode >= 500 {
-			kind = KindRetryable
+			kind = platform.KindRetryable
 		}
-		return "", &SendError{Kind: kind, Err: fmt.Errorf("飞书返回 code=%d msg=%s", parsed.Code, parsed.Msg)}
+		return "", &platform.SendError{Kind: kind, Err: fmt.Errorf("飞书返回 code=%d msg=%s", parsed.Code, parsed.Msg)}
 	}
 	return parsed.Data.MessageID, nil
 }

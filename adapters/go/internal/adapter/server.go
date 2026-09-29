@@ -1,28 +1,28 @@
-// HTTP 服务：承接飞书事件回调（含 URL 校验与签名 token 校验），并暴露健康检查。
+// HTTP 服务：承接平台事件回调（POST /{platform}/events，校验/challenge 由各平台实现），
+// 并暴露健康检查。/feishu/events 即 platform=feishu，回调地址与单平台时期一致。
 package adapter
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"log"
 	"net/http"
 
-	"ticket-doctor/adapter/internal/config"
-	"ticket-doctor/adapter/internal/feishu"
+	"ticket-doctor/adapter/internal/platform"
 )
 
 type Server struct {
-	cfg     config.Config
 	adapter *Adapter
 }
 
-func NewServer(cfg config.Config, adapter *Adapter) *Server {
-	return &Server{cfg: cfg, adapter: adapter}
+func NewServer(core *Adapter) *Server {
+	return &Server{adapter: core}
 }
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/feishu/events", s.handleFeishuEvent)
+	mux.HandleFunc("POST /{platform}/events", s.handlePlatformEvent)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		_, _ = w.Write([]byte(`{"ok":true}`))
@@ -36,9 +36,11 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	_ = json.NewEncoder(w).Encode(body)
 }
 
-func (s *Server) handleFeishuEvent(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+func (s *Server) handlePlatformEvent(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("platform")
+	p := s.adapter.Platform(name)
+	if p == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "未启用的平台：" + name})
 		return
 	}
 	raw, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
@@ -47,62 +49,27 @@ func (s *Server) handleFeishuEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 配置 Encrypt Key 后：先验签，再解密 encrypt 事件体。
-	if s.cfg.EncryptKey != "" {
-		timestamp := r.Header.Get("X-Lark-Request-Timestamp")
-		nonce := r.Header.Get("X-Lark-Request-Nonce")
-		signature := r.Header.Get("X-Lark-Signature")
-		if !feishu.VerifySignature(s.cfg.EncryptKey, timestamp, nonce, raw, signature) {
-			writeJSON(w, http.StatusForbidden, map[string]string{"error": "签名校验失败"})
-			return
-		}
-		var outer struct {
-			Encrypt string `json:"encrypt"`
-		}
-		if err := json.Unmarshal(raw, &outer); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "非法 JSON"})
-			return
-		}
-		if outer.Encrypt != "" {
-			decrypted, err := feishu.DecryptEvent(s.cfg.EncryptKey, outer.Encrypt)
-			if err != nil {
-				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "事件解密失败"})
-				return
-			}
-			raw = decrypted
-		}
-	}
-
-	var envelope feishu.Envelope
-	if err := json.Unmarshal(raw, &envelope); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "非法 JSON"})
-		return
-	}
-
-	// URL 校验：飞书配置回调地址时会先发一次 challenge。
-	if envelope.Challenge != "" {
-		if s.cfg.VerificationToken != "" && envelope.Token != s.cfg.VerificationToken {
-			writeJSON(w, http.StatusForbidden, map[string]string{"error": "verification token 不匹配"})
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]string{"challenge": envelope.Challenge})
-		return
-	}
-
-	if s.cfg.VerificationToken != "" && envelope.Header.Token != s.cfg.VerificationToken {
-		writeJSON(w, http.StatusForbidden, map[string]string{"error": "verification token 不匹配"})
-		return
-	}
-
-	if envelope.Header.EventType != "im.message.receive_v1" {
-		writeJSON(w, http.StatusOK, map[string]any{"ignored": true, "reason": "unhandled_event_type"})
-		return
-	}
-
-	result, err := s.adapter.HandleEvent(r.Context(), envelope.Event)
+	challenge, err := p.VerifyRequest(r, raw)
 	if err != nil {
-		// Host 不可用：返回 5xx，让飞书按平台策略重投。
-		log.Printf("[adapter] 转发 Host 失败：%v", err)
+		status := http.StatusBadRequest
+		var se *platform.StatusError
+		if errors.As(err, &se) {
+			status = se.Status
+		}
+		log.Printf("[adapter] 平台 %s 回调校验失败：%v", name, err)
+		writeJSON(w, status, map[string]string{"error": err.Error()})
+		return
+	}
+	// URL 校验：平台配置回调地址时会先发一次 challenge，原样返回即可。
+	if challenge != "" {
+		writeJSON(w, http.StatusOK, map[string]string{"challenge": challenge})
+		return
+	}
+
+	result, err := s.adapter.HandleEvent(r.Context(), p, raw, r.Header)
+	if err != nil {
+		// Host 不可用等瞬态错误：返回 5xx，让平台按自身策略重投。
+		log.Printf("[adapter] 平台 %s 事件处理失败：%v", name, err)
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "服务暂不可用"})
 		return
 	}

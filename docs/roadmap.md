@@ -57,7 +57,8 @@
 - [x] 独立 Agent Runner 子进程 + Host 监管 + NDJSON 回写（阶段2）
 - [x] Host Web API + EventStore/SSE replay + 投递 claim/result（阶段4）
 - [x] Go 接入适配器骨架（飞书 Webhook + 投递轮询）
-- [ ] Go 适配器长连接模式 + 签名校验 + 钉钉/Slack
+- [x] 多平台抽象：`internal/platform.Platform` 接口 + 飞书迁入 + 钉钉/Slack 骨架（`ADAPTER_PLATFORMS`，OQ-37）
+- [ ] Go 适配器长连接模式（官方 larkws SDK，实现 `eventsource.Source`；需真实凭据人工验证）
 - [x] Web 会话页面（列表 / 时间线 / 进度 / 报告 + SSE 实时刷新，无框架无构建）
 - [x] 故障注入：超时 / 运行中取消 / 租约回收后会话恢复 / 僵尸提交被拒（`tests/integration/fault.test.ts`）
 - [x] docker-compose / Dockerfile 部署清单（host + adapter + 数据卷 + 源码/日志只读挂载）
