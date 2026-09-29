@@ -132,7 +132,7 @@ npm run demo        # 离线端到端冒烟
 | 优先级 | 任务 | 说明 |
 |---|---|---|
 | ✅ | ~~修评测打分器（§4）~~ | 已完成（v0.3.1）；fake 基线 70/20/60 |
-| **P0** | S3 Go 长连接 | 官方 `larkws` 实现 `eventsource.Source`，`ADAPTER_MODE=webhook|ws`；需真实凭据人工验证 |
+| **P0** | S3 Go 长连接 | **实施方案：`docs/adapter-longconn-design.md`**；官方 `larkws` 实现 `eventsource.Source`，`ADAPTER_MODE=webhook|ws`；需真实凭据人工验证 |
 | P1 | S4 弃用 Host 内直连 | 删 `TD_FEISHU_DIRECT`、`src/integrations/feishu` SDK 路径（**注意 `demo.ts` 也用 `createFeishuGateway`**） |
 | P1 | 独立审计 Agent（OQ-30） | Runner 内新上下文，输出结构化判定，Host 确定性应用 |
 | P1 | 评测 M2/M3 | rules 条目化 + delta/Pareto、扩样本、judge、CI 门禁；修完打分器后重跑基线 |
