@@ -53,6 +53,37 @@ test("重复 externalMessageId 不重复建轮次", async () => {
   assert.equal(json.decision.kind, "duplicate");
 });
 
+test("-help 机械回复：返回 mechanicalText，不建调查（feishu-trigger-design §5.11）", async () => {
+  const before = (await (await fetch(`${base}/api/agent/investigations`)).json()).investigations
+    .length as number;
+  const { status, json } = await post("/api/agent/message", {
+    provider: "feishu",
+    externalMessageId: "om_help_1",
+    chatId: "oc_help",
+    chatType: "group",
+    mentionedBot: true,
+    text: "-help",
+  });
+  assert.equal(status, 200);
+  assert.equal(json.accepted, false);
+  assert.equal(json.decision.kind, "mechanical");
+  assert.ok(json.mechanicalText?.includes("ticket-doctor 使用说明"));
+  const after = (await (await fetch(`${base}/api/agent/investigations`)).json()).investigations
+    .length as number;
+  assert.equal(after, before, "机械回复不建调查");
+
+  // 重复投递同一条 -help：去重照旧，不重复发送
+  const dup = await post("/api/agent/message", {
+    provider: "feishu",
+    externalMessageId: "om_help_1",
+    chatId: "oc_help",
+    chatType: "group",
+    mentionedBot: true,
+    text: "-help",
+  });
+  assert.equal(dup.json.decision.kind, "duplicate");
+});
+
 test("按 investigationId 续接同一调查并分配下一轮次", async () => {
   const first = await post("/api/agent/message", {
     provider: "web",

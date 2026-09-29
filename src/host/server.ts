@@ -199,6 +199,14 @@ export function createHostServer(deps: HostServerDeps): HostServer {
       if (result.decision.kind === "duplicate") {
         return sendJson(res, 200, { accepted: false, decision: result.decision });
       }
+      if (result.decision.kind === "mechanical") {
+        // -help：Host 出文案，适配器发送；不建调查、不进投递表（§2.3）
+        return sendJson(res, 200, {
+          accepted: false,
+          decision: result.decision,
+          mechanicalText: result.mechanicalText,
+        });
+      }
       if (result.decision.kind === "unroutable" || result.decision.kind === "ignored") {
         return sendJson(res, 200, { accepted: false, decision: result.decision });
       }
