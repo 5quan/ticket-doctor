@@ -98,6 +98,10 @@ IM 来源 → deliveries → Go 适配器发送；Web 来源 → EventStore(even
 
 ### 5.1 [阶段三] Go 适配器长连接模式（T3）
 
+> **前置修复**（建议先做）：`docs/feishu-trigger-design.md` —— 门控单点化到 Host、`-help` 机械回复、
+> `botOpenID` 未知时真 fail-closed。完成后长连接只换事件入口，不再动门控。
+
+
 **目标/验收**：不暴露公网回调地址，Adapter 通过飞书长连接收事件；`@bot` 后 Host 能建调查，
 行为与 Webhook 一致；`ADAPTER_MODE=webhook|ws` 可切换。
 
