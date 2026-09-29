@@ -317,8 +317,8 @@ export class PiDiagnosisEngine implements DiagnosisEngine {
       ? [queryLogsTool, listFilesTool, searchCodeTool, readCodeTool, requestInfoTool, submitReportTool]
       : [queryLogsTool, requestInfoTool, submitReportTool];
 
-    // 恢复：把已落库条目读回，补齐未决工具结果，再决定 prompt / continue。
-    const reconciled = reconcileSession(sink?.priorEntries ?? []);
+    // 恢复：把已落库条目读回，补齐未决工具结果（已提交批次命中 → 补保存原文；否则结果未知），再决定 prompt / continue。
+    const reconciled = reconcileSession(sink?.priorEntries ?? [], sink?.savedToolResults);
     for (const entry of reconciled.added) sink?.appendEntry(entry);
 
     let mode: "prompt" | "continue" | "nudge";

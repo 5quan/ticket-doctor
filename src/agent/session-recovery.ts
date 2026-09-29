@@ -44,11 +44,40 @@ function toolResultId(entry: SessionEntry): string | undefined {
     : undefined;
 }
 
+export interface SavedToolResult {
+  toolName: string;
+  text: string;
+  isError: boolean;
+}
+
 /**
- * 扫描日志，给"已发起但无结果"的 tool_call 补一条 `isError` 的 tool_result。
- * 保持线性父子链（parent 依次追加在末尾），保证 `continue()` 可用。
+ * 扫描会话中"已发起但无结果"的 tool_call（按出现顺序）。
+ * reconcile 与 Host 构建 savedToolResults 共用同一判定，保证恢复语义一致。
  */
-export function reconcileSession(entries: SessionEntry[]): ReconcileResult {
+export function pendingToolCallIds(entries: SessionEntry[]): Array<{ id: string; name: string }> {
+  const pending = new Map<string, { name: string }>();
+  const resolved = new Set<string>();
+  for (const entry of entries) {
+    for (const call of toolCallIds(entry)) pending.set(call.id, { name: call.name });
+    const done = toolResultId(entry);
+    if (done) resolved.add(done);
+  }
+  const out: Array<{ id: string; name: string }> = [];
+  for (const [id, info] of pending) {
+    if (!resolved.has(id)) out.push({ id, name: info.name });
+  }
+  return out;
+}
+
+/**
+ * 扫描日志，给"已发起但无结果"的 tool_call 补一条 tool_result。
+ * savedResults 命中（该调用的证据批次已持久化）→ 补保存的原文（isError:false，D5/§8）；
+ * 未命中 → 补 `outcome unknown`（不编造成功）。已结束历史不改，补记天然不重复。
+ */
+export function reconcileSession(
+  entries: SessionEntry[],
+  savedResults?: ReadonlyMap<string, SavedToolResult>,
+): ReconcileResult {
   const pending = new Map<string, { name: string }>();
   const resolved = new Set<string>();
   for (const entry of entries) {
@@ -61,6 +90,7 @@ export function reconcileSession(entries: SessionEntry[]): ReconcileResult {
   let parentId = entries.at(-1)?.id ?? null;
   for (const [callId, info] of pending) {
     if (resolved.has(callId)) continue;
+    const saved = savedResults?.get(callId);
     const entry = {
       type: "message",
       id: randomUUID(),
@@ -69,9 +99,9 @@ export function reconcileSession(entries: SessionEntry[]): ReconcileResult {
       message: {
         role: "toolResult",
         toolCallId: callId,
-        toolName: info.name,
-        content: [{ type: "text", text: TOOL_OUTCOME_UNKNOWN }],
-        isError: true,
+        toolName: saved?.toolName ?? info.name,
+        content: [{ type: "text", text: saved?.text ?? TOOL_OUTCOME_UNKNOWN }],
+        isError: saved?.isError ?? true,
         timestamp: Date.now(),
       },
     } as unknown as SessionEntry;

@@ -1,6 +1,9 @@
 // Agent 层端口：诊断引擎只面向"工具箱"与"会话槽"，不直接碰 SDK 与外部系统。
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import type { SavedToolResult } from "./session-recovery.ts";
 import type { DiagnosisInput, ReportDraft } from "../domain/types.ts";
+
+export type { SavedToolResult };
 
 export interface LogQueryArgs {
   service: string;
@@ -58,6 +61,11 @@ export interface SessionSink {
   readonly priorEntries: SessionEntry[];
   /** 本轮是否已追加过用户消息：true 表示应 continue（恢复），false 表示应 prompt（首次）。 */
   readonly resumed: boolean;
+  /**
+   * 崩溃恢复（§8/D5）：已提交证据批次重建的工具结果（toolCallId → 保存文本）。
+   * 引擎 reconcile 时给"已发起但无结果"的调用补记 isError:false 的保存结果；缺省按结果未知处理。
+   */
+  readonly savedToolResults?: ReadonlyMap<string, SavedToolResult>;
   /** 追加一条 pi 会话条目。 */
   appendEntry(entry: SessionEntry): void;
   /** 记录一次工具执行（可观测）。 */

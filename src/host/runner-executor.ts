@@ -9,6 +9,7 @@ import { join } from "node:path";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { AppConfig } from "../config/index.ts";
 import { classifyRunError, failRun, finalizeEngineResult } from "../diagnosis/finalize.ts";
+import { buildSavedToolResults } from "../evidence/recovery.ts";
 import {
   EVIDENCE_PROTOCOL_VERSION,
   encodeMessage,
@@ -42,6 +43,8 @@ export function createRunnerExecutor(deps: RunnerExecutorDeps): RunExecutor {
       return failRun(deps, claimed, "runtime_error", "运行缺少消息或调查记录");
     }
 
+    const priorEntries = store.listSessionEntries(investigation.id) as SessionEntry[];
+    const savedMap = buildSavedToolResults(store, run.id, priorEntries, config.diagnosis.maxToolResultChars);
     const task: RunnerTask = {
       runId: run.id,
       attemptId: claimed.attemptId,
@@ -53,8 +56,12 @@ export function createRunnerExecutor(deps: RunnerExecutorDeps): RunExecutor {
       service: investigation.service ?? undefined,
       environment: investigation.environment ?? undefined,
       contextSummary: investigation.context_summary ?? undefined,
-      priorEntries: store.listSessionEntries(investigation.id) as SessionEntry[],
+      priorEntries,
       resumed: store.hasSessionEntriesForRun(run.id),
+      savedToolResults:
+        savedMap.size > 0
+          ? [...savedMap.entries()].map(([toolCallId, saved]) => ({ toolCallId, ...saved }))
+          : undefined,
       engine: config.diagnosis.engine,
       diagnosis: config.diagnosis,
       sources: config.sources,

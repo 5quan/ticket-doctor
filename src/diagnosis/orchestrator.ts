@@ -74,12 +74,13 @@ export async function executeRun(deps: OrchestratorDeps, claimed: ClaimedRun): P
     emit("run_started", { runId: run.id, round: run.round, source: run.source });
 
     // 会话槽：模型会话条目直接落 SQLite（单存储）。先读回历史条目，pi 重建会话。
+    // 崩溃恢复（§8）：已提交批次重建为可直接补记的工具结果，与进程路径同权。
     const runSession = new RunSession(store, {
       investigationId: investigation.id,
       runId: run.id,
       attemptId: claimed.attemptId,
       generation: claimed.generation,
-    });
+    }, config.diagnosis.maxToolResultChars);
 
     // 材料准备与生产同一路径：时间窗 → 钉版本 → 工具箱。证据经 StoreEvidenceSink 在工具 commit 时落库。
     const sink = new StoreEvidenceSink(store, {

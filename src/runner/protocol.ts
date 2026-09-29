@@ -31,6 +31,8 @@ export interface RunnerTask {
   priorEntries: SessionEntry[];
   /** 本轮是否已有条目：true 表示 continue（恢复），false 表示 prompt（首次）。 */
   resumed: boolean;
+  /** 恢复用（§8/D5）：已提交批次重建的工具结果，按 toolCallId 命中后补记进会话。 */
+  savedToolResults?: Array<{ toolCallId: string; toolName: string; text: string; isError: boolean }>;
   engine: "fake" | "pi";
   diagnosis: DiagnosisConfig;
   sources: SourcesConfig;

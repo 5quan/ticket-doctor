@@ -9,6 +9,7 @@ import { test } from "node:test";
 import type { InboundMessage } from "../../src/domain/types.ts";
 import { createRunnerExecutor } from "../../src/host/runner-executor.ts";
 import { routeInbound } from "../../src/intake/router.ts";
+import { evidencePayloadHash } from "../../src/evidence/util.ts";
 import { memoryStore, testConfig } from "../helpers.ts";
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -92,6 +93,57 @@ test("Runner 协议版本不匹配 → 拒绝本轮（D12 硬失败）", async (
     const execute = createRunnerExecutor({ store, config: cfg, runnerEntry: entry });
     await execute(claimed);
     assert.equal(store.getRun(claimed.run.id)!.status, "failed", "协议版本不匹配应判本轮失败");
+  } finally {
+    rmSync(entry, { force: true });
+  }
+});
+
+test("commit 后崩溃：批次保留，重试轮恢复成功且批次不重复（§8）", async () => {
+  const store = memoryStore();
+  const cfg = config();
+  const routed = routeInbound(store, cfg, msg({ externalMessageId: "om_proc_crash" }));
+  const claimed = store.claimNextRun("w1", 60_000)!;
+
+  // 假 Runner：上报一个未决 tool_call + 提交证据批次，随即崩溃（模拟"commit 后 ACK 前"被杀）
+  const items = [{ kind: "log", source: "stub", excerpt: "crash-boom", time: 1_700_000_000_000, level: "ERROR" }];
+  const payloadHash = evidencePayloadHash(items as never);
+  const entry = join(tmpdir(), `crash-runner-${randomUUID()}.mjs`);
+  const script = `
+const items = ${JSON.stringify(items)};
+const entry = { type: "message", id: "e-crash", parentId: null, timestamp: new Date().toISOString(),
+  message: { role: "assistant", content: [{ type: "toolCall", id: "call-crash", name: "query_logs" }] } };
+let started = false;
+process.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 2 }) + "\\n");
+process.stdin.on("data", (d) => {
+  if (started) return;
+  started = true;
+  process.stdout.write(JSON.stringify({ type: "session_entry", entry }) + "\\n");
+  process.stdout.write(JSON.stringify({ type: "evidence_commit", batchId: "batch-crash", tool: "query_logs",
+    toolCallId: "call-crash", payloadHash: ${JSON.stringify(payloadHash)}, items, result: { count: 1 } }) + "\\n");
+  setTimeout(() => process.exit(9), 50);
+});
+`;
+  writeFileSync(entry, script);
+  try {
+    const execute = createRunnerExecutor({ store, config: cfg, runnerEntry: entry });
+    await execute(claimed);
+    // 崩溃后：批次已持久化（证据不丢）；runtime_error 不可自动重试，走人工 retry 重新入队
+    assert.ok(store.getBatchByToolCall(claimed.run.id, "call-crash"), "已提交批次应保留");
+    assert.equal(store.getRun(claimed.run.id)!.status, "failed");
+    assert.ok(store.retryRun(claimed.run.id), "人工重试应重新入队");
+
+    // 重试轮：真实 Runner 跑完；已提交批次不重复、不重建
+    const retried = store.claimNextRun("w1", 60_000)!;
+    assert.equal(retried.run.id, claimed.run.id);
+    const executeReal = createRunnerExecutor({ store, config: cfg });
+    await executeReal(retried);
+
+    assert.equal(store.getRun(claimed.run.id)!.status, "succeeded");
+    const batch = store.getBatchByToolCall(claimed.run.id, "call-crash");
+    assert.ok(batch);
+    assert.equal(batch.evidence.length, 1, "崩溃轮批次不得重复写入");
+    const evidence = store.listEvidenceByInvestigation(routed.investigationId!);
+    assert.ok(evidence.length >= 2, "恢复轮新证据正常续签");
   } finally {
     rmSync(entry, { force: true });
   }

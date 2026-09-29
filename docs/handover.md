@@ -144,7 +144,7 @@ npm run worker           # 只跑 worker
 
 **下一步（阶段三收口）**：Go 适配器**长连接模式**（S3，官方 SDK，需真实凭据人工验证）；独立审计 Agent。已完成：**证据作用域调查级的迁移与回滚方案定稿**（S5 方案，`docs/evidence-scope-design.md`，已被 `docs/evidence-uid-design.md` 取代）；多平台抽象 + 飞书迁入（S2，OQ-37）；`search_code` 有界预览 + 路径清单（S1，OQ-36）；`list_files` 路径层。
 
-**进行中：证据持久化 + 稳定 UID（按 `docs/evidence-uid-design.md` §11 实施）**——阶段 1~3 已完成（006 迁移 + 批次事务；工具先持久化后返回 + 内联路径切换；协议 v2 `evidence_commit/ack/reject` + Runner IPC sink 有限重试 + 非法 stdout 行硬失败）。
+**进行中：证据持久化 + 稳定 UID（按 `docs/evidence-uid-design.md` §11 实施）**——阶段 1~4 已完成（006 迁移 + 批次事务；工具先持久化后返回；协议 v2 + Runner IPC sink；崩溃恢复：已提交批次经共享渲染器重建、reconcile 补记保存结果且不重复，内联/进程两路径同权）。
 
 **阶段二下一步**：用真实模型迭代 `rules.md`（基线已出：召回 90% / 精确 30.7% / 正确率 80%），修掉「材料不足仍给 supported 结论」与「引用干扰证据」；随后独立审计 Agent。详见 `docs/eval-design.md`。
 

@@ -3,7 +3,8 @@
 // 引擎从这里读历史条目、把运行中新增的条目写回；usage 累计到本轮结束再写库。
 import { randomUUID } from "node:crypto";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
-import type { SessionSink, ToolExecutionRecord } from "../agent/types.ts";
+import type { SavedToolResult, SessionSink, ToolExecutionRecord } from "../agent/types.ts";
+import { buildSavedToolResults } from "../evidence/recovery.ts";
 import type { Store } from "../storage/store.ts";
 
 export interface RunSessionIds {
@@ -44,15 +45,21 @@ function usageOf(entry: SessionEntry): Usage | undefined {
 export class RunSession implements SessionSink {
   readonly priorEntries: SessionEntry[];
   readonly resumed: boolean;
+  readonly savedToolResults?: ReadonlyMap<string, SavedToolResult>;
   private usage: Usage = { inputTokens: 0, outputTokens: 0, cacheTokens: 0, totalTokens: 0 };
   private readonly store: Store;
   private readonly ids: RunSessionIds;
 
-  constructor(store: Store, ids: RunSessionIds) {
+  constructor(store: Store, ids: RunSessionIds, maxToolResultChars?: number) {
     this.store = store;
     this.ids = ids;
     this.priorEntries = store.listSessionEntries(ids.investigationId) as SessionEntry[];
     this.resumed = store.hasSessionEntriesForRun(ids.runId);
+    // 崩溃恢复（§8）：内联路径与进程路径同权——已提交批次重建为可直接补记的结果
+    if (maxToolResultChars !== undefined) {
+      const map = buildSavedToolResults(store, ids.runId, this.priorEntries, maxToolResultChars);
+      if (map.size > 0) this.savedToolResults = map;
+    }
   }
 
   appendEntry(entry: SessionEntry): void {

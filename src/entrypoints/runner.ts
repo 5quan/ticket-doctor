@@ -7,7 +7,7 @@
 import { randomUUID } from "node:crypto";
 import readline from "node:readline";
 import { buildEngine } from "../agent/factory.ts";
-import type { SessionSink, ToolExecutionRecord } from "../agent/types.ts";
+import type { SavedToolResult, SessionSink, ToolExecutionRecord } from "../agent/types.ts";
 import type { AppConfig } from "../config/index.ts";
 import { renderDiagnosisInput } from "../agent/input-text.ts";
 import { IpcEvidenceSink } from "../evidence/ipc-sink.ts";
@@ -62,9 +62,13 @@ function runnerConfig(task: RunnerTask): AppConfig {
 class IpcSessionSink implements SessionSink {
   readonly priorEntries: SessionEntry[];
   readonly resumed: boolean;
+  readonly savedToolResults?: ReadonlyMap<string, SavedToolResult>;
   constructor(task: RunnerTask) {
     this.priorEntries = task.priorEntries;
     this.resumed = task.resumed;
+    if (task.savedToolResults && task.savedToolResults.length > 0) {
+      this.savedToolResults = new Map(task.savedToolResults.map((s) => [s.toolCallId, s]));
+    }
   }
   appendEntry(entry: SessionEntry): void {
     emit({ type: "session_entry", entry });

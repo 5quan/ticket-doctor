@@ -1147,7 +1147,7 @@ export class Store {
           if (existing.payload_hash !== hash) {
             return { ok: false as const, code: "conflict" as const, message: "同批次 payload_hash 不一致" };
           }
-          return { ok: true as const, refs: this.evidenceRefsByBatch(input.batchId) };
+          return { ok: true as const, refs: this.listEvidenceRefsByBatch(input.batchId) };
         }
 
         const sameCall = this.db
@@ -1254,7 +1254,8 @@ export class Store {
       .all(batchId) as never;
   }
 
-  private evidenceRefsByBatch(batchId: string): EvidenceRef[] {
+  /** 批次内证据（按 item_index 序）的 ref 视图：恢复重建与幂等返回共用。 */
+  listEvidenceRefsByBatch(batchId: string): EvidenceRef[] {
     return (this.evidenceRowsByBatch(batchId) as EvidenceRow[]).map((r) => ({
       kind: r.kind as EvidenceItem["kind"],
       source: r.source,
