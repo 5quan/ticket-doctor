@@ -186,7 +186,13 @@ type Platform interface {
 
 ---
 
-### 5.5 [证据] 证据作用域提升为调查级（S5）
+### 5.5 [证据] 证据持久化 + 稳定 UID（S5，OQ-38）
+
+> **详细设计见 `docs/evidence-uid-design.md`（实施以此为准）**。相较原写法新增：
+> 工具返回前两阶段提交（材料先落盘再给模型）、稳定 UID 与展示短号分离、批次幂等与冲突检测、
+> Host/Runner 协议 `evidence_commit/ack/reject`、报告 `reference_format_version`、
+> 恢复按 `(run_id, tool_call_id)` 找回批次。原 `docs/evidence-scope-design.md` 已被取代。
+
 
 > 迁移与回滚方案已定稿：**`docs/evidence-scope-design.md`**（方案选型、006 迁移 SQL、seed 传递、
 > 跨轮校验语义、回滚、测试计划、实现清单）。实现时在独立会话按其 §8 清单执行；
@@ -272,7 +278,7 @@ type Platform interface {
 | S2 | 5.2 多平台抽象（先抽接口+飞书迁入） | 无 | ✅ 已完成 |
 | S3 | 5.1 Go 长连接（SDK） | S2 | 需真实凭据人工验证 |
 | S4 | 5.3 弃用 Host 内直连 | S3 | 一次性清理 |
-| S5 | 5.5 证据作用域调查级 | 独立 | ✅ 迁移与回滚方案已定稿（`docs/evidence-scope-design.md`），待实现 |
+| S5 | 5.5 证据持久化 + 稳定 UID | 独立 | 📄 设计定稿 `docs/evidence-uid-design.md`，待实现（取代旧 `evidence-scope-design.md`） |
 | S6 | 5.6 独立审计 Agent | 5.5 | 效果向 |
 | S7 | 5.7 评测 M2/M3 | 5.5/5.6 | 迭代 rules |
 | S8 | 5.8 / 5.9 扩展 | 触发条件 | 按需 |
