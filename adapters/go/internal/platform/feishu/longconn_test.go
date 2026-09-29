@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	larkcore "github.com/larksuite/oapi-sdk-go/v3/core"
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 )
 
@@ -148,5 +149,48 @@ func TestSourceEventFromSDKP2PChatType(t *testing.T) {
 	message, ok := Normalize(envelope.Event, "app_1", "ou_bot")
 	if !ok || message.ChatType != "p2p" {
 		t.Fatalf("p2p 应保留为 p2p：ok=%v %+v", ok, message)
+	}
+}
+
+func TestPlatformLongConnCredentials(t *testing.T) {
+	full := NewPlatform(PlatformConfig{AppID: "app_1", AppSecret: "secret"})
+	src := full.LongConn()
+	if src == nil {
+		t.Fatal("有 app_id/app_secret 时应返回事件源")
+	}
+	if src.Name() != "feishu-larkws" {
+		t.Fatalf("事件源名应为 feishu-larkws，实际 %q", src.Name())
+	}
+	// Stop 在 Start 之前调用应安全（no-op）。
+	src.Stop()
+
+	for name, cfg := range map[string]PlatformConfig{
+		"both-empty": {},
+		"no-secret":  {AppID: "app_1"},
+		"no-appid":   {AppSecret: "secret"},
+	} {
+		if NewPlatform(cfg).LongConn() != nil {
+			t.Fatalf("%s：缺凭据应返回 nil", name)
+		}
+	}
+}
+
+func TestParseLogLevel(t *testing.T) {
+	for value, want := range map[string]larkcore.LogLevel{
+		"debug": larkcore.LogLevelDebug,
+		"INFO":  larkcore.LogLevelInfo,
+		" warn ": larkcore.LogLevelWarn,
+		"error": larkcore.LogLevelError,
+	} {
+		got, ok := parseLogLevel(value)
+		if !ok || got != want {
+			t.Fatalf("parseLogLevel(%q)=(%v,%v)，期望 %v", value, got, ok, want)
+		}
+	}
+	if _, ok := parseLogLevel("trace"); ok {
+		t.Fatal("未知级别应返回 ok=false")
+	}
+	if _, ok := parseLogLevel(""); ok {
+		t.Fatal("空级别应返回 ok=false")
 	}
 }

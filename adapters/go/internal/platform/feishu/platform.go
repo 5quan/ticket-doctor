@@ -25,14 +25,18 @@ type PlatformConfig struct {
 	EncryptKey string
 	// BotOpenID：未知时群聊 mention 判定 fail-closed（出现任何 mention 即视为可能被 @）。
 	BotOpenID string
+	// LogLevel：长连接（larkws）SDK 日志级别（debug/info/warn/error）；留空用 SDK 默认。
+	LogLevel string
 }
 
-// Platform 是飞书平台接入实现（纯 Webhook；长连接 S3 提供）。
+// Platform 是飞书平台接入实现（Webhook + 长连接 S3）。
 type Platform struct {
 	appID             string
+	appSecret         string
 	botOpenID         string
 	verificationToken string
 	encryptKey        string
+	logLevel          string
 	client            *Client
 }
 
@@ -40,17 +44,30 @@ type Platform struct {
 func NewPlatform(cfg PlatformConfig) *Platform {
 	return &Platform{
 		appID:             cfg.AppID,
+		appSecret:         cfg.AppSecret,
 		botOpenID:         cfg.BotOpenID,
 		verificationToken: cfg.VerificationToken,
 		encryptKey:        cfg.EncryptKey,
+		logLevel:          cfg.LogLevel,
 		client:            New(cfg.AppID, cfg.AppSecret, cfg.APIBase, cfg.APITimeout),
 	}
 }
 
 func (p *Platform) Name() string { return "feishu" }
 
-// LongConn 长连接事件源：S3（larkws）提供，当前纯 Webhook 返回 nil。
-func (p *Platform) LongConn() eventsource.Source { return nil }
+// LongConn 返回飞书长连接事件源；缺少 app_id/app_secret 时返回 nil（由 main 报错，不静默）。
+func (p *Platform) LongConn() eventsource.Source {
+	if p.appID == "" || p.appSecret == "" {
+		return nil
+	}
+	return &LarkWSSource{
+		appID:             p.appID,
+		appSecret:         p.appSecret,
+		verificationToken: p.verificationToken,
+		encryptKey:        p.encryptKey,
+		logLevel:          p.logLevel,
+	}
+}
 
 // payload 解出回调明文：配置 Encrypt Key 时先解密，否则原样返回。
 func (p *Platform) payload(body []byte) ([]byte, error) {

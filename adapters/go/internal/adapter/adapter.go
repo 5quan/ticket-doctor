@@ -49,6 +49,7 @@ func BuildPlatforms(cfg config.Config) ([]platform.Platform, error) {
 				VerificationToken: cfg.VerificationToken,
 				EncryptKey:        cfg.EncryptKey,
 				BotOpenID:         cfg.BotOpenID,
+				LogLevel:          cfg.LarkLogLevel,
 			}))
 		case "dingtalk":
 			out = append(out, dingtalk.New())
