@@ -3,6 +3,7 @@
 import type { AppConfig } from "../../config/index.ts";
 import { extractSessionCode } from "../../domain/session.ts";
 import type { InboundMessage } from "../../domain/types.ts";
+import { HELP_TEXT } from "../../intake/help.ts";
 import { routeInbound, type IntakeResult } from "../../intake/router.ts";
 import type { Store } from "../../storage/store.ts";
 import type { DeliverySender } from "../../delivery/delivery.ts";
@@ -21,14 +22,6 @@ export type GatewayOutcome =
   | { kind: "ignored"; reason: string }
   | { kind: "mechanical_reply_sent"; text: string }
   | { kind: "routed"; result: IntakeResult };
-
-/** 机械回复（不建调查、不走模型）。目前只有 `-help` 命令使用。 */
-const HELP_TEXT = [
-  "【ticket-doctor 使用说明】",
-  "• 提交 Bug：在群里 @我，尽量带上「服务名、发生时间、现象/报错」。",
-  "• 继续追问：回复我的报告，保留末尾的 [TD-xxxxxxxx] 标号即可续接。",
-  "• 我只做只读预检（查日志 + 读源码），不会修改任何东西。",
-].join("\n");
 
 function conversationActive(store: Store, msg: InboundMessage): boolean {
   const code = extractSessionCode(msg.text);
