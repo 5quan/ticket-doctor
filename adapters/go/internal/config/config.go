@@ -111,6 +111,6 @@ func Load() Config {
 		LarkAPIBase:       env("LARK_API_BASE", "https://open.feishu.cn/open-apis"),
 		LarkTimeout:       envDuration("LARK_TIMEOUT_MS", 5*time.Second),
 		LarkLogLevel:      os.Getenv("LARK_LOG_LEVEL"),
-		PollInterval:      envDuration("ADAPTER_POLL_INTERVAL_MS", 1000),
+		PollInterval:      envDuration("ADAPTER_POLL_INTERVAL_MS", time.Second),
 	}
 }
