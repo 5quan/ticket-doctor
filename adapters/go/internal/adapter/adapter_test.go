@@ -89,15 +89,14 @@ func newTestCore(t *testing.T, host http.Handler, larkBase string, botOpenID str
 	hostSrv := httptest.NewServer(host)
 	t.Cleanup(hostSrv.Close)
 	cfg := config.Config{
-		HostAPIBase:    hostSrv.URL,
-		Platforms:      []string{"feishu"},
-		RequireMention: true,
-		BotOpenID:      botOpenID,
-		AppID:          "app_1",
-		AppSecret:      "secret",
-		LarkAPIBase:    larkBase,
-		HostTimeout:    2e9,
-		LarkTimeout:    2e9,
+		HostAPIBase: hostSrv.URL,
+		Platforms:   []string{"feishu"},
+		BotOpenID:   botOpenID,
+		AppID:       "app_1",
+		AppSecret:   "secret",
+		LarkAPIBase: larkBase,
+		HostTimeout: 2e9,
+		LarkTimeout: 2e9,
 	}
 	platforms, err := BuildPlatforms(cfg)
 	if err != nil {

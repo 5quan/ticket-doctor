@@ -101,7 +101,6 @@ func Load() Config {
 		VerificationToken: os.Getenv("LARK_VERIFICATION_TOKEN"),
 		EncryptKey:        os.Getenv("LARK_ENCRYPT_KEY"),
 		BotOpenID:         os.Getenv("LARK_BOT_OPEN_ID"),
-		RequireMention:    envBool("ADAPTER_REQUIRE_MENTION", true),
 		LarkAPIBase:       env("LARK_API_BASE", "https://open.feishu.cn/open-apis"),
 		LarkTimeout:       envDuration("LARK_TIMEOUT_MS", 5*time.Second),
 		PollInterval:      envDuration("ADAPTER_POLL_INTERVAL_MS", 1000),
