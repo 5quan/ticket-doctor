@@ -10,6 +10,8 @@ import { buildEngine } from "../agent/factory.ts";
 import type { SessionSink, ToolExecutionRecord } from "../agent/types.ts";
 import type { AppConfig } from "../config/index.ts";
 import { renderDiagnosisInput } from "../agent/input-text.ts";
+import { MemoryEvidenceSink } from "../evidence/memory-sink.ts";
+import { evidenceRefToRecord } from "../evidence/util.ts";
 import { prepareDiagnosis } from "../diagnosis/prepare.ts";
 import { encodeMessage, type RunnerMessage, type RunnerTask } from "../runner/protocol.ts";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
@@ -85,7 +87,9 @@ async function runTask(task: RunnerTask, controller: AbortController): Promise<v
   emit({ type: "ready" });
 
   try {
-    const { input, scope, registry, toolbox, missingMaterial } = await prepareDiagnosis(config, {
+    // 过渡期（阶段 3 前）：Runner 内用内存 sink 签发，证据随 result 上报、Host 代为落库。
+    const evidenceSink = new MemoryEvidenceSink();
+    const { input, scope, toolbox, missingMaterial } = await prepareDiagnosis(config, {
       investigationId: task.investigationId,
       runId: task.runId,
       text: task.text,
@@ -94,6 +98,7 @@ async function runTask(task: RunnerTask, controller: AbortController): Promise<v
       environment: task.environment,
       contextSummary: task.contextSummary,
       signal: controller.signal,
+      sink: evidenceSink,
     });
     if (!sink.resumed) sink.appendUserMessage(renderDiagnosisInput(input));
     emit({ type: "progress", name: "prepared", payload: { services: scope.services, repos: scope.repos.length } });
@@ -118,7 +123,9 @@ async function runTask(task: RunnerTask, controller: AbortController): Promise<v
       result: {
         kind: "report",
         draft: result.draft,
-        evidence: registry.all(),
+        // 过渡期（阶段 3 前）：Runner 用内存 sink 签发，证据随 result 上报由 Host 代为落库；
+        // 协议切换后证据在工具 commit 时经 IPC 实时落库，result 不再携带。
+        evidence: evidenceSink.all().map((ref) => evidenceRefToRecord(ref, task.runId)),
         scope,
         missingMaterial,
         toolCalls: result.toolCalls,

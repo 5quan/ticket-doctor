@@ -221,7 +221,10 @@ export class PiDiagnosisEngine implements DiagnosisEngine {
           const from = Date.parse(params.from);
           const to = Date.parse(params.to);
           if (Number.isNaN(from) || Number.isNaN(to)) throw new Error("from/to 必须是 ISO8601 时间");
-          const text = await toolbox.queryLogs({ service: params.service, from, to, keywords: params.keywords });
+          const text = await toolbox.queryLogs(
+            { service: params.service, from, to, keywords: params.keywords },
+            id,
+          );
           return { content: [{ type: "text" as const, text }], details: {} };
         }),
     });
@@ -233,7 +236,7 @@ export class PiDiagnosisEngine implements DiagnosisEngine {
       parameters: listFilesSchema,
       execute: (id, params: Static<typeof listFilesSchema>) =>
         timedTool(sink, "list_files", id, params, async () => {
-          const text = await toolbox.listFiles({ glob: params.glob, repoId: params.repoId });
+          const text = await toolbox.listFiles({ glob: params.glob, repoId: params.repoId }, id);
           return { content: [{ type: "text" as const, text }], details: {} };
         }),
     });
@@ -247,7 +250,10 @@ export class PiDiagnosisEngine implements DiagnosisEngine {
       parameters: searchCodeSchema,
       execute: (id, params: Static<typeof searchCodeSchema>) =>
         timedTool(sink, "search_code", id, params, async () => {
-          const text = await toolbox.searchCode({ pattern: params.pattern, glob: params.glob, repoId: params.repoId });
+          const text = await toolbox.searchCode(
+            { pattern: params.pattern, glob: params.glob, repoId: params.repoId },
+            id,
+          );
           return { content: [{ type: "text" as const, text }], details: {} };
         }),
     });
@@ -259,12 +265,15 @@ export class PiDiagnosisEngine implements DiagnosisEngine {
       parameters: readCodeSchema,
       execute: (id, params: Static<typeof readCodeSchema>) =>
         timedTool(sink, "read_code", id, params, async () => {
-          const text = await toolbox.readCode({
-            path: params.path,
-            startLine: params.startLine,
-            endLine: params.endLine,
-            repoId: params.repoId,
-          });
+          const text = await toolbox.readCode(
+            {
+              path: params.path,
+              startLine: params.startLine,
+              endLine: params.endLine,
+              repoId: params.repoId,
+            },
+            id,
+          );
           return { content: [{ type: "text" as const, text }], details: {} };
         }),
     });

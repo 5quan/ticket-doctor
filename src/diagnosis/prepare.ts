@@ -9,7 +9,8 @@ import type { DiagnosisInput, MaterialScope, RepositoryRef } from "../domain/typ
 import { buildCodeSource, type MultiRepoCodeSource } from "../sources/code.ts";
 import { FileLogSource } from "../sources/logs.ts";
 import { DiagnosisToolbox } from "../agent/toolbox.ts";
-import { EvidenceRegistry } from "./evidence.ts";
+import { MemoryEvidenceSink } from "../evidence/memory-sink.ts";
+import type { EvidenceSink } from "../evidence/types.ts";
 
 export interface PrepareParams {
   investigationId: string;
@@ -25,12 +26,14 @@ export interface PrepareParams {
   signal: AbortSignal;
   /** 让测试注入假日志源；缺省用配置文件日志源。 */
   logSource?: FileLogSource;
+  /** 证据 Sink：生产显式传入（内联=StoreEvidenceSink，Runner=IpcEvidenceSink）；缺省 Memory（单测/评测过渡）。 */
+  sink?: EvidenceSink;
 }
 
 export interface PreparedDiagnosis {
   input: DiagnosisInput;
   scope: MaterialScope;
-  registry: EvidenceRegistry;
+  sink: EvidenceSink;
   toolbox: DiagnosisToolbox;
   /** 程序判定的缺失材料（版本未钉到、发生时间缺失等）。 */
   missingMaterial: string[];
@@ -103,19 +106,20 @@ export async function prepareDiagnosis(config: AppConfig, params: PrepareParams)
     allowedRepos: config.sources.allowedRepos,
   };
 
-  const registry = new EvidenceRegistry(params.runId, config.diagnosis.maxResultChars);
+  const sink = params.sink ?? new MemoryEvidenceSink();
   const logSource =
     params.logSource ??
     new FileLogSource({ dir: config.sources.logDir, allowedServices: config.sources.allowedServices });
   const toolbox = new DiagnosisToolbox({
     logs: logSource,
     code: codeSource as MultiRepoCodeSource | undefined,
-    evidence: registry,
+    sink,
     scope,
     maxToolCalls: config.diagnosis.maxToolCalls,
     maxToolResultChars: config.diagnosis.maxToolResultChars,
+    maxEvidenceChars: config.diagnosis.maxResultChars,
     signal: params.signal,
   });
 
-  return { input, scope, registry, toolbox, missingMaterial };
+  return { input, scope, sink, toolbox, missingMaterial };
 }

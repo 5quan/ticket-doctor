@@ -223,3 +223,75 @@ test("代次不符或运行已结束 → lease_lost，不落任何数据", () =>
   assert.equal(afterEnd.code, "lease_lost");
   assert.equal(store.listEvidenceByInvestigation(ctx.investigationId).length, 0);
 });
+
+// ---------- 阶段 2：工具经 StoreEvidenceSink 先 commit 后返回（fail-closed） ----------
+
+test("工具返回前证据已入库：返回文本的 [E#] 与库中行一致", async () => {
+  const { DiagnosisToolbox } = await import("../../src/agent/toolbox.ts");
+  const { StoreEvidenceSink } = await import("../../src/evidence/store-sink.ts");
+  const { GitCodeSource, MultiRepoCodeSource } = await import("../../src/sources/code.ts");
+  const { join } = await import("node:path");
+
+  const store = memoryStore();
+  const ctx = claimedRun(store);
+  const git = await GitCodeSource.create(join(process.cwd(), "fixtures", "demo-repo"), { repoId: "app" });
+  const toolbox = new DiagnosisToolbox({
+    logs: { name: "stub", async query() { return []; } },
+    code: new MultiRepoCodeSource([git]),
+    sink: new StoreEvidenceSink(store, {
+      investigationId: ctx.investigationId,
+      runId: ctx.runId,
+      attemptId: ctx.attemptId,
+      generation: ctx.generation,
+    }),
+    scope: { services: [], repos: [] },
+    maxToolCalls: 12,
+    maxToolResultChars: 8_000,
+    maxEvidenceChars: 4_000,
+    signal: new AbortController().signal,
+  });
+
+  const out = await toolbox.searchCode({ pattern: "null" }, "call-inline-1");
+  assert.match(out, /\[E1\] \S+:\d+: /);
+
+  const rows = store.listEvidenceByInvestigation(ctx.investigationId);
+  assert.equal(rows.length, 4, "工具返回时证据已持久化");
+  assert.equal(rows[0]!.evidence_id, "E1");
+  assert.ok(rows[0]!.evidence_uid);
+  assert.equal(store.getBatchByToolCall(ctx.runId, "call-inline-1")?.batch.tool, "search_code");
+});
+
+test("commit 失败（lease_lost）→ 工具抛 EvidenceCommitError，不给模型返回材料", async () => {
+  const { DiagnosisToolbox } = await import("../../src/agent/toolbox.ts");
+  const { StoreEvidenceSink } = await import("../../src/evidence/store-sink.ts");
+  const { EvidenceCommitError } = await import("../../src/evidence/errors.ts");
+  const { GitCodeSource, MultiRepoCodeSource } = await import("../../src/sources/code.ts");
+  const { join } = await import("node:path");
+
+  const store = memoryStore();
+  const ctx = claimedRun(store);
+  ctx.finish(); // 运行已结束 → 提交必被拒
+
+  const git = await GitCodeSource.create(join(process.cwd(), "fixtures", "demo-repo"), { repoId: "app" });
+  const toolbox = new DiagnosisToolbox({
+    logs: { name: "stub", async query() { return []; } },
+    code: new MultiRepoCodeSource([git]),
+    sink: new StoreEvidenceSink(store, {
+      investigationId: ctx.investigationId,
+      runId: ctx.runId,
+      attemptId: ctx.attemptId,
+      generation: ctx.generation,
+    }),
+    scope: { services: [], repos: [] },
+    maxToolCalls: 12,
+    maxToolResultChars: 8_000,
+    maxEvidenceChars: 4_000,
+    signal: new AbortController().signal,
+  });
+
+  await assert.rejects(
+    () => toolbox.searchCode({ pattern: "null" }),
+    (err: unknown) => err instanceof EvidenceCommitError && err.code === "lease_lost",
+  );
+  assert.equal(store.listEvidenceByInvestigation(ctx.investigationId).length, 0);
+});

@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { test } from "node:test";
 import { DiagnosisToolbox } from "../../src/agent/toolbox.ts";
-import { EvidenceRegistry } from "../../src/diagnosis/evidence.ts";
+import { MemoryEvidenceSink } from "../../src/evidence/memory-sink.ts";
 import { GitCodeSource, MultiRepoCodeSource } from "../../src/sources/code.ts";
 import type { LogSource } from "../../src/sources/logs.ts";
 import type { MaterialScope } from "../../src/domain/types.ts";
@@ -16,10 +16,11 @@ const scope: MaterialScope = { services: ["svc"], repos: [] };
 function toolboxWith(logs: LogSource, maxToolResultChars: number): DiagnosisToolbox {
   return new DiagnosisToolbox({
     logs,
-    evidence: new EvidenceRegistry("run-1", 4_000),
+    sink: new MemoryEvidenceSink(),
     scope,
     maxToolCalls: 12,
     maxToolResultChars,
+    maxEvidenceChars: 4_000,
     signal: new AbortController().signal,
   });
 }
@@ -49,10 +50,11 @@ test("list_files 列出钉死版本的文件路径并签发证据", async () => 
   const toolbox = new DiagnosisToolbox({
     logs: { name: "stub", async query() { return []; } },
     code: new MultiRepoCodeSource([git]),
-    evidence: new EvidenceRegistry("run-lf", 4_000),
+    sink: new MemoryEvidenceSink(),
     scope: { services: [], repos: [] },
     maxToolCalls: 12,
     maxToolResultChars: 8_000,
+    maxEvidenceChars: 4_000,
     signal: new AbortController().signal,
   });
 
@@ -77,14 +79,15 @@ test("条目较少时不截断", async () => {
   assert.doesNotMatch(out, /结果已截断/);
 });
 
-function codeToolbox(git: GitCodeSource, evidence: EvidenceRegistry, maxToolResultChars: number): DiagnosisToolbox {
+function codeToolbox(git: GitCodeSource, sink: MemoryEvidenceSink, maxToolResultChars: number): DiagnosisToolbox {
   return new DiagnosisToolbox({
     logs: { name: "stub", async query() { return []; } },
     code: new MultiRepoCodeSource([git]),
-    evidence,
+    sink,
     scope: { services: [], repos: [] },
     maxToolCalls: 12,
     maxToolResultChars,
+    maxEvidenceChars: 4_000,
     signal: new AbortController().signal,
   });
 }
@@ -92,8 +95,8 @@ function codeToolbox(git: GitCodeSource, evidence: EvidenceRegistry, maxToolResu
 test("search_code 多处命中时输出文件清单与带 E# 的预览", async () => {
   const repoDir = join(process.cwd(), "fixtures", "demo-repo");
   const git = await GitCodeSource.create(repoDir, { repoId: "app" });
-  const evidence = new EvidenceRegistry("run-sc", 4_000);
-  const toolbox = codeToolbox(git, evidence, 8_000);
+  const sink = new MemoryEvidenceSink();
+  const toolbox = codeToolbox(git, sink, 8_000);
 
   const out = await toolbox.searchCode({ pattern: "null" });
   assert.match(out, /命中 4 处代码，分布在 2 个文件/);
@@ -102,7 +105,7 @@ test("search_code 多处命中时输出文件清单与带 E# 的预览", async (
   // 4 处命中低于预览上限时全部展示，每处带 [E#]
   for (const id of ["E1", "E2", "E3", "E4"]) assert.match(out, new RegExp(`\\[${id}\\] \\S+:\\d+: `));
   assert.doesNotMatch(out, /未预览/);
-  assert.equal(evidence.size, 4);
+  assert.equal(sink.all().length, 4);
 });
 
 test("search_code 预览条数有界，未预览的命中也登记证据", async () => {
@@ -111,8 +114,8 @@ test("search_code 预览条数有界，未预览的命中也登记证据", async
     writeFileSync(join(dir, "Big.java"), `${Array.from({ length: 12 }, (_, i) => `// needle line ${i}`).join("\n")}\n`);
     execSync("git init -q && git add . && git -c user.email=t@example -c user.name=t commit -qm init", { cwd: dir });
     const git = await GitCodeSource.create(dir, { repoId: "big" });
-    const evidence = new EvidenceRegistry("run-big", 4_000);
-    const toolbox = codeToolbox(git, evidence, 8_000);
+    const sink = new MemoryEvidenceSink();
+    const toolbox = codeToolbox(git, sink, 8_000);
 
     const out = await toolbox.searchCode({ pattern: "needle" });
     assert.match(out, /命中 12 处代码，分布在 1 个文件/);
@@ -121,7 +124,7 @@ test("search_code 预览条数有界，未预览的命中也登记证据", async
     assert.doesNotMatch(out, /\[E9\]/);
     assert.match(out, /其余 4 处未预览/);
     // 未预览的命中同样登记了证据（逐处可追溯），但不出现在模型输出里
-    assert.equal(evidence.size, 12);
+    assert.equal(sink.all().length, 12);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -133,7 +136,7 @@ test("search_code 输出仍受总量预算截断", async () => {
     writeFileSync(join(dir, "Big.java"), `${Array.from({ length: 12 }, (_, i) => `// needle line ${i}`).join("\n")}\n`);
     execSync("git init -q && git add . && git -c user.email=t@example -c user.name=t commit -qm init", { cwd: dir });
     const git = await GitCodeSource.create(dir, { repoId: "big" });
-    const toolbox = codeToolbox(git, new EvidenceRegistry("run-cut", 4_000), 200);
+    const toolbox = codeToolbox(git, new MemoryEvidenceSink(), 200);
 
     const out = await toolbox.searchCode({ pattern: "needle" });
     assert.match(out, /结果已截断/);

@@ -2,7 +2,8 @@
 //
 // canonicalJson：键递归排序、丢弃 undefined，数组保序——JSON 传输的键序差异不影响哈希。
 import { createHash } from "node:crypto";
-import type { EvidenceItem } from "./types.ts";
+import type { EvidenceRecord } from "../domain/types.ts";
+import type { EvidenceItem, EvidenceRef } from "./types.ts";
 
 export function canonicalJson(value: unknown): string {
   if (value === null || value === undefined) return "null";
@@ -29,4 +30,19 @@ export function evidenceSourceOf(item: EvidenceItem): string {
     return `${ref.repoId}@${ref.sha.slice(0, 10)} ${ref.path}#${line}`;
   }
   return "unknown";
+}
+
+/** EvidenceRef → EvidenceRecord（过渡期：Runner 上报与评测打分仍消费 record 形态）。 */
+export function evidenceRefToRecord(ref: EvidenceRef, runId: string): EvidenceRecord {
+  return {
+    evidenceId: ref.evidenceId,
+    runId,
+    kind: ref.kind,
+    source: ref.source ?? evidenceSourceOf(ref),
+    excerpt: ref.excerpt,
+    truncated: ref.truncated,
+    ...(ref.time !== undefined ? { time: ref.time } : {}),
+    ...(ref.level !== undefined ? { level: ref.level } : {}),
+    ...(ref.codeRef ? { codeRef: ref.codeRef } : {}),
+  };
 }

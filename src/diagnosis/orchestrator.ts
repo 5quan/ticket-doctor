@@ -14,6 +14,7 @@ import type { Store, ClaimedRun } from "../storage/store.ts";
 import type { EventStore } from "../host/event-store.ts";
 import { ToolBudgetExceeded } from "../agent/toolbox.ts";
 import type { DiagnosisEngine } from "../agent/types.ts";
+import { StoreEvidenceSink } from "../evidence/store-sink.ts";
 import { prepareDiagnosis } from "./prepare.ts";
 import { RunSession } from "./run-session.ts";
 import { renderDiagnosisInput } from "../agent/input-text.ts";
@@ -80,8 +81,14 @@ export async function executeRun(deps: OrchestratorDeps, claimed: ClaimedRun): P
       generation: claimed.generation,
     });
 
-    // 材料准备与生产同一路径：时间窗 → 钉版本 → 工具箱。
-    const { input, scope, registry, toolbox, missingMaterial } = await prepareDiagnosis(config, {
+    // 材料准备与生产同一路径：时间窗 → 钉版本 → 工具箱。证据经 StoreEvidenceSink 在工具 commit 时落库。
+    const sink = new StoreEvidenceSink(store, {
+      investigationId: investigation.id,
+      runId: run.id,
+      attemptId: claimed.attemptId,
+      generation: claimed.generation,
+    });
+    const { input, scope, toolbox, missingMaterial } = await prepareDiagnosis(config, {
       investigationId: investigation.id,
       runId: run.id,
       text: message.text,
@@ -91,6 +98,7 @@ export async function executeRun(deps: OrchestratorDeps, claimed: ClaimedRun): P
       contextSummary: investigation.context_summary ?? undefined,
       signal: controller.signal,
       logSource: deps.logSource,
+      sink,
     });
     const question = input.question;
     // 首次执行：把本轮用户输入落成会话条目（恢复时不追加，避免重复）。
@@ -119,7 +127,6 @@ export async function executeRun(deps: OrchestratorDeps, claimed: ClaimedRun): P
       investigation,
       message,
       result,
-      evidence: registry.all(),
       scope,
       missingMaterial,
       toolCalls: toolbox.toolCalls,

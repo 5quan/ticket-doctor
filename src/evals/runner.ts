@@ -1,11 +1,15 @@
 // 评测运行器：逐 case 走生产同款链路（prepareDiagnosis → engine → validateDraft），再打分。
 //
 // 这里**不碰**飞书/调度/投递，也不写诊断数据库；只产出分数。
+// 过渡期（阶段 6 前）证据走内存 sink；阶段 6 切换为 :memory: 库 + Store sink（D13）。
 import { join } from "node:path";
 import type { AppConfig } from "../config/index.ts";
 import type { DiagnosisEngine } from "../agent/types.ts";
+import { MemoryEvidenceSink } from "../evidence/memory-sink.ts";
+import { evidenceRefToRecord } from "../evidence/util.ts";
 import { prepareDiagnosis } from "../diagnosis/prepare.ts";
 import { validateDraft } from "../diagnosis/validate.ts";
+import { EvidenceRegistry } from "../diagnosis/evidence.ts";
 import { describeLocator, loadBenchmark } from "./benchmark.ts";
 import { scoreCase } from "./scorer.ts";
 import type { CaseScore, ScenarioScore } from "./types.ts";
@@ -33,6 +37,7 @@ export async function runScenario(opts: RunScenarioOptions): Promise<ScenarioSco
       },
     };
     const controller = new AbortController();
+    const sink = new MemoryEvidenceSink();
     const prepared = await prepareDiagnosis(config, {
       investigationId: `eval-${benchmark.scenario}-${c.id}`,
       runId: `eval-${benchmark.scenario}-${c.id}`,
@@ -40,6 +45,7 @@ export async function runScenario(opts: RunScenarioOptions): Promise<ScenarioSco
       receivedAt: Date.parse(c.receivedAt),
       service: c.service,
       signal: controller.signal,
+      sink,
     });
 
     const result = await opts.engine.run(prepared.input, prepared.toolbox, controller.signal);
@@ -59,12 +65,15 @@ export async function runScenario(opts: RunScenarioOptions): Promise<ScenarioSco
 
     const draft = result.draft;
     for (const m of prepared.missingMaterial) draft.missingMaterial.push(m);
+    const records = sink.all().map((ref) => evidenceRefToRecord(ref, `eval-${benchmark.scenario}-${c.id}`));
+    const registry = new EvidenceRegistry(`eval-${benchmark.scenario}-${c.id}`, config.diagnosis.maxResultChars);
+    registry.load(records);
     const { report } = validateDraft(draft, {
-      registry: prepared.registry,
+      registry,
       scope: prepared.scope,
       executionLimits: [],
     });
-    cases.push(scoreCase(c, prepared.registry.all(), report));
+    cases.push(scoreCase(c, records, report));
   }
 
   const avg = (xs: number[]): number => (xs.length === 0 ? 0 : xs.reduce((a, b) => a + b, 0) / xs.length);

@@ -28,10 +28,11 @@ export interface Toolbox {
   readonly hasCode: boolean;
   readonly toolCalls: number;
   readonly maxToolCalls: number;
-  queryLogs(args: LogQueryArgs): Promise<string>;
-  listFiles(args: CodeListArgs): Promise<string>;
-  searchCode(args: CodeSearchArgs): Promise<string>;
-  readCode(args: CodeReadArgs): Promise<string>;
+  /** toolCallId = pi 的 toolCallId，透传给证据批次（恢复查找键）；缺省时由工具箱生成。 */
+  queryLogs(args: LogQueryArgs, toolCallId?: string): Promise<string>;
+  listFiles(args: CodeListArgs, toolCallId?: string): Promise<string>;
+  searchCode(args: CodeSearchArgs, toolCallId?: string): Promise<string>;
+  readCode(args: CodeReadArgs, toolCallId?: string): Promise<string>;
 }
 
 /** 一次工具执行记录（可观测，backlog T3）。 */
