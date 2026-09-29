@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"ticket-doctor/adapter/internal/config"
@@ -27,12 +28,22 @@ type fakeHost struct {
 	resultOutcome string
 	resultMsgID   string
 	resultError   string
+	// mechanical=true 时 /message 返回 mechanical 决策（-help 用例）
+	mechanical bool
 }
 
 func (f *fakeHost) handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/message", func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&f.forwarded)
+		if f.mechanical {
+			_ = json.NewEncoder(w).Encode(hostapi.SubmitResult{
+				Accepted:       false,
+				Decision:       hostapi.Decision{Kind: "mechanical"},
+				MechanicalText: "【ticket-doctor 使用说明】",
+			})
+			return
+		}
 		_ = json.NewEncoder(w).Encode(hostapi.SubmitResult{
 			Accepted:    true,
 			Decision:    hostapi.Decision{Kind: "new_investigation"},
@@ -150,7 +161,8 @@ func TestHandleEventForwardsToHost(t *testing.T) {
 	}
 }
 
-func TestHandleEventMentionGateFailsClosed(t *testing.T) {
+func TestHandleEventForwardsUnmentionedGroupMessage(t *testing.T) {
+	// 门控权威在 Host：适配器不再丢弃"群聊未 @"的消息，带 mentionedBot=false 原样转发
 	lark := fakeLark()
 	defer lark.Close()
 	fake := &fakeHost{}
@@ -160,11 +172,95 @@ func TestHandleEventMentionGateFailsClosed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("不应报错：%v", err)
 	}
-	if result.Status != "ignored" || result.Reason != "mention_required" {
-		t.Fatalf("未 @ 的群消息应 fail-closed：%+v", result)
+	if result.Status != "forwarded" {
+		t.Fatalf("未 @ 的群消息应转发 Host（门控在 Host），实际 %+v", result)
 	}
-	if fake.forwarded.ChatID != "" {
-		t.Fatal("被门控的消息不应转发 Host")
+	if fake.forwarded.ChatID != "oc_1" || fake.forwarded.MentionedBot {
+		t.Fatalf("转发内容错误（mentionedBot 应如实携带 false）：%+v", fake.forwarded)
+	}
+}
+
+func TestHandleEventSendsMechanicalReply(t *testing.T) {
+	fake := &fakeHost{mechanical: true}
+	hostSrv := httptest.NewServer(fake.handler())
+	defer hostSrv.Close()
+	replySeen := false
+	lark := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/auth/") {
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "tenant_access_token": "t-token", "expire": 3600})
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/im/v1/messages/") {
+			replySeen = true
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]string{"message_id": "om_reply"}})
+	}))
+	defer lark.Close()
+	cfg := config.Config{
+		HostAPIBase: hostSrv.URL,
+		Platforms:   []string{"feishu"},
+		AppID:       "app_1",
+		AppSecret:   "secret",
+		LarkAPIBase: lark.URL,
+		HostTimeout: 2e9,
+		LarkTimeout: 2e9,
+	}
+	platforms, err := BuildPlatforms(cfg)
+	if err != nil {
+		t.Fatalf("构建平台失败：%v", err)
+	}
+	core := New(cfg, hostclient.New(hostSrv.URL, cfg.HostTimeout), platforms)
+
+	help := groupEvent(true)
+	help.Message.Content = `{"text":"-help"}`
+	result, err := core.HandleEvent(context.Background(), corePlatform(t, core, "feishu"), eventBody(t, help), nil)
+	if err != nil {
+		t.Fatalf("不应报错：%v", err)
+	}
+	if result.Status != "mechanical_reply_sent" {
+		t.Fatalf("mechanical 应由适配器发送并返回 mechanical_reply_sent，实际 %+v", result)
+	}
+	if !replySeen {
+		t.Fatal("应对 fake lark 发起回复（线程内 reply）")
+	}
+}
+
+func TestHandleEventMechanicalSendFailureIsBestEffort(t *testing.T) {
+	fake := &fakeHost{mechanical: true}
+	hostSrv := httptest.NewServer(fake.handler())
+	defer hostSrv.Close()
+	lark := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/auth/") {
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "tenant_access_token": "t-token", "expire": 3600})
+			return
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]any{"code": 500, "msg": "boom"})
+	}))
+	defer lark.Close()
+	cfg := config.Config{
+		HostAPIBase: hostSrv.URL,
+		Platforms:   []string{"feishu"},
+		AppID:       "app_1",
+		AppSecret:   "secret",
+		LarkAPIBase: lark.URL,
+		HostTimeout: 2e9,
+		LarkTimeout: 2e9,
+	}
+	platforms, err := BuildPlatforms(cfg)
+	if err != nil {
+		t.Fatalf("构建平台失败：%v", err)
+	}
+	core := New(cfg, hostclient.New(hostSrv.URL, cfg.HostTimeout), platforms)
+
+	help := groupEvent(true)
+	help.Message.Content = `{"text":"-help"}`
+	result, err := core.HandleEvent(context.Background(), corePlatform(t, core, "feishu"), eventBody(t, help), nil)
+	if err != nil {
+		t.Fatalf("发送失败不应上抛（best-effort）：%v", err)
+	}
+	if result.Status != "ignored" || result.Reason != "mechanical_reply_failed" {
+		t.Fatalf("发送失败应返回 ignored/mechanical_reply_failed，实际 %+v", result)
 	}
 }
 

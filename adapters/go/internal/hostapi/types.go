@@ -32,6 +32,8 @@ type SubmitResult struct {
 	RunID           string   `json:"runId"`
 	Round           int      `json:"round"`
 	SessionCode     string   `json:"sessionCode"`
+	// MechanicalText 是 decision.kind="mechanical"（-help）时的固定文案（Host 出文案，适配器发送）。
+	MechanicalText string `json:"mechanicalText,omitempty"`
 }
 
 // Delivery 是 Host 交给适配器发送的一条出站消息。

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"ticket-doctor/adapter/internal/config"
+	"ticket-doctor/adapter/internal/hostapi"
 	"ticket-doctor/adapter/internal/hostclient"
 	"ticket-doctor/adapter/internal/platform"
 	"ticket-doctor/adapter/internal/platform/dingtalk"
@@ -87,10 +88,8 @@ type HandleResult struct {
 	SessionCode string
 }
 
-// HandleEvent 归一化平台事件，执行 fail-closed mention 门控并转发 Host。
-//
-// 群聊必须 @机器人（requireMention）；是否被 @ 由平台在 Normalize 里判定
-// （bot 标识未知时按 fail-closed：出现任何 mention 即视为可能被 @）。
+// HandleEvent 归一化平台事件并转发 Host；门控权威在 Host（planRoute），
+// 适配器不再因"群聊未 @"丢弃消息——线程回复/带标号续接免 @ 由 Host 按上下文放行。
 func (a *Adapter) HandleEvent(ctx context.Context, p platform.Platform, raw []byte, headers http.Header) (HandleResult, error) {
 	message, ok, err := p.Normalize(raw, headers)
 	if err != nil {
@@ -99,16 +98,25 @@ func (a *Adapter) HandleEvent(ctx context.Context, p platform.Platform, raw []by
 	if !ok {
 		return HandleResult{Status: "ignored", Reason: "unsupported_or_empty"}, nil
 	}
-	if a.cfg.RequireMention && message.ChatType == "group" && !message.MentionedBot {
-		log.Printf("[adapter] 群聊消息未 @ 机器人，fail-closed 忽略")
-		return HandleResult{Status: "ignored", Reason: "mention_required"}, nil
-	}
 
 	result, err := a.host.SubmitMessage(ctx, message)
 	if err != nil {
 		return HandleResult{}, err
 	}
 	if !result.Accepted {
+		// 机械回复（-help）：Host 出文案，适配器对原消息做线程内回复；best-effort，失败不重试
+		if result.Decision.Kind == "mechanical" {
+			_, sendErr := p.Send(ctx, hostapi.Delivery{
+				ChatID:          message.ChatID,
+				TargetMessageID: message.ExternalMessageID,
+				Content:         result.MechanicalText,
+			})
+			if sendErr != nil {
+				log.Printf("[adapter] 机械回复发送失败：%v", sendErr)
+				return HandleResult{Status: "ignored", Reason: "mechanical_reply_failed"}, nil
+			}
+			return HandleResult{Status: "mechanical_reply_sent"}, nil
+		}
 		return HandleResult{Status: result.Decision.Kind, Reason: result.Decision.Reason}, nil
 	}
 	return HandleResult{
