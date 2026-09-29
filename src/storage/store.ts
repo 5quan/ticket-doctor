@@ -111,7 +111,9 @@ export type InboundPlan =
         createdBy?: string;
       };
     }
-  | { decision: "continue_investigation"; investigationId: string; servicePatch?: string };
+  | { decision: "continue_investigation"; investigationId: string; servicePatch?: string }
+  /** 机械回复（-help）：不建消息、不建轮次、不进投递表；Host 出文案，适配器发送。 */
+  | { decision: "mechanical"; text: string };
 
 /** 拒绝落库：unroutable 会提示用户，ignored 静默丢弃。 */
 export interface InboundRejection {
@@ -124,6 +126,7 @@ export interface AcceptInboundResult {
   decision:
     | { kind: "new_investigation"; sessionCode: string }
     | { kind: "continue_investigation"; investigationId: string }
+    | { kind: "mechanical"; text: string }
     | { kind: "duplicate" }
     | { kind: "unroutable"; reason: string }
     | { kind: "ignored"; reason: string };
@@ -132,6 +135,8 @@ export interface AcceptInboundResult {
   runId?: string;
   round?: number;
   sessionCode?: string;
+  /** decision 为 mechanical 时的固定文案。 */
+  mechanicalText?: string;
 }
 
 export interface EventRow {
@@ -290,6 +295,16 @@ export class Store {
             planned.reject === "unroutable"
               ? { kind: "unroutable", reason: planned.reason }
               : { kind: "ignored", reason: planned.reason },
+        };
+      }
+
+      // 机械回复（-help）：去重照旧，不建消息、不建轮次、不进投递表
+      if (planned.decision === "mechanical") {
+        this.finishInbound(inboundId, "processed");
+        return {
+          accepted: false,
+          decision: { kind: "mechanical", text: planned.text },
+          mechanicalText: planned.text,
         };
       }
 

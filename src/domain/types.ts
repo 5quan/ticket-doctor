@@ -64,6 +64,7 @@ export interface InboundMessage {
 export type IntakeDecision =
   | { kind: "new_investigation"; sessionCode: string }
   | { kind: "continue_investigation"; investigationId: string }
+  | { kind: "mechanical"; text: string }
   | { kind: "duplicate"; investigationId?: string }
   | { kind: "unroutable"; reason: string }
   | { kind: "ignored"; reason: string };

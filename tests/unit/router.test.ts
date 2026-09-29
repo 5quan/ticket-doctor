@@ -78,3 +78,62 @@ test("不同群聊的相同标号不会串消息", () => {
   const cross = routeInbound(store, config, msg({ chatId: "oc_b", mentionedBot: false, text: `[TD-${code}] 你好` }));
   assert.equal(cross.decision.kind, "unroutable");
 });
+
+// ---------- 门控单点化 + -help 机械回复（feishu-trigger-design §5） ----------
+
+test("群聊线程回复（root_id 命中）未 @ → 续接（P0 修复锁）", () => {
+  const store = memoryStore();
+  const config = testConfig();
+  const first = routeInbound(store, config, msg({ externalMessageId: "om_root", threadId: "ot_1" }));
+  assert.equal(first.decision.kind, "new_investigation");
+  const follow = routeInbound(
+    store,
+    config,
+    msg({ mentionedBot: false, rootId: "om_root", text: "线程内补充现象" }),
+  );
+  assert.equal(follow.decision.kind, "continue_investigation");
+  assert.equal(follow.investigationId, first.investigationId);
+});
+
+test("-help 群聊被 @ → 机械回复，不建调查不建轮次", () => {
+  const store = memoryStore();
+  const result = routeInbound(store, testConfig(), msg({ text: "-help" }));
+  assert.equal(result.decision.kind, "mechanical");
+  assert.ok(result.mechanicalText?.includes("ticket-doctor 使用说明"));
+  assert.equal(result.runId, undefined);
+  assert.equal(result.investigationId, undefined);
+});
+
+test("-help 群聊新会话未 @ → 门控优先，拒绝且不回机械文案", () => {
+  const store = memoryStore();
+  const result = routeInbound(store, testConfig(), msg({ mentionedBot: false, text: "-help" }));
+  assert.equal(result.decision.kind, "unroutable");
+  assert.equal(result.mechanicalText, undefined);
+});
+
+test("-help 在活跃会话（线程命中）未 @ → 机械回复", () => {
+  const store = memoryStore();
+  const config = testConfig();
+  routeInbound(store, config, msg({ externalMessageId: "om_root2", threadId: "ot_2" }));
+  const result = routeInbound(store, config, msg({ mentionedBot: false, rootId: "om_root2", text: "-help" }));
+  assert.equal(result.decision.kind, "mechanical");
+  assert.ok(result.mechanicalText);
+});
+
+test("requireMention=false + 群聊未 @ → 新建调查", () => {
+  const store = memoryStore();
+  const config = testConfig({ feishu: { botOpenId: "ou_bot", requireMention: false } });
+  const result = routeInbound(store, config, msg({ mentionedBot: false, text: "随便报个错" }));
+  assert.equal(result.decision.kind, "new_investigation");
+  assert.ok(result.runId);
+});
+
+test("web 来源的 -help 不走机械回复（建调查）", () => {
+  const store = memoryStore();
+  const result = routeInbound(
+    store,
+    testConfig(),
+    msg({ provider: "web", mentionedBot: false, text: "-help" }),
+  );
+  assert.equal(result.decision.kind, "new_investigation");
+});

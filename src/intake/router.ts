@@ -13,6 +13,7 @@
 import type { AppConfig } from "../config/index.ts";
 import { extractSessionCode, newSessionCode, stripSessionMarker } from "../domain/session.ts";
 import type { InboundMessage, IntakeDecision } from "../domain/types.ts";
+import { HELP_TEXT } from "./help.ts";
 import type { InboundPlan, InboundRejection, Store } from "../storage/store.ts";
 
 export interface IntakeResult {
@@ -24,6 +25,14 @@ export interface IntakeResult {
   round?: number;
   /** 新建调查时生成的标号，供回执使用。 */
   sessionCode?: string;
+  /** decision 为 mechanical 时的固定文案（Host 出文案，适配器发送）。 */
+  mechanicalText?: string;
+}
+
+export interface PlanRouteOptions {
+  forcedInvestigationId?: string;
+  /** 群聊新会话是否必须 @ 机器人（门控权威在 Host；默认 true = fail-closed）。 */
+  requireMention?: boolean;
 }
 
 function titleOf(text: string): string {
@@ -39,15 +48,24 @@ export function extractService(text: string): string | undefined {
   return named ? named[1] : undefined;
 }
 
-/** 纯路由判断：不写库，只返回"该建新调查 / 该续接谁 / 该拒绝"。 */
+/** 纯路由判断：不写库，只返回"该建新调查 / 该续接谁 / 机械回复 / 该拒绝"。
+ *
+ * 判定顺序（feishu-trigger-design §2.3，与旧 gateway 语义一致）：
+ *   1. 显式指定 / 标号 / 线程字段 / parent 命中调查 → 算出"续接"（免 @）；
+ *   2. 未命中时应用 @ 门控（群聊新会话必须 @，fail-closed）；
+ *   3. 门控通过后 `-help`（非 web 来源）→ 机械回复，不建调查不跑模型；
+ *   4. 命中 → 续接；未命中 → 新建。
+ */
 export function planRoute(
   store: Store,
   msg: InboundMessage,
-  forcedInvestigationId?: string,
+  opts: PlanRouteOptions = {},
 ): InboundPlan | InboundRejection {
+  const requireMention = opts.requireMention ?? true;
+
   // 显式指定的调查优先（Web 按 investigationId 续接）。
-  if (forcedInvestigationId) {
-    const forced = store.getInvestigation(forcedInvestigationId);
+  if (opts.forcedInvestigationId) {
+    const forced = store.getInvestigation(opts.forcedInvestigationId);
     if (forced) {
       return {
         decision: "continue_investigation",
@@ -83,18 +101,29 @@ export function planRoute(
     if (parent) investigationId = parent.investigation_id;
   }
 
+  // @ 门控只针对"未命中任何调查"的群聊新会话（线程回复/带标号续接免 @）；
+  // Web 来源与 p2p 私聊无需 @。门控权威在 Host，适配器只归一化转发。
+  if (
+    !investigationId &&
+    msg.provider !== "web" &&
+    msg.chatType === "group" &&
+    requireMention &&
+    !msg.mentionedBot
+  ) {
+    return { reject: "unroutable", reason: "请从根消息 @机器人 发起新的调查" };
+  }
+
+  // 机械命令：只有 -help，不走模型、不建调查（门控通过后才生效；web 来源走正常链路）。
+  if (msg.provider !== "web" && msg.text.trim().toLowerCase() === "-help") {
+    return { decision: "mechanical", text: HELP_TEXT };
+  }
+
   if (investigationId) {
     return {
       decision: "continue_investigation",
       investigationId,
       servicePatch: extractService(msg.text),
     };
-  }
-
-  // @ 门控只针对群聊：Web 来源与 p2p 私聊无需 @（与 mention-gate 语义保持一致）。
-  // 无归属的群聊消息必须 @ 机器人才允许新建调查。
-  if (msg.provider !== "web" && msg.chatType === "group" && !msg.mentionedBot) {
-    return { reject: "unroutable", reason: "请从根消息 @机器人 发起新的调查" };
   }
 
   return {
@@ -122,7 +151,11 @@ export function routeInbound(
 ): IntakeResult {
   const accepted = store.acceptInbound(msg, {
     maxAttempts: config.scheduler.maxAttempts,
-    plan: (m) => planRoute(store, m, opts.forcedInvestigationId),
+    plan: (m) =>
+      planRoute(store, m, {
+        forcedInvestigationId: opts.forcedInvestigationId,
+        requireMention: config.feishu.requireMention,
+      }),
   });
   return {
     decision: accepted.decision,
@@ -131,5 +164,6 @@ export function routeInbound(
     messageId: accepted.messageId,
     round: accepted.round,
     sessionCode: accepted.sessionCode,
+    mechanicalText: accepted.mechanicalText,
   };
 }
