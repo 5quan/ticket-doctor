@@ -82,18 +82,21 @@
 
 ---
 
-## 4. 评测打分器（已修复，v0.3.1）
+## 4. 评测打分器（v2 校准口径，OQ-41）
 
-**曾经的 bug**：报告 v2 的 `evidenceIds` 存的是 **`evidence_uid`**（`validate.ts`），但
-`src/evals/scorer.ts` 的 `byId` 仍按 **`E#`** 建索引，且 `evidenceRefToRecord` 丢掉了 `evidenceUid`
-→ `byId.get(uid)` 恒 undefined → 诊断类精确率与正确率虚低（实测正确率 **0%**）。
+**演进**：① UID 兼容修复（v0.3.1）——报告 v2 的 `evidenceIds` 是 `evidence_uid`，scorer 补齐双键索引；
+② 正确率校准（scorer **v2.0.0**）——v1 的 correct 只判"supported + 引用 ≥1 条 gold"、不读根因文本，
+错误根因 + 顺手引证也能判对；v2 改为「根因概念匹配（`requiredConcepts`/`forbiddenConcepts` 确定性匹配、
+否定语境豁免）+ 引用 gold + 非干扰独证」三层联合判定，引用按身份去重，结果带
+`scorerVersion/benchmarkVersion/calibrated/gitRev/evidencePolicy` 口径，**不同 scorerVersion 禁止同表比数**。
 
-**修复**：`EvidenceRecord` 增可选 `evidenceUid`；`evidenceRefToRecord` 带上；`scorer` 同时按
-`evidenceId` 与 `evidenceUid` 建键；新增 v2 打分回归测试（`tests/unit/scorer.test.ts`）。
+**v2 校准基线**（git=e1449cd，benchmark=ffa8cab246bd，数字唯一事实源 `docs/status.json#eval`）：
+- fake（离线）：召回 **70%** / 精确 **20%** / 正确率 **40%**。
+- 真实模型（pi，连跑 3 次）：90/26.8/80、90/22.3/80、80/17.8/60 → **中位数 90 / 22.3 / 80**。
+- 旧数 90/30.7/80（D6 前 + scorer v1）与 fake 70/20/60（v1）**均已作废，勿引用**。
 
-**修正后 fake 基线**：`npm run eval` → 召回 **70%** / 精确 **20%** / 正确率 **60%**。
-剩余低分（精确率 20%、ct-004 代码证据缺失、ct-005 材料不足仍 supported）是**真实效果问题**，
-交给阶段二 rules / 审计 Agent，不是打分 bug。
+剩余低分是**真实效果问题**（ct-005 材料不足仍 supported 三次全挂、引用精确率低=干扰混入、
+ct-004 代码证据漏检），交阶段二 rules / 审计 Agent，不是打分 bug。
 
 ---
 

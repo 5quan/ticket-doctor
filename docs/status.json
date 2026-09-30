@@ -1,0 +1,50 @@
+{
+  "version": "0.3.1",
+  "tests": { "ts": 127, "go": "adapter" },
+  "migrations": { "head": "006_evidence_uid.sql", "nextPrefix": "007_" },
+  "eval": {
+    "scorerVersion": "2.0.0",
+    "benchmarkVersion": "ffa8cab246bd",
+    "gradeMode": "deterministic",
+    "calibrated": true,
+    "evidencePolicy": "d6_no_dedupe",
+    "baselines": {
+      "fake": {
+        "recall": 0.7,
+        "precision": 0.2,
+        "accuracy": 0.4,
+        "gradeMode": "deterministic",
+        "calibrated": true,
+        "gitRev": "e1449cd",
+        "ts": "2026-09-29"
+      },
+      "pi": {
+        "runs": [
+          { "recall": 0.9, "precision": 0.268, "accuracy": 0.8 },
+          { "recall": 0.9, "precision": 0.223, "accuracy": 0.8 },
+          { "recall": 0.8, "precision": 0.178, "accuracy": 0.6 }
+        ],
+        "median": { "recall": 0.9, "precision": 0.223, "accuracy": 0.8 },
+        "gradeMode": "deterministic",
+        "calibrated": true,
+        "gitRev": "e1449cd",
+        "ts": "2026-09-29"
+      }
+    },
+    "deprecated": {
+      "v1_pi": { "recall": 0.9, "precision": 0.307, "accuracy": 0.8, "note": "D6 前 + scorer v1 口径，已作废，勿引用" },
+      "v1_fake": { "recall": 0.7, "precision": 0.2, "accuracy": 0.6, "note": "scorer v1 口径，已作废，勿引用" }
+    }
+  },
+  "features": {
+    "feishu_webhook": "done",
+    "feishu_longconn": "done_unverified",
+    "feishu_trigger_fix": "done",
+    "multi_platform": "skeleton",
+    "host_runner": "done",
+    "evidence_uid": "done",
+    "eval_scorer_v2": "done",
+    "audit_agent": "todo",
+    "eval_m2": "in_progress"
+  }
+}
