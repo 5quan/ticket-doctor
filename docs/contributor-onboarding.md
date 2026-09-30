@@ -12,7 +12,7 @@
 cd /opt/ticket-doctor
 npm install
 npm run typecheck        # tsc --noEmit，必须先绿
-npm test                 # TS 单元 + 集成（当前 119 个）
+npm test                 # TS 单元 + 集成（数量见 docs/status.json#tests）
 npm run test:go          # Go 接入适配器测试（需要 go 1.22+）
 npm run demo             # 离线端到端：不接飞书、不调模型，跑通 消息→诊断→报告→投递
 npm run host             # 启动 Host：Web API + SSE + 调度 + Runner（默认 3000 端口）
@@ -141,7 +141,7 @@ fixtures/             样例日志与样例仓库（demo 用）
 - 已实现：飞书接入、会话路由、SQLite 持久化与状态机、租约/代次、可靠投递、只读工具与证据校验、
   评测 harness（M1）、Host 统一入口 + 原子入队 + 按会话严格轮次、独立 Runner 子进程、Host Web API + SSE、
   Web 会话页、Go 接入适配器（含签名校验/解密）、故障注入测试。
-- 测试：TS **119 个** + Go adapter 测试；`npm run demo` 离线可跑。
+- 测试：`npm test`（TS）+ `npm run test:go`（Go adapter）全绿；数量见 `docs/status.json#tests`；`npm run demo` 离线可跑。
 - 阶段进度：路线图见 `docs/roadmap.md`。
 
 ---

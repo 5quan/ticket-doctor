@@ -40,7 +40,7 @@
 
 | 模块 | 内容 | 状态 |
 |---|---|---|
-| 飞书接入（经 Go 适配器） | Webhook：事件归一化、签名/Encrypt Key 解密、去重；@ 门控单点在 Host（群聊新会话必须 @）；`-help` 机械回复 | ◐ 长连接（S3）待做 |
+| 飞书接入（经 Go 适配器） | Webhook：事件归一化、签名/Encrypt Key 解密、去重；@ 门控单点在 Host（群聊新会话必须 @）；`-help` 机械回复 | ✅ 长连接已实现（`ADAPTER_MODE=ws`，OQ-40；真机验证待执行） |
 | 会话路由 | 标号 `[TD-xxxxxxxx]` / root / thread / parent；不同群不合并 | ✅ 真机跑通 |
 | 持久化 | SQLite(`node:sqlite`) schema：inbound/investigation/messages/runs/attempts/run_events/**session_entries/tool_executions**/evidence/reports/deliveries | ✅ |
 | 调度 | worker 池、同调查串行 / 不同调查并行、租约 + 代次守卫、过期回收 | ✅ |
@@ -59,9 +59,9 @@
 | 独立 Agent Runner | Host 每轮 spawn Node 子进程；NDJSON 协议；Host 校验代次后代为落库；单进程崩溃只判本轮 | ✅ 阶段2 |
 | Host Web API + SSE | `/api/agent/*`：message/investigations/events(SSE replay)/runs cancel·retry/deliveries claim·result | ✅ 阶段4 |
 | Web 会话页面 | Host 托管静态页（`src/host/web/`）：列表/时间线/轮次状态与取消重试/证据报告，SSE 自动重连 | ✅ 阶段4 |
-| Go 接入适配器 | `adapters/go`：`Platform` 多平台接口（OQ-37）+ 飞书实现（事件归一化、fail-closed mention 门控、签名校验/Encrypt Key 解密、转发 Host、投递轮询发送）；钉钉/Slack 骨架；回调路由 `/{platform}/events`，投递按 provider 路由 | ◐ 阶段3（Webhook + 多平台抽象就位，长连接待做） |
+| Go 接入适配器 | `adapters/go`：`Platform` 多平台接口（OQ-37）+ 飞书实现（事件归一化、fail-closed mention 门控、签名校验/Encrypt Key 解密、转发 Host、投递轮询发送）；钉钉/Slack 骨架；回调路由 `/{platform}/events`，投递按 provider 路由 | ✅ 阶段3（Webhook + 长连接 `ADAPTER_MODE=ws` + 多平台抽象就位，OQ-40） |
 | 故障与部署 | Host 强杀重启恢复（进程级测试）；Dockerfile + docker-compose（host/adapter + 数据卷 + 只读挂载），compose 整链路冒烟通过 | ✅ 阶段5 |
-| 测试 | TS 126 个（单元 + 集成）+ Go adapter 测试，`npm test` / `npm run test:go` / `typecheck` 全绿 | ✅ |
+| 测试 | `npm test`（TS）+ `npm run test:go`（Go adapter）+ `typecheck` 全绿；数量见 `docs/status.json#tests` | ✅ |
 
 **未实现 / 明确边界**
 
@@ -71,17 +71,17 @@
 - 图片/截图处理（当前只处理 `text`）。
 - 独立上下文审计 Agent（证据充分性审查，见 `open-questions.md` OQ-30）。
 - 仓库同步器（本地只读镜像由外部更新）。
-- 出站消息映射（已决定暂缓）；跨轮证据复用。
+- 出站消息映射（已决定暂缓）；上下文跨轮复用待设计（证据跨轮已完成，OQ-38）。
 - 证据已升级为持久化 + 稳定 UID（OQ-38）：工具 commit 时入库、`evidence_uid` 全局唯一、调查内短号续签跨轮可引用；详见 `docs/evidence-uid-design.md`。
 
 **运行方式**
 
 ```bash
 npm install
-npm test                 # 58 个测试
+npm test                 # 全量测试（数量见 docs/status.json#tests）
 npm run demo             # 离线端到端（假引擎）
 TD_ENGINE=pi npm run demo
-npm run gateway          # 飞书接入 + 投递 + 内嵌 4 worker（常驻）
+npm run gateway          # 旧链路：飞书接入 + 投递 + 内嵌 4 worker（常驻；过渡期保留）
 npm run worker           # 只跑 worker
 ```
 
@@ -92,7 +92,7 @@ npm run worker           # 只跑 worker
 - 所有提出过的问题、结论与状态，统一记录在 `docs/open-questions.md`（OQ-1 ~ OQ-30）。
 - 本轮已解决（示例）：只读价值定位、并发能力、pi 会话持久化含义、信息爆炸处理、路径压缩、
   工具分层照搬、交互/机械回复、发生时间与版本按输入锚定。
-- 仍待探讨：独立上下文审计 Agent（OQ-30）、图片处理（OQ-27）、跨轮证据复用。
+- 仍待探讨：独立上下文审计 Agent（OQ-30）、图片处理（OQ-27）、上下文跨轮复用（证据跨轮已完成，OQ-38）。
 
 ## 四、关键决策记录
 
@@ -178,11 +178,24 @@ npm run worker           # 只跑 worker
 
 ### 7.3 收尾（每次改动后）
 
-1. 更新 `handover.md` 的「六、当前进度与下一步」。
-2. 更新 `backlog.md` 状态、`roadmap.md` 勾选。
-3. `commit`（信息说清“改了什么 / 为什么”）+ `push`（保持 origin 同步）。
+1. 若改动了任何**易变事实**（版本/测试数/迁移头/基线分数/功能状态），**先改 `docs/status.json`**。
+2. 跑 `npm run docs:check`（已并入 `npm test`，漂移会直接挂测试）。
+3. 更新 `handover.md` 的「六、当前进度与下一步」；`backlog.md` 状态、`roadmap.md` 勾选。
+   其他文档只许**引用** status.json，不许手写死数字。
+4. `commit`（信息说清“改了什么 / 为什么”）+ `push`（保持 origin 同步）。
 
-### 7.4 冲突与例外
+### 7.4 文档角色约定（易变事实单源化）
+
+| 文档 | 角色 | 状态怎么维护 |
+|---|---|---|
+| `docs/status.json` | 易变事实唯一源 | 手改，`npm run docs:check` 校验 |
+| `session-handover.md` §1–3 | 会话级快照 | 引用 status.json；数字行带 `<!-- status:volatile -->` 可豁免检查 |
+| `handover.md` §2/§六 | 长期叙述 | 不写测试数/版本等数字，链接 status.json |
+| `roadmap.md` / `backlog.md` | 逐项状态 | 状态用词统一，数字引用 status.json |
+| `host-runner-design.md` / `evidence-uid-design.md` / `adapter-longconn-design.md` / `eval-calibration-and-doc-consistency.md` | **时点设计/工作单记录** | 头部一行 `> 状态见 docs/status.json#features.<x>`，不再维护快照 |
+| `open-questions.md` | 决策历史（append-only） | 新结论追加，旧结论标"已取代"，不改写历史 |
+
+### 7.5 冲突与例外
 
 - **文档与代码不一致时以代码为准**，并顺手修正文档（本项目已发生过多次）。
 - 新想法先进 backlog「待探讨」，不直接改主链路。

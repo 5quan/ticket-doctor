@@ -1,7 +1,7 @@
 # 会话交接概要（最新）
 
 > 给下一个接手会话：**先读本文**，再按 §5 的阅读顺序深入。
-> 版本 **0.3.0**；仓库 `github.com/5quan/ticket-doctor`，分支 `main`。
+> 版本 **0.3.1**（以 `docs/status.json` 为准）；仓库 `github.com/5quan/ticket-doctor`，分支 `main`。
 > 详细技术方案见 `docs/handover-technical-plan.md`，刻意/规程见 `docs/handover.md §7`。
 
 ---
@@ -19,7 +19,7 @@
 | 项 | 值 |
 |---|---|
 | 版本 / 分支 | `0.3.1` / `main` |
-| 测试 | TS 127（`npm test`）+ Go adapter（`npm run test:go`）+ `typecheck` 全绿 |
+| 测试 | TS 133（`npm test`）+ Go adapter（`npm run test:go`）+ `typecheck` 全绿 |
 | 迁移 | `001` … `006_evidence_uid.sql` |
 | 运行 | `npm run host`（生产）/ `npm run demo`（离线）/ `npm run eval`（评测） |
 | 部署 | `docker-compose.yml` + `Dockerfile` + `adapters/go/Dockerfile`（已构建并冒烟） |
@@ -64,7 +64,7 @@
 | 版本钉死（按发生时间 `git rev-list --before`）+ 报告校验 | ✅ |
 | 独立审计 Agent（证据充分性） | ❌ 设计已定（OQ-30） |
 | 真实日志平台（SLS/ELK） | ❌ 当前本地文件日志 |
-| 评测打分器适配 v2 | ❌ **有 bug，见 §4** |
+| 评测打分器 | ✅ UID 兼容已修 + v2 校准口径（OQ-41，见 §4） |
 
 ### 3.4 结果返回
 

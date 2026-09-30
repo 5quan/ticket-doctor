@@ -25,7 +25,7 @@ TD_RUNNER_MODE=process TD_FEISHU_DIRECT=false npm run host   # Host：Web API + 
 cd adapters/go && go run .  # Go 接入适配器：飞书事件 → Host；Host 待发送 → 飞书
 ```
 
-迁移期仍可用旧单进程链路（Host 内直连飞书、worker 内联执行）：`npm run gateway`。
+迁移期仍可用旧单进程链路（Host 内直连飞书、worker 内联执行）：`npm run gateway`（旧链路，过渡期保留）。
 
 Web 会话页：Host 启动后访问 `http://<host>:3000/`（无需构建，无框架）。
 
@@ -86,7 +86,7 @@ src/
 ├─ integrations/
 │  └─ feishu/       SDK 客户端、mention 门控、事件归一化、网关逻辑（过渡期）
 adapters/go/        Go 接入适配器（协议解析 + 事件转发 + 平台发送）
-migrations/         001…005
+migrations/         001…006
 tests/              unit/ + integration/
 fixtures/           样例日志与样例仓库（demo 用）
 ```
@@ -127,4 +127,4 @@ fixtures/           样例日志与样例仓库（demo 用）
 - 真实日志平台适配器（SLS/ELK）尚未实现，当前为本地文件日志源。
 - 会话条目已进 SQLite（`session_entries`），pi 按 seq 读回重建；不再用 JSONL 持久化。
 - Web 会话页已提供（`src/host/web/`：列表/时间线/进度/证据报告 + SSE 实时刷新）；无登录与权限限制。
-- Go 适配器当前为飞书 Webhook 回调；长连接（WSClient）与多平台（钉钉/Slack）待扩展。
+- Go 适配器：飞书 Webhook 与长连接（`ADAPTER_MODE=ws`，OQ-40）均已实现；多平台（钉钉/Slack）为骨架待实装。

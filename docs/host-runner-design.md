@@ -1,7 +1,7 @@
 # Host / Runner / 接入适配器 架构与落地
 
 > 平台参考：`/opt/locatebug/研发Agent平台项目文档` 03/04/05。本文只记录**本仓库的实际落地方式**与差异。
-> 状态：阶段一、二、四已完成；阶段三 Go 适配器骨架完成（飞书 Webhook）；阶段五部分覆盖。
+> 状态（易变事实见 `docs/status.json#features`）：阶段一～五已完成；阶段三含飞书 Webhook + 长连接（OQ-40，真机验证待执行）。
 
 ## 1. 目标结构
 
@@ -48,6 +48,7 @@ Go 接入适配器（adapters/go）                  │
 | 迁移 | 内容 |
 |---|---|
 | `005_host_queue.sql` | `runs.round`（调查内单调轮次）、`runs.source`、`runs.cancel_requested`；`events`（SSE 事件流，自增 ID=Last-Event-ID） |
+| `006_evidence_uid.sql` | 证据 UID/批次列 + `evidence_batches`（批次幂等与恢复）+ 报告引用格式版本（OQ-38） |
 
 既有表复用：`inbound_events` 去重、`investigations`/`messages`/`runs`/`attempts`、`evidence`/`reports`/`deliveries`、`session_entries`/`tool_executions`。
 
@@ -91,11 +92,11 @@ Go 接入适配器（adapters/go）                  │
 | 2 独立 Runner + 监管 | ✅ | 真实 spawn、并发隔离、崩溃只判本轮（`tests/integration/runner-process.test.ts`） |
 | 3 Go 飞书适配器 | ◐ | 事件归一化/fail-closed 门控/转发/投递（`adapters/go`，`go test ./...`） |
 | 4 Web API + SSE Replay | ✅ | 入队/详情/取消/重试/投递 claim+result/SSE replay（`tests/integration/host-api.test.ts`）；Host 托管 Web 会话页（`src/host/web/`：列表/时间线/进度/证据报告，SSE 自动重连） |
-| 5 故障测试与部署 | ◐ | 超时/运行中取消/租约回收恢复/僵尸提交被拒（`fault.test.ts`）、Runner 崩溃、投递不确定态已覆盖；Host 重启进程级验证与 docker-compose 待补 |
+| 5 故障测试与部署 | ✅ | 超时/运行中取消/租约回收恢复/僵尸提交被拒（`fault.test.ts`）、Runner 崩溃、投递不确定态、Host 强杀重启进程级验证（`host-restart.test.ts`）、Dockerfile + compose 整链路冒烟 |
 
 ## 7. 后续待办
 
-- Go 适配器：长连接（WSClient）模式、钉钉/Slack、真正签名校验（当前为 token 校验）。
+- Go 适配器：钉钉/Slack 实装（长连接已完成，OQ-40；签名校验与 Encrypt Key 解密已实现）。
 - Web 会话页已提供（列表/时间线/进度/证据报告，SSE 实时刷新）；**登录与权限**待做（当前无限制），移动端待优化。
 - ✅ 证据持久化 + 稳定 UID 已实施（OQ-38）：协议 v2 `evidence_commit/ack/reject`、恢复经 `savedToolResults`；见 `docs/evidence-uid-design.md`。
-- 阶段五故障注入测试与部署收口（docker-compose：host + adapter + 数据卷）。
+- ✅ 阶段五故障注入测试与部署收口已完成（docker-compose：host + adapter + 数据卷）。

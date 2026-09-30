@@ -34,10 +34,10 @@
 | 项 | 值 |
 |---|---|
 | 仓库 / 分支 | `github.com/5quan/ticket-doctor` / `main` |
-| 基线提交 | `81f260f`（本地 = origin/main） |
-| 版本 | `package.json` 0.2.0，tag `v0.2.0`（更早里程碑；后续提交在其之上） |
-| 测试 | TS **90** 个（`npm test`）+ Go adapter（`npm run test:go`）全绿 |
-| 迁移 | `001_init` … `005_host_queue`（**新增迁移从 `006_` 起，禁止改历史迁移**） |
+| 基线提交 | 以 `git log` 为准（本文快照已过时；易变事实唯一源 `docs/status.json`） |
+| 版本 | 见 `docs/status.json#version` 与 `package.json` |
+| 测试 | `npm test`（TS）+ Go adapter（`npm run test:go`）全绿；数量见 `docs/status.json#tests` |
+| 迁移 | `001_init` … `006_evidence_uid.sql`（**新增迁移从 `007_` 起，禁止改历史迁移**） |
 | 运行 | `npm run host`（生产）/ `npm run gateway`（旧链路）/ `npm run demo`（离线）/ `npm run eval` |
 | 部署 | `Dockerfile` + `adapters/go/Dockerfile` + `docker-compose.yml`，已构建并冒烟通过 |
 | 已知坑 | 本机到 Debian 源/镜像仓库很慢，docker 首次构建约 30 分钟；Go 用 apt 装的 1.22 |
@@ -97,6 +97,9 @@ IM 来源 → deliveries → Go 适配器发送；Web 来源 → EventStore(even
 > 每项含：目标/验收、技术方案、涉及文件/接口/迁移、依赖与风险。**一次只做一项。**
 
 ### 5.1 [阶段三] Go 适配器长连接模式（T3）
+
+> **✅ 已实施（OQ-40，`docs/adapter-longconn-design.md`）**：官方 SDK `oapi-sdk-go/v3` 锁 v3.12.0、
+> `LarkWSSource` 实现 `eventsource.Source`、`ADAPTER_MODE=webhook|ws`；真机人工验证待凭据。
 
 > **详细实施方案见 `docs/adapter-longconn-design.md`（实施以此为准）**。
 > 前置修复已完成：`docs/feishu-trigger-design.md`（门控单点化 + `-help`），长连接只换事件入口，不再动门控。
@@ -205,9 +208,9 @@ type Platform interface {
 > 恢复按 `(run_id, tool_call_id)` 找回批次。原 `docs/evidence-scope-design.md` 已被取代。
 
 
-> 迁移与回滚方案已定稿：**`docs/evidence-scope-design.md`**（方案选型、006 迁移 SQL、seed 传递、
-> 跨轮校验语义、回滚、测试计划、实现清单）。实现时在独立会话按其 §8 清单执行；
-> 结论登记为 OQ-38（本文档此前的「OQ-33」为误标，OQ-33 实际是已被取代的 JSONL 问题）。
+> **✅ 已实施（OQ-38）**：以 `docs/evidence-uid-design.md` 为准（两阶段提交 + 稳定 UID + 批次幂等与恢复）；
+> 原 `docs/evidence-scope-design.md` 的「选项 B（部分唯一索引 + seed 续号）」被其吸收、未单独实施。
+> 本文档此前把这项工作误标为「OQ-33」——OQ-33 实际是已被取代的 JSONL 问题。
 
 **目标/验收**：`E#` 从「run 内唯一」提升为「调查内唯一」，跨轮可复用；报告可引用上一轮的 `E#`，
 `validateDraft` 按调查校验引用与版本。
@@ -342,7 +345,7 @@ stdout NDJSON `ready|session_entry|tool_execution|progress|result|error`。
 
 ## 10. 决策记录与暂缓项
 
-- 已结论见 `docs/open-questions.md`（OQ-1…OQ-35）：单库 SQLite、队列按调查、并发 4、不做注入/定时/审批/权限、
+- 已结论见 `docs/open-questions.md`（OQ-1 起持续追加，当前至 OQ-41）：单库 SQLite、队列按调查、并发 4、不做注入/定时/审批/权限、
   pi 会话进 `session_entries`、Web 轮次不回 IM 等。
-- **暂缓**：脱敏（S1）、跨轮证据复用（由 5.5 承接）、图片处理、出站消息映射。
+- **暂缓**：脱敏（S1）、上下文跨轮复用（证据跨轮已完成，OQ-38）、图片处理、出站消息映射。
 - **冲突处理**：文档与代码不一致时**以代码为准**，并顺手修正文档。

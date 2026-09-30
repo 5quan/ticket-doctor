@@ -8,7 +8,7 @@
 | 阶段 | 目标 | 状态 |
 |---|---|---|
 | 一、闭环与治理观测 | 外部触发 → 只读取证 → 结论写回；会话/对话记录满足治理与观测 | 接近完成（剩：时区统一；脱敏暂缓） |
-| 二、评测与效果优化 | Benchmark 评测（RSI）、独立审计 Agent、提示词、skill/经验案例 | 进行中（M1 已落，打分器待修） |
+| 二、评测与效果优化 | Benchmark 评测（RSI）、独立审计 Agent、提示词、skill/经验案例 | 进行中（M1 已落；scorer v2 已校准，OQ-41） |
 | 三、扩展（按触发条件） | 生产诊断 MCP Server、真实日志平台、图片、多机/DB、前端、复现沙箱 | 未开始 |
 
 ---
@@ -23,7 +23,7 @@
 - 证据：两阶段提交 + `evidence_uid` + 报告 v1/v2 + 崩溃恢复（OQ-38）。
 - 交互：闲聊/追问 + `-help` 机械回复（Host 出文案、适配器发送）。
 - 上下文防护：单条证据 + 单次工具结果双重截断 + pi compaction。
-- 测试：TS 126 + Go adapter，`npm test` / `npm run test:go` / `typecheck` 全绿。
+- 测试：`npm test`（TS）+ `npm run test:go`（Go adapter）+ `typecheck` 全绿；数量见 `docs/status.json#tests`。
 
 **待完成（P0）**
 
