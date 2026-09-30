@@ -18,7 +18,8 @@ test("docs:check：文档状态与 docs/status.json 一致", () => {
       stdio: ["ignore", "pipe", "pipe"],
     });
   } catch (err) {
-    output = err instanceof Error ? String(err.stdout ?? err.message) : String(err);
+    const e = err as { stdout?: string; message?: string };
+    output = String(e.stdout ?? e.message ?? err);
     assert.fail(`文档存在漂移（跑 npm run docs:check 看明细）：\n${output}`);
   }
 });

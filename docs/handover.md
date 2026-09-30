@@ -138,7 +138,7 @@ npm run worker           # 只跑 worker
 - 阶段 3：Go 接入适配器（飞书 Webhook + 签名/解密 + 门控单点化 + `-help`；多平台接口 OQ-37）；**长连接 S3 已实现**（官方 Go SDK 锁 v3.12.0，`ADAPTER_MODE=ws`；真机人工验证待有凭据，OQ-40）。
 - 阶段 5：故障注入 + Host 强杀重启 + docker-compose 整链路验证。
 - 证据：两阶段提交 + 稳定 UID + 报告 v1/v2（OQ-38）；工具 6 个（含 `list_files`、`search_code` 有界预览）。
-- 评测：M1 harness；打分器已适配证据 v2（fake 基线 70/20/60）。
+- 评测：M1 harness；打分器 v2 校准口径（OQ-41），基线唯一事实源 `docs/status.json#eval`。
 
 **最高优先**：S4 弃用 Host 内直连 → 独立审计 Agent（OQ-30）→ 评测 M2/M3；S3 真机人工验证待有飞书凭据时执行。
 

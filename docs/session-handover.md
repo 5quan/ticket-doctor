@@ -138,7 +138,7 @@ npm run demo        # 离线端到端冒烟
 | ✅ | ~~S3 Go 长连接~~ | 已完成（单测全覆盖）；**实施方案：`docs/adapter-longconn-design.md`**；官方 Go SDK `.../v3/ws` 实现 `eventsource.Source`，`ADAPTER_MODE=webhook|ws`；真机人工验证待有凭据时执行（OQ-40） |
 | P1 | S4 弃用 Host 内直连 | 删 `TD_FEISHU_DIRECT`、`src/integrations/feishu` SDK 路径（**注意 `demo.ts` 也用 `createFeishuGateway`**） |
 | P1 | 独立审计 Agent（OQ-30） | Runner 内新上下文，输出结构化判定，Host 确定性应用 |
-| P1 | 评测 M2/M3 | rules 条目化 + delta/Pareto、扩样本、judge、CI 门禁；修完打分器后重跑基线 |
+| P1 | 评测 M2/M3 | rules 条目化 + delta/Pareto、扩样本、judge、CI 门禁；v2 校准基线已重跑（OQ-41，见 §4 与 `docs/status.json#eval`），旧口径数字已作废 |
 | P2 | 钉钉/Slack 实装、图片处理（OQ-27） | 平台按 `Platform` 接口；图片下载→视觉模型→登记证据 |
 | P2 | 真实日志平台 `LogSource`、工具回放 UI | 按端口新增，不动编排 |
 | P3 | 生产诊断 MCP Server、多飞书应用配置 | 触发条件见 backlog |
