@@ -41,13 +41,28 @@ const engine: DiagnosisEngine =
 console.log(`[eval] 场景=${scenario} 引擎=${engine.name} 规则=${rules ? rulesPath : "(无)"}`);
 const score = await runScenario({ scenarioDir, config, engine });
 
+console.log(
+  `[eval] 口径：scorer=${score.scorerVersion} mode=${score.gradeMode} benchmark=${score.benchmarkVersion} ` +
+    `calibrated=${score.calibrated ? "是" : "否"} evidence=${score.evidencePolicy}` +
+    (score.gitRev ? ` git=${score.gitRev}` : ""),
+);
+if (!score.calibrated) {
+  console.log(
+    "[eval] ⚠️ 未校准（gold 缺 requiredConcepts）：accuracy 仅为 legacy 兼容值，不得与校准口径比较。",
+  );
+}
+
 for (const c of score.cases) {
   const extra =
     (c.missedGold.length ? `  漏证据=${c.missedGold.join("; ")}` : "") +
     (c.citedDistractor.length ? `  引用干扰=${c.citedDistractor.join(",")}` : "") +
+    (c.causeMatched === false && c.causeCheck
+      ? `  根因不符(缺=${c.causeCheck.missingGroups.join("|") || "-"};禁=${c.causeCheck.forbiddenHit.join("|") || "-"})`
+      : "") +
     (c.note ? `  (${c.note})` : "");
   console.log(
-    `${c.correct ? "✅" : "❌"} ${c.id}  召回=${(c.recall * 100).toFixed(0)}%  精确=${(c.precision * 100).toFixed(0)}%${extra}`,
+    `${c.correct ? "✅" : "❌"} ${c.id}  召回=${(c.recall * 100).toFixed(0)}%  精确=${(c.precision * 100).toFixed(0)}%` +
+      `  判据=${c.correctBasis}${extra}`,
   );
 }
 console.log(

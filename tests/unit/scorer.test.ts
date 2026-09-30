@@ -129,3 +129,101 @@ test("evidenceMatches：级别不符不命中", () => {
   assert.equal(evidenceMatches(rec, { kind: "log", level: "ERROR", substring: "RedisPool" }), false);
   assert.equal(evidenceMatches(rec, { kind: "log", substring: "RedisPool" }), true);
 });
+
+// ---------- v2 校准口径（OQ-41）：根因概念匹配 + 引用 + 非干扰独证 ----------
+
+function calibratedCase(over: Partial<BenchmarkCase> = {}): BenchmarkCase {
+  return baseCase({
+    gold: {
+      answer: "库存服务调用超时",
+      evidence: [{ kind: "log", level: "ERROR", substring: "InventoryClient 调用库存服务失败 timeout" }],
+      requiredConcepts: [["库存", "inventory"], ["超时", "timeout"]],
+      forbiddenConcepts: [["redis", "连接池"]],
+    },
+    distractors: [{ kind: "log", level: "WARN", substring: "RedisPool 连接池使用率" }],
+    ...over,
+  });
+}
+
+const goldLog = () => [logEvidence("E1", "ERROR", "InventoryClient 调用库存服务失败 timeout after 3000ms")];
+const distractorLog = () => [logEvidence("D1", "WARN", "RedisPool 连接池使用率 92% active=46/50")];
+
+test("v2 核心防回归：错误根因 + 顺手引用 gold → correct=false", () => {
+  const s = scoreCase(
+    calibratedCase(),
+    goldLog(),
+    report([{ cause: "Redis 连接池打满导致下单失败", confidence: "high", status: "supported", evidenceIds: ["E1"] }]),
+  );
+  assert.equal(s.causeMatched, false, "根因概念不匹配");
+  assert.equal(s.evidenceSupported, true, "但引用了 gold 证据");
+  assert.equal(s.correct, false, "错误根因不能被引证救回");
+  assert.equal(s.correctBasis, "cause+evidence");
+  assert.deepEqual(s.causeCheck?.missingGroups, ["库存|inventory", "超时|timeout"]);
+  assert.deepEqual(s.causeCheck?.forbiddenHit, ["redis|连接池"]);
+});
+
+test("v2：正确根因但只引用干扰 → distractorOnly=true 且 correct=false", () => {
+  const s = scoreCase(
+    calibratedCase(),
+    distractorLog(),
+    report([{ cause: "库存服务调用超时导致下单失败", confidence: "high", status: "supported", evidenceIds: ["D1"] }]),
+  );
+  assert.equal(s.causeMatched, true);
+  assert.equal(s.evidenceSupported, false);
+  assert.equal(s.distractorOnly, true);
+  assert.equal(s.correct, false);
+  assert.equal(s.distractorCitationRate, 1);
+});
+
+test("v2：重复引用同一证据不放大精确率分母", () => {
+  const s = scoreCase(
+    calibratedCase(),
+    [{ ...logEvidence("E1", "ERROR", "InventoryClient 调用库存服务失败 timeout after 3000ms"), evidenceUid: "uid-1" }],
+    report([
+      {
+        cause: "库存服务调用超时",
+        confidence: "high",
+        status: "supported",
+        evidenceIds: ["E1", "uid-1", "E1", "uid-1"],
+      },
+    ]),
+  );
+  assert.equal(s.precision, 1, "去重后引用集合只有 1 条");
+  assert.deepEqual(s.citedNonGold, []);
+  assert.equal(s.distractorCitationRate, 0);
+});
+
+test("v2：gold 缺 requiredConcepts → legacy 口径显式标注", () => {
+  const s = scoreCase(
+    baseCase({
+      gold: {
+        answer: "库存超时",
+        evidence: [{ kind: "log", level: "ERROR", substring: "InventoryClient 调用库存服务失败 timeout" }],
+      },
+    }),
+    goldLog(),
+    report([{ cause: "随便什么原因", confidence: "high", status: "supported", evidenceIds: ["E1"] }]),
+  );
+  assert.equal(s.causeMatched, null, "未注解的 case 不做概念判定");
+  assert.equal(s.causeCheck, null);
+  assert.equal(s.correct, true, "legacy 口径退回 v1 仅引证判定");
+  assert.equal(s.correctBasis, "evidence-only(legacy)");
+});
+
+test("v2：否定语境豁免——「不是 Redis，是库存超时」不算踩禁用概念", () => {
+  const s = scoreCase(
+    calibratedCase(),
+    goldLog(),
+    report([
+      {
+        cause: "根因不是 Redis 连接池，而是库存服务调用超时导致下单失败",
+        confidence: "high",
+        status: "supported",
+        evidenceIds: ["E1"],
+      },
+    ]),
+  );
+  assert.deepEqual(s.causeCheck?.forbiddenHit, [], "forbidden 概念出现在否定句中不应判命中");
+  assert.equal(s.causeMatched, true);
+  assert.equal(s.correct, true);
+});

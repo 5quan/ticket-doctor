@@ -112,26 +112,37 @@ npm run eval -- --scenario checkout-timeout
 
 **关键复用**：日志源、代码源、工具箱、证据登记、报告校验全部走生产同款代码；唯一拼装点是把 `rules.md` 注入系统提示词。引擎核心零改动，只需把 `SYSTEM_PROMPT` 抽成 `buildSystemPrompt(rules)` 供评测组合（生产默认规则为空）。
 
-## 5. 打分器
+## 5. 打分器（v2 校准口径，OQ-41）
 
-记 `G`=gold 证据，`D`=干扰证据，`R`=本次运行 `registry.all()` 产出的证据，`C`=报告 hypotheses 引用的 evidenceIds 对应证据。
+> **口径即版本**：打分器 `scorerVersion=2.0.0` 起，正确率按「根因概念匹配 + 证据支持 + 非干扰独证」
+> 三层联合判定；结果带 `scorerVersion / gradeMode / benchmarkVersion(内容 hash) / calibrated / gitRev /
+> evidencePolicy`。**不同 scorerVersion 的数字禁止同表对比**；`calibrated=false` 时 accuracy 只是
+> legacy 兼容值。v1 的 90/30.7/80 与 v1-fake 的 70/20/60 均为旧口径（已作废，勿引用）。
+
+记 `G`=gold 证据，`D`=干扰证据，`R`=本次运行 `registry.all()` 产出的证据，`C`=报告 hypotheses 引用的 evidenceIds 对应证据（**按证据身份去重**：uid 优先，其次 `runId|evidenceId`——重复引用不放大分母）。
 
 | 指标 | 公式 | 回答的问题 |
 |---|---|---|
 | 证据召回率 | `|{g∈G : 匹配(g,R)}| / |G|` | 该找的证据找到没 |
-| 引用精确率 | `|{c∈C : c 命中某 g}| / |C|` | 引用的是不是 gold（而非干扰/无关） |
-| 干扰抗性（v2） | `1 - |{d∈D : 匹配(d,C)}| / |D|` | 有没有被干扰证据带偏 |
+| 引用精确率 | `|{c∈C(去重) : c 命中某 g}| / |C(去重)|` | 引用的是不是 gold（而非干扰/无关） |
+| 引用干扰率 | `|{c∈C(去重) : c 命中某 d}| / |C(去重)|` | 引用里混了多少干扰 |
 | 决策正确率 | 每 case 0/1，见下 | 最终根因假设对不对 |
 
 **证据匹配规则**
 - log：`record.level === locator.level && record.excerpt.includes(locator.substring)`。
 - code：`record.codeRef.repoId === locator.repoId && record.codeRef.path === locator.path && locator.line ∈ [startLine, endLine]`。
 
-**正确率判定（v1 规则化，v2 升级 judge）**
+**正确率判定（v2 校准口径）**
 取报告 top 假设（confidence 最高者，并列取第一条）：
-- **诊断类**：`status = supported` 且其 `evidenceIds` 至少命中 1 条 gold 证据 → 算对（"结论必须建立在正确证据上"）。
+- **诊断类（已校准，gold 带 `requiredConcepts`）**：`status = supported` 且 **`causeMatched`**（top.cause
+  命中全部 `requiredConcepts` 组、且未"断言"任何 `forbiddenConcepts` 组——否定语境豁免，如
+  "不是 Redis 而是库存"）且 **`evidenceSupported`**（引用 ≥1 条 gold）且 **`!distractorOnly`**
+  （引用非全部非 gold）→ 才算对。三层拆开记录（`causeMatched/evidenceSupported/distractorOnly/correctBasis`），可独立审计。
+- **诊断类（legacy，gold 未注解）**：退回 v1 仅引证口径，`correctBasis="evidence-only(legacy)"`；
+  场景级 `calibrated=false` 时不得报"校准正确率"。
 - **材料不足类**（`expect: insufficient`）：`completeness = partial` 且没有任何 `supported` 结论 → 算对（不得臆断）。
-- v2 再叠加语义匹配 / judge 模型（判定 `cause` 是否等价于 `gold.answer`）。
+- 概念匹配为**确定性实现**（同义词 any-of + 否定窗口豁免，约 12 字符前窗）；judge 语义判定是
+  M2 的可选第二层，不得覆盖确定性硬失败，采用前须过一致性门槛（kappa ≥0.8）。
 
 **召回取"检索到"，精确取"被引用"**：召回率用 `registry.all()`（本次真正取到的证据，无论是否被引用）；精确率用报告实际引用的证据。
 

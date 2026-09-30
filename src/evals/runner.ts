@@ -2,6 +2,7 @@
 //
 // 证据走与线上一致的 Store sink（D13）：每个 case 一个 `:memory:` 库 + 合成 `running` run，
 // 工具 commit 真实落库、校验用 StoreEvidenceResolver 按调查解析；不碰飞书/调度/投递。
+import { execFileSync } from "node:child_process";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AppConfig } from "../config/index.ts";
@@ -13,11 +14,20 @@ import { StoreEvidenceResolver } from "../evidence/store-resolver.ts";
 import { evidenceRefToRecord } from "../evidence/util.ts";
 import { prepareDiagnosis } from "../diagnosis/prepare.ts";
 import { validateDraft } from "../diagnosis/validate.ts";
-import { describeLocator, loadBenchmark } from "./benchmark.ts";
-import { scoreCase } from "./scorer.ts";
+import { benchmarkVersion, describeLocator, loadBenchmark } from "./benchmark.ts";
+import { SCORER_VERSION, scoreCase } from "./scorer.ts";
 import type { CaseScore, ScenarioScore } from "./types.ts";
 
 const MIGRATIONS_DIR = join(dirname(dirname(dirname(fileURLToPath(import.meta.url)))), "migrations");
+
+/** 打分时的 git 短 revision；非 git 环境（如镜像内）容错为 undefined。 */
+function gitRev(): string | undefined {
+  try {
+    return execFileSync("git", ["rev-parse", "--short", "HEAD"], { encoding: "utf8" }).trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 export interface RunScenarioOptions {
   scenarioDir: string;
@@ -85,10 +95,17 @@ export async function runScenario(opts: RunScenarioOptions): Promise<ScenarioSco
         id: c.id,
         recall: c.gold.evidence.length === 0 ? 1 : 0,
         precision: 0,
+        distractorCitationRate: 0,
         correct: false,
+        causeMatched: null,
+        causeCheck: null,
+        evidenceSupported: false,
+        distractorOnly: false,
+        correctBasis: "evidence-only(legacy)",
         matchedGold: [],
         missedGold: c.gold.evidence.map(describeLocator),
         citedDistractor: [],
+        citedNonGold: [],
         note: "引擎返回了非报告回复",
       });
       continue;
@@ -110,6 +127,11 @@ export async function runScenario(opts: RunScenarioOptions): Promise<ScenarioSco
   }
 
   const avg = (xs: number[]): number => (xs.length === 0 ? 0 : xs.reduce((a, b) => a + b, 0) / xs.length);
+  // 校准判定：所有诊断类 case 均带 requiredConcepts 才算已校准（OQ-41）
+  const calibrated = benchmark.cases
+    .filter((c) => c.expect !== "insufficient")
+    .every((c) => (c.gold.requiredConcepts?.length ?? 0) > 0);
+  const rev = gitRev();
   return {
     scenario: benchmark.scenario,
     engine: opts.engine.name,
@@ -117,5 +139,11 @@ export async function runScenario(opts: RunScenarioOptions): Promise<ScenarioSco
     recall: avg(cases.map((x) => x.recall)),
     precision: avg(cases.map((x) => x.precision)),
     accuracy: avg(cases.map((x) => (x.correct ? 1 : 0))),
+    scorerVersion: SCORER_VERSION,
+    benchmarkVersion: benchmarkVersion(join(opts.scenarioDir, "benchmark.json")),
+    gradeMode: "deterministic",
+    calibrated,
+    evidencePolicy: "d6_no_dedupe",
+    ...(rev ? { gitRev: rev } : {}),
   };
 }
