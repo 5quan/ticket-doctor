@@ -9,6 +9,7 @@
     "predemo": "node scripts/init-demo-repo.mjs",
     "eval": "node --experimental-strip-types src/evals/cli.ts",
     "preeval": "node scripts/init-eval-fixture.mjs",
+    "eval:v2": "node --experimental-strip-types src/evals/v2/cli.ts",
     "gateway": "node --experimental-strip-types src/entrypoints/gateway.ts",
     "host": "node --experimental-strip-types src/entrypoints/host.ts",
     "worker": "node --experimental-strip-types src/entrypoints/worker.ts",

@@ -1,7 +1,7 @@
 {
   "version": "0.3.1",
   "tests": {
-    "ts": 133,
+    "ts": 164,
     "go": "adapter"
   },
   "migrations": {
@@ -77,6 +77,7 @@
     "evidence_uid": "done",
     "eval_scorer_v2": "done",
     "audit_agent": "todo",
-    "eval_m2": "in_progress"
+    "eval_m2": "in_progress",
+    "eval_v2": "done"
   }
 }
