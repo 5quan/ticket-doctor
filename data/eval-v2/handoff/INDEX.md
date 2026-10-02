@@ -8,3 +8,4 @@
 
 全部 tar 已随 git 提交入库（git add -f 豁免 data/ 忽略）。哈希见各 .sha256 与包内 FILELIST.sha256。
 | phase1-close2-85b6e1b.tar.gz | 85b6e1b（收尾三，工作区干净） | 收尾三验收（泄漏归一化/读取失败记账/junction errno/私有答案硬链接反例）+ FastAPI 7 资料四件（REBUILD/准入表/gold 依据/复验）+ RECORD.md |
+| phase1-scanfix-3660018.tar.gz | 3660018（收尾四，工作区干净） | 收尾四验收（枚举失败记账/private_link/同请求响应对照）+ RECORD；Windows junction 支持暂缓未验证（正式环境=Linux） |
