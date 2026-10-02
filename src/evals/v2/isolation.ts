@@ -25,6 +25,7 @@ export interface IsolationViolation {
     | "repo_not_pinned"
     | "link_escape"
     | "hardlink_escape"
+    | "private_link"
     | "incomplete_scan";
   message: string;
 }
@@ -86,18 +87,23 @@ function isAnswerFilename(name: string): boolean {
   return ANSWER_FILENAME_RE.test(name);
 }
 
-function listDirFiles(dir: string, prefix = ""): string[] {
+/**
+ * 目录枚举；枚举失败（权限等）经 onEnumFailure 上报——调用方必须记 incomplete_scan，
+ * 不得静默当空目录处理（否则不可枚举的目录会判隔离通过）。
+ */
+function listDirFiles(dir: string, prefix: string, onEnumFailure: (path: string) => void): string[] {
   const out: string[] = [];
   let entries;
   try {
     entries = readdirSync(dir, { withFileTypes: true });
   } catch {
+    onEnumFailure(dir);
     return out;
   }
   for (const entry of entries) {
     const rel = `${prefix}${prefix ? "/" : ""}${entry.name}`;
     // 目录符号链接不递归（按文件记录其身份，交由链接逃逸/inode 检查判定）
-    if (entry.isDirectory() && !entry.isSymbolicLink()) out.push(...listDirFiles(join(dir, entry.name), rel));
+    if (entry.isDirectory() && !entry.isSymbolicLink()) out.push(...listDirFiles(join(dir, entry.name), rel, onEnumFailure));
     else out.push(rel);
   }
   return out;
@@ -163,7 +169,11 @@ export function checkIsolation(
     const realViewDir = realOf(viewDir);
     const files: ViewFileRecord[] = [];
     let skipped = 0;
-    for (const rel of listDirFiles(viewDir)) {
+    const onEnumFailure = (path: string): void => {
+      integritySkipped += 1;
+      integrityNotes.push(`${round.materialView}: 目录枚举失败（${path.replace(realViewDir, "<view>") || path}）`);
+    };
+    for (const rel of listDirFiles(viewDir, "", onEnumFailure)) {
       const abs = join(viewDir, rel);
       let lst;
       try {
@@ -304,13 +314,27 @@ export function checkIsolation(
       let entries;
       try {
         entries = readdirSync(dir, { withFileTypes: true });
-      } catch {
-        return; // 私有目录不存在 = 无私有身份可比
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+          return; // 私有目录不存在 = 无私有身份可比（合法）
+        }
+        // 枚举失败（权限等）：私有内容未核验 → 完整性缺口
+        integritySkipped += 1;
+        integrityNotes.push(`private/${prefix || "."}: 目录枚举失败`);
+        return;
       }
       for (const entry of entries) {
         const abs = join(dir, entry.name);
         const rel = `${prefix}${prefix ? "/" : ""}${entry.name}`;
-        if (entry.isDirectory() && !entry.isSymbolicLink()) {
+        // 私有目录内的链接本轮直接拒绝：不做别名/指向分析，避免扩展复杂链接支持（工单 §1）
+        if (entry.isSymbolicLink()) {
+          violations.push({
+            code: "private_link",
+            message: `私有目录内出现链接 ${rel}（目录或文件）——私有材料链接支持本轮不做，直接拒绝`,
+          });
+          continue;
+        }
+        if (entry.isDirectory()) {
           walk(abs, rel);
           continue;
         }

@@ -1,7 +1,7 @@
 // 阶段一验收反例：真实访问边界（符号链接/目录别名/junction/空授权/扫描不完整）。
 // junction 用例在非 Windows 环境标记 skip（保留回归，Windows 上运行）。
 import assert from "node:assert/strict";
-import { linkSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -334,5 +334,54 @@ test("读取不完整：视图文件不可读 → incomplete_scan，不崩溃不
     } catch {
       /* tmp 清理尽力而为 */
     }
+  }
+});
+
+test("扫描缺口补漏：视图子目录枚举失败 → incomplete_scan（不得当空目录判通过）", { skip: process.platform === "win32" }, async (t) => {
+  const { chmodSync, mkdirSync: mkd } = await import("node:fs");
+  const root = mkdtempSync(join(tmpdir(), "eval-v2-enum-"));
+  try {
+    gitInit(join(root, "repo"));
+    mkdirSync(join(root, "public", "c1", "round-1", "nested"), { recursive: true });
+    writeFileSync(join(root, "public", "c1", "round-1", "svc.log"), PAST_LINE);
+    writeFileSync(join(root, "public", "c1", "round-1", "nested", "hidden.log"), "不可枚举目录内的内容\n");
+    writeFileSync(join(root, "public", "c1", "r1-message.txt"), "m1");
+    chmodSync(join(root, "public", "c1", "round-1", "nested"), 0o000);
+    try {
+      readdirSync(join(root, "public", "c1", "round-1", "nested"));
+      t.skip("环境限制：当前用户（可能为 root）不受目录权限约束");
+      return;
+    } catch {
+      // 预期不可枚举
+    }
+    const desc = caseJson([round("r1", "round-1", ["svc"], join(root, "repo"))]);
+    const violations = checkIsolation(root, join(root, "public", "c1"), desc, truthStub, join(root, "private", "c1"));
+    assert.ok(violations.some((v) => v.code === "incomplete_scan" && /枚举失败/.test(v.message)), JSON.stringify(violations));
+  } finally {
+    const { chmodSync: ch2 } = await import("node:fs");
+    try {
+      ch2(join(root, "public", "c1", "round-1", "nested"), 0o755);
+    } catch {
+      /* 清理尽力而为 */
+    }
+  }
+});
+
+test("扫描缺口补漏：私有目录内的目录链接本轮直接拒绝（private_link）", () => {
+  const root = mkdtempSync(join(tmpdir(), "eval-v2-privlink-"));
+  try {
+    gitInit(join(root, "repo"));
+    mkdirSync(join(root, "public", "c1", "round-1"), { recursive: true });
+    mkdirSync(join(root, "private", "c1", "real"), { recursive: true });
+    writeFileSync(join(root, "private", "c1", "real", "answers.md"), "GOLD-PRIVATE-CONTENT\n");
+    writeFileSync(join(root, "public", "c1", "round-1", "svc.log"), PAST_LINE);
+    // 私有目录内的目录符号链接（别名）：本轮不做复杂链接支持，直接拒绝
+    symlinkSync(join(root, "private", "c1", "real"), join(root, "private", "c1", "alias"), "dir");
+    writeFileSync(join(root, "public", "c1", "r1-message.txt"), "m1");
+    const desc = caseJson([round("r1", "round-1", ["svc"], join(root, "repo"))]);
+    const violations = checkIsolation(root, join(root, "public", "c1"), desc, truthStub, join(root, "private", "c1"));
+    assert.ok(violations.some((v) => v.code === "private_link"), JSON.stringify(violations));
+  } finally {
+    /* tmp */
   }
 });
