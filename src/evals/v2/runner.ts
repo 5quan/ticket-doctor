@@ -28,6 +28,7 @@ import type { InboundMessage } from "../../domain/types.ts";
 import { loadCatalog, loadCase, loadRoundMessage, loadTruth, type CatalogEntry } from "./load.ts";
 import { checkIsolation, isolationSummary } from "./isolation.ts";
 import { validatePairing } from "./schema.ts";
+import { scanResolvedTreeForIsolation } from "./isolation.ts";
 import { CaptureSender } from "./capture.ts";
 import { buildSuiteManifest } from "./manifest.ts";
 import { exportEvidenceEvents, exportToolEvents, exportUsageEvent, TraceRecorder } from "./trace.ts";
@@ -309,6 +310,7 @@ async function runTrial(opts: RunSuiteOptions, loaded: LoadedCase, runDir: strin
       trace.emit("run_claimed", { round }, { roundId: round.roundId, runId: claimed.run.id, attemptId: claimed.attemptId });
 
       let runError: string | undefined;
+      let preReadBlock: string | undefined; // 观察钩抛错会被 executeRun 消化转 failRun，用闭包标志带回阻断事实
       const expectedByRepo = new Map<string, string>();
       for (const repo of round.repos) if (repo.expectedSha) expectedByRepo.set(repo.repoId, repo.expectedSha);
       try {
@@ -338,12 +340,36 @@ async function runTrial(opts: RunSuiteOptions, loaded: LoadedCase, runDir: strin
                 }
                 return { repoId: repo.repoId, expected, resolvedSha: actual.resolvedSha, pinnedBy: actual.pinnedBy, check: expected ? ("ok" as const) : ("no-expected" as const) };
               });
+              // 实际解析 SHA 的隔离扫描（工单 §2）：预检只覆盖 expectedSha/HEAD 两棵树，
+              // 按时间选中中间提交时必须对真实可读版本单独扫描——答案文件名、未来消息、完整性。
+              const futureTexts = caseDesc.rounds.slice(r + 1).map((x) => loadRoundMessage(caseDir, x.messageRef));
+              const repoDirByRepoId = new Map(round.repos.map((repo) => [repo.repoId, resolve(opts.projectRoot, repo.dir)]));
+              const resolvedScans: Array<{ repoId: string; sha: string; ok: boolean; codes: string[]; detail: string }> = [];
+              for (const c of checks) {
+                const repoDir = repoDirByRepoId.get(c.repoId);
+                if ((c.check === "ok" || c.check === "no-expected") && c.resolvedSha && repoDir) {
+                  const scanViolations = scanResolvedTreeForIsolation({
+                    repoDir,
+                    sha: c.resolvedSha,
+                    label: `${c.repoId}@${c.resolvedSha.slice(0, 10)}`,
+                    futureTexts,
+                  });
+                  resolvedScans.push({
+                    repoId: c.repoId,
+                    sha: c.resolvedSha,
+                    ok: scanViolations.length === 0,
+                    codes: scanViolations.map((v) => v.code),
+                    detail: scanViolations.map((v) => v.message).join("; "),
+                  });
+                }
+              }
               trace.emit(
                 "scope_resolved",
                 {
                   expected: Object.fromEntries(expectedByRepo),
                   resolved,
                   checks,
+                  resolvedScans,
                   pinnedByBasis: "time|head|explicit|unresolved（见 pinnedBy）",
                   timeWindowBasis: scope.timeWindowBasis ?? null,
                   occurredAt: scope.occurredAt ?? null,
@@ -354,14 +380,20 @@ async function runTrial(opts: RunSuiteOptions, loaded: LoadedCase, runDir: strin
               );
               presentEvents.add("scope_resolved");
               const bad = checks.find((c) => c.check !== "ok" && c.check !== "no-expected");
-              if (bad) {
+              const badScan = resolvedScans.find((x) => !x.ok);
+              if (badScan) {
+                preReadBlock = `版本一致性阻断（模型取证前）：repo ${badScan.repoId} 实际解析版本 ${badScan.sha.slice(0, 10)} 隔离扫描失败 [${badScan.codes.join(",")}] ${badScan.detail}`;
+              } else if (bad) {
                 const detail =
                   bad.check === "mismatch"
                     ? `resolved=${bad.resolvedSha} ≠ expected ${bad.expected}`
                     : bad.check === "missing-in-scope"
                       ? "实际材料范围缺少该仓库（构建失败或未解析）"
                       : "实际未解析出可读版本（unresolved）";
-                throw new Error(`版本一致性阻断（模型取证前）：repo ${bad.repoId} ${detail}（pinnedBy=${bad.pinnedBy ?? "?"}）`);
+                preReadBlock = `版本一致性阻断（模型取证前）：repo ${bad.repoId} ${detail}（pinnedBy=${bad.pinnedBy ?? "?"}）`;
+              }
+              if (preReadBlock) {
+                throw new Error(preReadBlock);
               }
             },
           },
@@ -369,6 +401,9 @@ async function runTrial(opts: RunSuiteOptions, loaded: LoadedCase, runDir: strin
         );
       } catch (err) {
         runError = err instanceof Error ? err.message : String(err);
+      }
+      if (preReadBlock) {
+        runError = preReadBlock; // 观察钩失败已被编排层 failRun，这里收回阻断事实用于中止 trial
       }
 
       const runRow = store.getRun(claimed.run.id)!;
@@ -542,6 +577,14 @@ async function runTrial(opts: RunSuiteOptions, loaded: LoadedCase, runDir: strin
       });
 
       trace.emit("round_finished", { outcome, status: runRow.status }, { roundId: round.roundId, runId: claimed.run.id });
+
+      // 读取前阻断（隔离/版本完整性失败）→ 中止整个 trial：
+      // 材料契约已破坏，后续轮次不再发布（避免继续消耗预算并污染 trace）。
+      if (runError?.startsWith("版本一致性阻断")) {
+        executionError = runError;
+        trace.emit("run_error", { error: runError, blockedPreRead: true }, { roundId: round.roundId, runId: claimed.run.id });
+        break;
+      }
     }
   } catch (err) {
     executionError = err instanceof Error ? err.message : String(err);

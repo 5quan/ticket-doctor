@@ -273,7 +273,50 @@ export function checkIsolation(
     }
   });
 
-  // —— 3. 跨轮硬链接：先前轮视图文件的 (dev,ino) 与未来轮视图文件重合 → 运行期已授权即可读 ——
+  // —— 3a. 私有/禁止访问材料（制作侧答案等）的 inode 身份纳入硬链接检查（工单 §1）——
+  //    合法授权的日志文件若与私有文件为同一 inode，运行期路径规则/realpath 全部发现不了，
+  //    只能在此按身份比对阻断。
+  const privateIdentities: Array<{ dev: number; ino: number; label: string }> = [];
+  {
+    const privRoot = resolveUnder(privateDir);
+    const walk = (dir: string, prefix: string): void => {
+      let entries;
+      try {
+        entries = readdirSync(dir, { withFileTypes: true });
+      } catch {
+        return; // 私有目录不存在 = 无私有身份可比
+      }
+      for (const entry of entries) {
+        const abs = join(dir, entry.name);
+        const rel = `${prefix}${prefix ? "/" : ""}${entry.name}`;
+        if (entry.isDirectory() && !entry.isSymbolicLink()) {
+          walk(abs, rel);
+          continue;
+        }
+        try {
+          const st = statSync(abs);
+          if (st.isFile()) privateIdentities.push({ dev: Number(st.dev), ino: Number(st.ino), label: rel });
+        } catch {
+          integritySkipped += 1;
+          integrityNotes.push(`private/${rel}: stat 失败`);
+        }
+      }
+    };
+    walk(privRoot, "");
+  }
+  for (const scan of scans) {
+    for (const f of scan.files) {
+      const hit = privateIdentities.find((p) => p.dev === f.dev && p.ino === f.ino);
+      if (hit) {
+        violations.push({
+          code: "hardlink_escape",
+          message: `round ${scan.roundId} 的已授权文件 ${f.rel} 与私有/禁止访问材料（${hit.label}）为同一 inode——合法授权即可读答案，预检阻断`,
+        });
+      }
+    }
+  }
+
+  // —— 3b. 跨轮硬链接：先前轮视图文件的 (dev,ino) 与未来轮视图文件重合 → 运行期已授权即可读 ——
   for (let i = 0; i < scans.length; i++) {
     for (let j = i + 1; j < scans.length; j++) {
       for (const ef of scans[i]!.files) {
@@ -324,6 +367,58 @@ export function checkIsolation(
     });
   }
   return violations;
+}
+
+/**
+ * 对「实际解析出的源码树」做隔离扫描（工单 §2：引擎读取前，在 onPrepared 观察点调用）。
+ * 预检只能覆盖 expectedSha 与 HEAD 两棵树；按时间选中中间提交时，实际可读版本可能
+ * 两者都不是——必须在取证前对该 SHA 单独扫描：答案性文件名、未来消息泄漏、完整性。
+ */
+export function scanResolvedTreeForIsolation(opts: {
+  repoDir: string;
+  sha: string;
+  label: string;
+  futureTexts: string[];
+  limits?: IsolationLimits;
+}): IsolationViolation[] {
+  const out: IsolationViolation[] = [];
+  let skipped = 0;
+  let failed = false;
+  let files: Array<{ path: string; text: string }> = [];
+  try {
+    const scanned = repoTextFiles(opts.repoDir, opts.sha, {
+      maxFiles: opts.limits?.maxFiles,
+      maxFileBytes: opts.limits?.maxFileBytes,
+    });
+    files = scanned.files;
+    skipped = scanned.skipped;
+    failed = scanned.failed;
+  } catch (err) {
+    return [
+      {
+        code: "incomplete_scan",
+        message: `${opts.label}: 实际解析版本树扫描失败——${err instanceof Error ? err.message.split("\n")[0] : String(err)}`,
+      },
+    ];
+  }
+  for (const f of files) {
+    if (isAnswerFilename(f.path.split("/").pop() ?? f.path)) {
+      out.push({ code: "answer_filename", message: `${opts.label}:${f.path} 答案性文件名出现在实际可读版本` });
+    }
+    const norm = normText(f.text);
+    for (const future of opts.futureTexts) {
+      if (future.length >= 12 && norm.includes(future)) {
+        out.push({ code: "future_message_leak", message: `${opts.label}:${f.path} 包含未来轮用户消息正文` });
+      }
+    }
+  }
+  if (skipped > 0 || failed) {
+    out.push({
+      code: "incomplete_scan",
+      message: `${opts.label}: ${skipped} 个文件跳过${failed ? "（部分读取失败）" : ""}——实际可读版本未全部核验，不判通过`,
+    });
+  }
+  return out;
 }
 
 /** 材料目录真实位置（manifest 记录 + 授权归属核验用）。 */

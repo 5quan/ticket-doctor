@@ -78,6 +78,7 @@ test("隔离：未配置授权（undefined）保持既有行为；白名单仍�
   }
 });
 
+// 说明：Windows 上创建文件符号链接需要管理员/开发者模式；该环境的覆盖由 junction 用例承担。
 test("隔离：视图内文件符号链接指向未来轮 → FileLogSource 拒绝（真实路径核验）", async () => {
   const root = mkdtempSync(join(tmpdir(), "eval-v2-symlink-"));
   try {
@@ -206,7 +207,7 @@ test("回归：首轮合法已授权服务经硬链接实际读到未来日志 �
   }
 });
 
-test("回归：Windows junction 真正触达路径检查（preflight 视图别名 + 运行期文件 junction realpath），异步断言", { skip: process.platform !== "win32" }, async () => {
+test("回归：Windows junction 真正触达路径检查（preflight 视图别名 + 运行期文件 junction realpath），异步断言", { skip: process.platform !== "win32" }, async (t) => {
   const root = mkdtempSync(join(tmpdir(), "eval-v2-junction2-"));
   try {
     gitInit(join(root, "repo"));
@@ -214,7 +215,12 @@ test("回归：Windows junction 真正触达路径检查（preflight 视图别�
     mkdirSync(join(root, "public", "c1", "round-2"), { recursive: true });
     writeFileSync(join(root, "public", "c1", "round-2", "future-svc.log"), FUTURE_LINE);
     // (a) 视图目录 junction：round-1 → round-2（别名）→ 预检真实路径判重阻断
-    symlinkSync(join(root, "public", "c1", "round-2"), join(root, "public", "c1", "round-1"), "junction");
+    try {
+      symlinkSync(join(root, "public", "c1", "round-2"), join(root, "public", "c1", "round-1"), "junction");
+    } catch (err) {
+      t.skip(`环境限制：创建 junction 失败（需管理员或开发者模式）——${err instanceof Error ? err.message : String(err)}`);
+      return;
+    }
     writeFileSync(join(root, "public", "c1", "r1-message.txt"), "m1");
     writeFileSync(join(root, "public", "c1", "r2-message.txt"), "m2");
     const desc = caseJson([round("r1", "round-1", ["svc"], join(root, "repo")), round("r2", "round-2", ["future-svc"], join(root, "repo"))]);
