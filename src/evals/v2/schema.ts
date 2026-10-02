@@ -168,9 +168,53 @@ export function validateTruth(
       else seen.add(r.roundId);
       if (!Array.isArray(r.allowedOutcomes) || r.allowedOutcomes.length === 0) {
         errors.push({ path: `rounds[${i}].allowedOutcomes`, message: "至少一种允许产出" });
+      } else if (r.allowedOutcomes.some((o) => o !== "report" && o !== "clarify")) {
+        errors.push({ path: `rounds[${i}].allowedOutcomes`, message: "只允许 report/clarify" });
       }
       if (!["symptom", "direct", "root"].includes(r.allowedClaimDepth)) {
         errors.push({ path: `rounds[${i}].allowedClaimDepth`, message: `非法粒度：${String(r.allowedClaimDepth)}` });
+      }
+      const conceptOk = (groups: unknown): boolean =>
+        Array.isArray(groups) &&
+        groups.length > 0 &&
+        (groups as unknown[]).every((g) => Array.isArray(g) && g.length > 0 && (g as unknown[]).every((w) => typeof w === "string" && w.length > 0));
+      const factIds = new Set<string>();
+      for (const fact of r.requiredFacts ?? []) {
+        if (!isStr(fact.factId) || factIds.has(fact.factId)) {
+          errors.push({ path: `rounds[${i}].requiredFacts`, message: `factId 缺失或重复：${String(fact.factId)}` });
+          continue;
+        }
+        factIds.add(fact.factId);
+        if (!conceptOk(fact.concepts)) errors.push({ path: `rounds[${i}].${fact.factId}.concepts`, message: "概念组必须是非空字符串数组的数组" });
+        const whereOk = Array.isArray(fact.where) && fact.where.every((w) => ["summary", "confirmedFacts", "hypotheses"].includes(w));
+        if (!whereOk) errors.push({ path: `rounds[${i}].${fact.factId}.where`, message: "where 只允许 summary/confirmedFacts/hypotheses" });
+      }
+      const needIds = new Set<string>();
+      for (const need of r.materialNeeds ?? []) {
+        if (!isStr(need.needId) || needIds.has(need.needId)) {
+          errors.push({ path: `rounds[${i}].materialNeeds`, message: `needId 缺失或重复：${String(need.needId)}` });
+          continue;
+        }
+        needIds.add(need.needId);
+        if (!conceptOk(need.clarifyConcepts)) errors.push({ path: `rounds[${i}].${need.needId}.clarifyConcepts`, message: "概念组必须是非空字符串数组的数组" });
+      }
+      const wbIds = new Set<string>();
+      for (const wb of r.writebackRequirements ?? []) {
+        if (!isStr(wb.reqId) || wbIds.has(wb.reqId)) {
+          errors.push({ path: `rounds[${i}].writebackRequirements`, message: `reqId 缺失或重复：${String(wb.reqId)}` });
+          continue;
+        }
+        wbIds.add(wb.reqId);
+        if (!conceptOk(wb.concepts)) errors.push({ path: `rounds[${i}].${wb.reqId}.concepts`, message: "概念组必须是非空字符串数组的数组" });
+      }
+      const claimIds = new Set<string>();
+      for (const cc of r.contradictedClaims ?? []) {
+        if (!isStr(cc.claimId) || claimIds.has(cc.claimId)) {
+          errors.push({ path: `rounds[${i}].contradictedClaims`, message: `claimId 缺失或重复：${String(cc.claimId)}` });
+          continue;
+        }
+        claimIds.add(cc.claimId);
+        if (!conceptOk(cc.concepts)) errors.push({ path: `rounds[${i}].${cc.claimId}.concepts`, message: "概念组必须是非空字符串数组的数组" });
       }
       const reqIds = new Set<string>();
       for (const req of r.evidenceRequirements ?? []) {
@@ -179,6 +223,9 @@ export function validateTruth(
           continue;
         }
         reqIds.add(req.requirementId);
+        if (!["symptom", "direct", "root"].includes(req.depth)) {
+          errors.push({ path: `rounds[${i}].${req.requirementId}.depth`, message: `非法粒度：${String(req.depth)}` });
+        }
         if (!Array.isArray(req.supportsAnyOf) || req.supportsAnyOf.length === 0) {
           errors.push({ path: `rounds[${i}].${req.requirementId}.supportsAnyOf`, message: "至少一个组合" });
           continue;
@@ -195,9 +242,21 @@ export function validateTruth(
           }
         }
       }
+      const ruleIds = new Set<string>();
       for (const rule of r.forbiddenRules ?? []) {
-        if (!Array.isArray(rule.assertAnyOf) || rule.assertAnyOf.length === 0) {
-          errors.push({ path: `rounds[${i}].forbiddenRules.${rule.ruleId}`, message: "assertAnyOf 不能为空" });
+        if (!isStr(rule.ruleId) || ruleIds.has(rule.ruleId)) {
+          errors.push({ path: `rounds[${i}].forbiddenRules`, message: `ruleId 缺失或重复：${String(rule.ruleId)}` });
+          continue;
+        }
+        ruleIds.add(rule.ruleId);
+        if (!conceptOk(rule.assertAnyOf)) {
+          errors.push({ path: `rounds[${i}].forbiddenRules.${rule.ruleId}`, message: "assertAnyOf 必须是非空字符串数组的数组" });
+        }
+        if (rule.onlyWhenStatus && !["supported", "candidate", "refuted"].includes(rule.onlyWhenStatus)) {
+          errors.push({ path: `rounds[${i}].forbiddenRules.${rule.ruleId}.onlyWhenStatus`, message: "非法状态" });
+        }
+        if (rule.onlyWhenStatus && !rule.where.every((w) => w === "hypotheses")) {
+          errors.push({ path: `rounds[${i}].forbiddenRules.${rule.ruleId}.onlyWhenStatus`, message: "onlyWhenStatus 只适用于 hypotheses 范围" });
         }
       }
     });
@@ -210,4 +269,17 @@ export function validateTruth(
     errors.push({ path: "rootCauseRef", message: `根因文档不存在：${t.rootCauseRef}` });
   }
   return errors.length === 0 ? { ok: true, value: t } : { ok: false, errors };
+}
+
+/** case 与 truth 的轮次必须配对一致（truth 每一轮都有标准，且不出现未知轮）。 */
+export function validatePairing(caseDesc: CaseDescriptorV2, truth: TruthFileV2): void {
+  const caseRounds = new Set(caseDesc.rounds.map((r) => r.roundId));
+  const truthRounds = new Set(truth.rounds.map((r) => r.roundId));
+  const missing = [...caseRounds].filter((r) => !truthRounds.has(r));
+  const extra = [...truthRounds].filter((r) => !caseRounds.has(r));
+  if (missing.length > 0 || extra.length > 0) {
+    throw new Error(
+      `case/truth 轮次不配对：case 缺标准 ${missing.join(",") || "-"}；truth 多出 ${extra.join(",") || "-"}（caseId=${caseDesc.caseId}）`,
+    );
+  }
 }

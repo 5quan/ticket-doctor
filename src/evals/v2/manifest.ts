@@ -23,6 +23,12 @@ export interface SuiteManifestV2 {
     maxToolCalls: number;
     timeoutMs: number;
     maxModelTurns: number;
+    /** 截断预算（决定 B\C1 差距的关键配置）。 */
+    maxToolResultChars: number;
+    maxResultChars: number;
+    /** 时间窗配置（决定日志可及范围）。 */
+    defaultTimeWindowMs: number;
+    fallbackTimeWindowMs: number;
     enforced: string[];
   };
   scorerVersion: string;
@@ -62,7 +68,7 @@ export function buildSuiteManifest(args: {
   caseDirOf: (caseId: string) => string;
   privateDirOf: (caseId: string) => string;
   cases: Array<{ caseDesc: CaseDescriptorV2; truth: TruthFileV2 | null; isolation: { ok: boolean; counts: Record<string, number> } }>;
-  diagnosis: { provider: string; modelId: string; promptHash: string; maxToolCalls: number; timeoutMs: number; maxModelTurns: number };
+  diagnosis: { provider: string; modelId: string; promptHash: string; maxToolCalls: number; timeoutMs: number; maxModelTurns: number; maxToolResultChars: number; maxResultChars: number; defaultTimeWindowMs: number; fallbackTimeWindowMs: number };
   scorerVersion: string;
   wall: { startedAt: number; finishedAt: number };
 }): SuiteManifestV2 {
@@ -89,6 +95,10 @@ export function buildSuiteManifest(args: {
       maxToolCalls: args.diagnosis.maxToolCalls,
       timeoutMs: args.diagnosis.timeoutMs,
       maxModelTurns: args.diagnosis.maxModelTurns,
+      maxToolResultChars: args.diagnosis.maxToolResultChars,
+      maxResultChars: args.diagnosis.maxResultChars,
+      defaultTimeWindowMs: args.diagnosis.defaultTimeWindowMs,
+      fallbackTimeWindowMs: args.diagnosis.fallbackTimeWindowMs,
       // 首版强制执行的是工具数与时间预算；token 硬限制在运行接口支持前记观测（§7.4）。
       enforced: ["maxToolCalls", "timeoutMs", "maxRounds"],
     },

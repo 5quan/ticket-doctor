@@ -336,7 +336,13 @@ export interface CaseScoreV2 {
   /** 各层召回：分母 = 本轮适用需求数（§9.2）。 */
   recall: { A: MetricValue | null; B: MetricValue; C1: MetricValue; C2: MetricValue | null; D: MetricValue };
   citationValidity: MetricValue;
+  /**
+   * 语义支持（人工 rubric）：review 导入前 value=null、denominator=0、unscored=重要判断数。
+   * 不允许用关键词代理计数重新生成 value——代理计数单列在 requiredFactCoverage。
+   */
   claimSupport: MetricValue;
+  /** 确定性代理指标：必需事实的关键词覆盖（非语义评分，仅用于观察与复核排程）。 */
+  requiredFactCoverage: MetricValue;
   unsupportedAssertionRate: MetricValue;
   clarificationSuccess: MetricValue;
   contradictionUpdateSuccess: MetricValue;

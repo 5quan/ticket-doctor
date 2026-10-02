@@ -3,6 +3,7 @@
 //   npm run eval:v2 -- run --suite local-1 --engine scripted [--repeat 3] [--cases a,b]
 //   npm run eval:v2 -- replay --suite local-1
 //   npm run eval:v2 -- summary --suite local-1
+//   npm run eval:v2 -- rescore --suite local-1 --case eng-clarify --trial t1 --review review.json
 //
 // 默认引擎 scripted（确定性工程自测）；pi 必须显式选择且凭据预检通过（§7.1），
 // CLI 自身不设置任何 key。旧 `npm run eval` 入口保持不变，结果目录互不影响。
@@ -12,6 +13,7 @@ import { loadConfig } from "../../config/index.ts";
 import { materializeEngineeringCases } from "./engcases.ts";
 import { runSuite } from "./runner.ts";
 import { scoreTrial, type ScorerInput } from "./scorer.ts";
+import { applyReview, validateReview } from "./review.ts";
 import type { CaseScoreV2, SuiteSummaryV2 } from "./types.ts";
 
 const PROJECT_ROOT = join(import.meta.dirname ?? ".", "..", "..", "..");
@@ -84,6 +86,42 @@ async function main(): Promise<void> {
     for (const r of results) console.log(`${r.consistent ? "✅" : "❌"} ${r.trial}${r.detail ? `  ${r.detail}` : ""}`);
     console.log(`[eval:v2] 重放完成：${replayPath}`);
     if (!results.every((r) => r.consistent)) process.exit(1);
+    return;
+  }
+
+  if (command === "rescore") {
+    const suite = arg("--suite");
+    const caseId = arg("--case");
+    const trialId = arg("--trial");
+    const reviewPath = arg("--review");
+    if (!suite || !caseId || !trialId || !reviewPath) usage();
+    const trialDir = join(evalRoot, "runs", suite, caseId, trialId);
+    const outputsPath = join(trialDir, "outputs.json");
+    const scorePath = join(trialDir, "score.json");
+    if (!existsSync(outputsPath) || !existsSync(scorePath)) {
+      console.error(`[eval:v2] 缺少产物：${outputsPath} / ${scorePath}`);
+      process.exit(1);
+    }
+    const { scorerInput } = JSON.parse(readFileSync(outputsPath, "utf8")) as { scorerInput: ScorerInput };
+    const saved = JSON.parse(readFileSync(scorePath, "utf8")) as import("./types.ts").CaseScoreV2;
+    const reviewRaw = JSON.parse(readFileSync(reviewPath, "utf8")) as unknown;
+    const checked = validateReview(reviewRaw, scorerInput.caseDesc);
+    if (!checked.ok) {
+      console.error("[eval:v2] review 工件校验失败：");
+      for (const e of checked.errors) console.error(`  ${e.path}: ${e.message}`);
+      process.exit(1);
+    }
+    if (checked.value.trialId !== trialId || checked.value.caseId !== caseId) {
+      console.error("[eval:v2] review 绑定与 --case/--trial 不一致");
+      process.exit(1);
+    }
+    const reviewed = applyReview(scorerInput, saved, checked.value);
+    const outPath = join(trialDir, "score.reviewed.json");
+    const { writeFileSync: wf } = await import("node:fs");
+    wf(outPath, JSON.stringify(reviewed, null, 2), "utf8");
+    console.log(`[eval:v2] 重评分完成：${outPath}`);
+    console.log(`  claimSupport=${fmt(reviewed.claimSupport)}  semanticReview=${JSON.stringify(reviewed.semanticReview)}`);
+    console.log(`  硬失败不变：${reviewed.hardFailures.length === saved.hardFailures.length ? "是" : "否（异常：review 不得覆盖确定性失败）"}`);
     return;
   }
 

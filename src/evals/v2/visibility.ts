@@ -185,13 +185,26 @@ export function matchesEvidence(loc: LocatorV2, e: LayerEvidence): boolean {
 
 export type LayerKey = "A" | "B" | "C1" | "C2" | "D";
 
+/** 一次工具调用的可见性身份：模型看到的文本 + 该调用实际提交入库的证据。 */
+export interface CallEvidence {
+  callId: string;
+  text: string;
+  isError: boolean;
+  evidence: LayerEvidence[];
+}
+
 export interface LayerContext {
   /** A 层：日志源调用记录（仅日志 locator 可判；无记录 = null 未观测）。 */
   sourceCalls: SourceCallRecord[];
   /** B 层：截至本轮累计入库证据。 */
   persisted: LayerEvidence[];
-  /** C1 层：截至本轮累计可见工具返回文本。 */
-  toolReturnText: string;
+  /**
+   * C1 层：按调用绑定的「实际返回文本 + 该调用提交的批次证据」。
+   * C1 命中必须同时满足：文本含关键内容 且 同调用批次证据匹配 locator
+   * （类型/仓库/SHA/路径/内容）——全局文本搜索会把错误版本的相同文本算成可见（审计探针
+   * wrongShaVisibility），禁止。
+   */
+  callEvidence: CallEvidence[];
   /** D 层：报告引用解析出的证据。 */
   cited: LayerEvidence[];
   observationLevel: ObservationLevel;
@@ -200,7 +213,10 @@ export interface LayerContext {
 
 function locatorLayers(loc: LocatorV2, ctx: LayerContext): { A: boolean | null; B: boolean; C1: boolean; C2: boolean | null; D: boolean; reason?: string } {
   const b = ctx.persisted.some((e) => matchesEvidence(loc, e));
-  const c1 = ctx.toolReturnText.includes(loc.keyContent);
+  // C1：文本与批次证据必须来自同一次调用且同时匹配（身份绑定，见 LayerContext.callEvidence）。
+  const c1 = ctx.callEvidence.some(
+    (call) => !call.isError && call.text.includes(loc.keyContent) && call.evidence.some((e) => matchesEvidence(loc, e)),
+  );
   const d = ctx.cited.some((e) => matchesEvidence(loc, e));
   if (loc.kind === "code") {
     return { A: null, B: b, C1: c1, C2: null, D: d, reason: "A 层未观测代码源（评测侧无注入点）；B 为其超集（源侧上限丢弃除外）" };
@@ -296,4 +312,28 @@ export function citedEvidence(sqlite: SqliteLike, investigationId: string, uids:
     if (row) out.push(rowToEvidence("", row));
   }
   return out;
+}
+
+/**
+ * C1 用的调用身份表：调查级累计，callId → 该调用实际提交的批次证据行。
+ * 与 layerC1 的 toolResult 文本按 callId 关联，构成 CallEvidence。
+ */
+export function layerBatchesByCall(sqlite: SqliteLike, investigationId: string): Map<string, LayerEvidence[]> {
+  const rows = sqlite
+    .prepare(
+      `SELECT b.tool_call_id AS call_id, e.run_id, e.evidence_id, e.evidence_uid, e.kind, e.excerpt,
+              e.truncated, e.level, e.repo_id, e.sha, e.path, e.start_line, e.end_line
+         FROM evidence_batches b JOIN evidence e ON e.batch_id = b.batch_id
+        WHERE b.investigation_id = ?
+        ORDER BY e.created_at ASC`,
+    )
+    .all(investigationId) as Array<Record<string, unknown>>;
+  const map = new Map<string, LayerEvidence[]>();
+  for (const row of rows) {
+    const callId = String(row.call_id);
+    const list = map.get(callId) ?? [];
+    list.push(rowToEvidence(String(row.run_id ?? ""), row));
+    map.set(callId, list);
+  }
+  return map;
 }

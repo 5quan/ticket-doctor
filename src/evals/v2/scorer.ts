@@ -20,7 +20,7 @@ import type {
   RequirementSatisfaction,
 } from "./types.ts";
 
-export const SCORER_VERSION = "3.0.0";
+export const SCORER_VERSION = "3.1.0";
 
 // ---------- 概念断言判定（否定窗口豁免，逐次出现判定） ----------
 
@@ -90,6 +90,11 @@ export interface RoundScoreInput {
   allLogQueriesEmpty: boolean;
   /** 本轮实际材料范围的 repoId → expectedSha（版本核对基准）。 */
   expectedShas: Record<string, string>;
+  /**
+   * 预检出的范围版本错配（resolved ≠ expected）。钉定失败必须在取证前暴露（P2），
+   * 这里是 runner 在本轮开始前/后核对 scope 的结果；非空 → wrong_sha 硬失败。
+   */
+  scopeShaMismatch?: Array<{ repoId: string; expected: string; resolved: string | null }>;
   visibility: RequirementSatisfaction[];
   requiredTraceEvents: string[];
   presentTraceEvents: string[];
@@ -175,6 +180,16 @@ function applyRules(rules: AssertionRuleV2[], stage: "raw" | "validated", round:
 function hardChecksForRound(round: RoundScoreInput, stage: "raw" | "validated"): HardFailure[] {
   const failures: HardFailure[] = [];
 
+  // 0. 范围版本错配（P2）：与引用无关，属于"模型可读版本≠隔离预检版本"，必须硬失败。
+  for (const m of round.scopeShaMismatch ?? []) {
+    failures.push({
+      code: "wrong_sha",
+      message: `仓库 ${m.repoId} 实际钉定 ${m.resolved?.slice(0, 10) ?? "null"} ≠ 预检版本 ${m.expected.slice(0, 10)}（取证前版本核验失败）`,
+      roundId: round.roundId,
+      stage,
+    });
+  }
+
   // 1. 引用可解析性与版本（§9.4"引用不存在/跨调查→硬失败"、"错误 SHA→硬失败"）。
   for (const c of round.citations.filter((x) => x.stage === stage)) {
     if (!c.resolved) {
@@ -195,6 +210,18 @@ function hardChecksForRound(round: RoundScoreInput, stage: "raw" | "validated"):
   // 2. 禁用断言规则。
   failures.push(...applyRules(round.truth.forbiddenRules ?? [], stage, round));
   return failures;
+}
+
+/** 确定性回写判定（scoreTrial 与 review 重评分共用，避免两处口径漂移）。 */
+export function deterministicWritebackOk(round: RoundScoreInput): boolean {
+  const wb = round.writebackText ? normalize(round.writebackText) : null;
+  if (wb === null) return false;
+  const conceptsPresent = (groups: string[][]): boolean => {
+    const words = groups.flat();
+    return words.length === 0 || words.some((w) => wb.includes(normalize(w)));
+  };
+  return round.truth.requiredFacts.every((f) => conceptsPresent(f.concepts)) &&
+    (round.truth.writebackRequirements ?? []).every((r) => conceptsPresent(r.concepts));
 }
 
 function factAsserted(fact: { concepts: string[][]; where: Array<"summary" | "confirmedFacts" | "hypotheses"> }, claims: ClaimSet): boolean {
@@ -272,35 +299,35 @@ export function scoreTrial(input: ScorerInput): CaseScoreV2 {
       clarifyResults.push(clarification);
     }
 
-    // 4. 反证更新（§9.4"反证后固执"）：被推翻概念不得再以 supported 断言；
-    //    降级为 candidate（allowCandidate）或撤回均算更新成功。
+    // 4. 反证更新（§9.4"反证后固执"）：被推翻概念不得再作为事实断言出现在
+    //    confirmedFacts 或 supported 假设里；只在 candidate 假设中 → 按降级判定。
+    //    summary 是叙述文本，"Redis 告警为伴随现象"属合法措辞，其固执表达应由
+    //    truth.forbiddenRules（where 含 summary）显式声明，不在此猜测。
+    //    无正式报告（error/缺失）→ 缺测 null，不算"撤回成功"。
     let contradiction: boolean | null = null;
     if ((truth.contradictedClaims ?? []).length > 0) {
-      const claims = claimsOf("validated", round);
-      const verdicts = truth.contradictedClaims.map((claim) => {
-        const supportedAssert = claims.causes.some((h) => h.status === "supported" && assertsConcepts(h.cause, claim.concepts));
-        if (supportedAssert) return false;
-        const candidateAssert = claims.causes.some(
-          (h) => (h.status === "candidate" || h.status === "refuted") && assertsConcepts(h.cause, claim.concepts),
-        );
-        if (candidateAssert) return claim.allowCandidate;
-        return true; // 已撤回
-      });
-      contradiction = verdicts.every((v) => v === true);
-      contradictionResults.push(contradiction);
+      if (round.outcome === "error" || !round.validatedReport) {
+        contradiction = null;
+        contradictionResults.push(null); // 缺测进分母口径：unscored，不算撤回成功
+      } else {
+        const claims = claimsOf("validated", round);
+        const verdicts = truth.contradictedClaims.map((claim) => {
+          const factsAsserted = claims.confirmedFacts.some((f) => assertsConcepts(f, claim.concepts));
+          const supportedAssert = claims.causes.some((h) => h.status === "supported" && assertsConcepts(h.cause, claim.concepts));
+          if (supportedAssert || factsAsserted) return false;
+          const candidateAssert = claims.causes.some(
+            (h) => (h.status === "candidate" || h.status === "refuted") && assertsConcepts(h.cause, claim.concepts),
+          );
+          if (candidateAssert) return claim.allowCandidate;
+          return true; // 已撤回（报告存在且不再断言）
+        });
+        contradiction = verdicts.every((v) => v === true);
+        contradictionResults.push(contradiction);
+      }
     }
 
-    // 5. 回写完整性：关键事实/回写要求的概念必须在实际发送文本中出现。
-    if (round.writebackText !== undefined && round.writebackText !== null) {
-      const wb = normalize(round.writebackText);
-      const conceptsPresent = (groups: string[][]): boolean => {
-        const words = groups.flat();
-        return words.length === 0 || words.some((w) => wb.includes(normalize(w)));
-      };
-      const factsOk = truth.requiredFacts.every((f) => conceptsPresent(f.concepts));
-      const reqsOk = (truth.writebackRequirements ?? []).every((r) => conceptsPresent(r.concepts));
-      writebackResults.push(factsOk && reqsOk);
-    }
+    // 5. 回写完整性：所有轮都计分母——回写缺失（无投递捕获）计失败，不允许漏计（P6）。
+    writebackResults.push(deterministicWritebackOk(round));
 
     // 6. trace 完整性。
     const missing = round.requiredTraceEvents.filter((e) => !round.presentTraceEvents.includes(e));
@@ -345,12 +372,13 @@ export function scoreTrial(input: ScorerInput): CaseScoreV2 {
       ? mkMetric(0, 0)
       : mkMetric(validCitations.filter((c) => c.resolved && !c.wrongSha).length, validCitations.length);
 
-  // ---- 必需事实覆盖（确定性代理；value 保持 null，语义等价由 rubric 判定） ----
+  // ---- 确定性必需事实覆盖（关键词代理，单列；不是语义评分） ----
   const factTotal = input.rounds.reduce((n, r) => n + r.truth.requiredFacts.length, 0);
   const factHit = input.rounds.reduce((n, r) => {
     const claims = claimsOf("validated", r);
     return n + r.truth.requiredFacts.filter((f) => factAsserted(f, claims)).length;
   }, 0);
+  const requiredFactCoverage: MetricValue = mkMetric(factHit, factTotal);
 
   // ---- 越界断言率（validated：supported 但零引用的假设） ----
   const assertionCount = input.rounds.reduce((n, r) => {
@@ -393,8 +421,10 @@ export function scoreTrial(input: ScorerInput): CaseScoreV2 {
     traceCompletion: mkMetric(traceResults.filter((t) => t).length, traceResults.length),
     recall: { A: recallOf("A"), B: recallOf("B"), C1: recallOf("C1"), C2: recallOf("C2"), D: recallOf("D") },
     citationValidity,
-    // 语义判断未经人工复核前 value=null（§9.3）；确定性事实覆盖以分子/分母形式留痕。
-    claimSupport: { numerator: factHit, denominator: factTotal, notApplicable: 0, unscored: factTotal, value: null },
+    // 语义支持：review 导入前必须保持未评分（den=0，unscored=重要判断数）；
+    // 不允许关键词代理重新生成 value（P3）。
+    claimSupport: { numerator: 0, denominator: 0, notApplicable: 0, unscored: factTotal, value: null },
+    requiredFactCoverage,
     unsupportedAssertionRate: assertionCount === 0 ? mkMetric(0, 0) : mkMetric(unsupportedCount, assertionCount),
     clarificationSuccess:
       clarifyResults.length === 0 ? mkMetric(0, 0, 0, 0) : mkMetric(clarifyResults.filter((c) => c).length, clarifyResults.length),

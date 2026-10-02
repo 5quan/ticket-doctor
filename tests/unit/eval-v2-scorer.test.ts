@@ -100,7 +100,8 @@ function visibilityFor(truth: TruthFileV2, persisted: LayerEvidence[], toolRetur
   const ctx: LayerContext = {
     sourceCalls: sourceEntries.length > 0 ? [{ tool: "query_logs", args: { service: "svc", from: 0, to: 1, keywords: [] }, entries: sourceEntries.map((e) => ({ time: 0, level: e.level, message: e.message })) }] : [],
     persisted,
-    toolReturnText,
+    // 合成上下文：单次调用，文本=toolReturnText，批次证据=persisted（与 runner 组装同构）。
+    callEvidence: [{ callId: "call-1", text: toolReturnText, isError: false, evidence: persisted }],
     cited,
     observationLevel: "b-c1-d",
     c2Reason: "no request observation",
@@ -300,7 +301,7 @@ test("§9.4 合法替代证据：未固定调用顺序，等价 OR 组合命中�
     ...truthBase,
     locators: [
       ...truthBase.locators,
-      { kind: "code" as const, locatorId: "loc-npe-alt", repoId: "app", sha: "a".repeat(40), path: "src/Other.java", lineStart: 1, lineEnd: 2, keyContent: "ALT-MARKER" },
+      { kind: "code" as const, locatorId: "loc-npe-alt", repoId: "app", sha: "a".repeat(40), path: "src/Other.java", lineStart: 15, lineEnd: 17, keyContent: "ALT-MARKER" },
     ],
     rounds: [
       baseTruthRound({

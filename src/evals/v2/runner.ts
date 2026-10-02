@@ -9,7 +9,7 @@
 //   * 同一 trial 各轮共享 investigation/会话/历史证据；不同 trial/case 全新状态（§7.2）。
 //   * 补充材料按 scheduled 轮次发布，不因模型问错而挽救首轮分数（§7.2.4）。
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { AppConfig } from "../../config/index.ts";
 import { buildEngine } from "../../agent/factory.ts";
@@ -27,15 +27,18 @@ import { SESSION_MARKER_PREFIX } from "../../domain/session.ts";
 import type { InboundMessage } from "../../domain/types.ts";
 import { loadCatalog, loadCase, loadRoundMessage, loadTruth, type CatalogEntry } from "./load.ts";
 import { checkIsolation, isolationSummary } from "./isolation.ts";
+import { validatePairing } from "./schema.ts";
 import { CaptureSender } from "./capture.ts";
 import { buildSuiteManifest } from "./manifest.ts";
 import { exportEvidenceEvents, exportToolEvents, exportUsageEvent, TraceRecorder } from "./trace.ts";
 import {
   RecordingFileLogSource,
   layerBByInvestigation,
+  layerBatchesByCall,
   layerC1,
   citedEvidence,
   computeRequirementSatisfaction,
+  type CallEvidence,
   type SourceCallRecord,
 } from "./visibility.ts";
 import { CapturingEngine, ScriptedDiagnosisEngine, type ScriptStep } from "./scripted-engine.ts";
@@ -111,6 +114,10 @@ function loadLoadedCase(opts: RunSuiteOptions, entry: CatalogEntry): LoadedCase 
 export async function runSuite(opts: RunSuiteOptions): Promise<SuiteSummaryV2> {
   const startedAt = Date.now();
   const runDir = join(opts.evalV2Root, "runs", opts.suiteRunId);
+  // 同名 suite 拒绝重跑：不同时间的运行混在同一目录会让新旧记录无法区分（审计配套项）。
+  if (existsSync(runDir) && readdirSync(runDir).length > 0) {
+    throw new Error(`suite 运行目录已存在且非空：${runDir}——请换一个 suiteRunId（评分口径变更须另建结果目录）`);
+  }
   mkdirSync(runDir, { recursive: true });
 
   const catalog = loadCatalog(opts.evalV2Root);
@@ -129,24 +136,34 @@ export async function runSuite(opts: RunSuiteOptions): Promise<SuiteSummaryV2> {
   const blockedCases: Array<{ caseId: string; reason: string }> = [];
 
   for (const entry of entries) {
-    const loaded = loadLoadedCase(opts, entry);
-    if (!loaded.isolation.ok) {
-      blockedCases.push({ caseId: entry.caseId, reason: `隔离预检失败：${loaded.violationText}` });
-      continue;
-    }
+    // 单 case 失败（装载/预检/执行/评分）不得终止整个 suite：记 blocked/异常后继续。
+    try {
+      const loaded = loadLoadedCase(opts, entry);
+      if (!loaded.isolation.ok) {
+        blockedCases.push({ caseId: entry.caseId, reason: `隔离预检失败：${loaded.violationText}` });
+        continue;
+      }
+      // case 与 truth 的轮次必须配对一致（审计配套项：schema 完整性）。
+      validatePairing(loaded.caseDesc, loaded.truth);
 
-    const trials: CaseScoreV2[] = [];
-    for (let t = 1; t <= Math.max(1, opts.repeat); t++) {
-      trials.push(await runTrial(opts, loaded, runDir, `t${t}`));
+      const trials: CaseScoreV2[] = [];
+      for (let t = 1; t <= Math.max(1, opts.repeat); t++) {
+        trials.push(await runTrial(opts, loaded, runDir, `t${t}`));
+      }
+      caseSummaries.push({
+        caseId: loaded.caseDesc.caseId,
+        familyId: loaded.caseDesc.familyId,
+        split: loaded.caseDesc.split,
+        admission: loaded.caseDesc.admission,
+        trials,
+      });
+      manifestCases.push({ caseDesc: loaded.caseDesc, truth: loaded.truth, isolation: loaded.isolation });
+    } catch (err) {
+      blockedCases.push({
+        caseId: entry.caseId,
+        reason: `case 异常（其余 case 继续）：${err instanceof Error ? err.message : String(err)}`,
+      });
     }
-    caseSummaries.push({
-      caseId: loaded.caseDesc.caseId,
-      familyId: loaded.caseDesc.familyId,
-      split: loaded.caseDesc.split,
-      admission: loaded.caseDesc.admission,
-      trials,
-    });
-    manifestCases.push({ caseDesc: loaded.caseDesc, truth: loaded.truth, isolation: loaded.isolation });
   }
 
   const wall = { startedAt, finishedAt: Date.now() };
@@ -176,6 +193,10 @@ export async function runSuite(opts: RunSuiteOptions): Promise<SuiteSummaryV2> {
       maxToolCalls: opts.baseConfig.diagnosis.maxToolCalls,
       timeoutMs: opts.baseConfig.diagnosis.timeoutMs,
       maxModelTurns: opts.baseConfig.diagnosis.maxModelTurns,
+      maxToolResultChars: opts.baseConfig.diagnosis.maxToolResultChars,
+      maxResultChars: opts.baseConfig.diagnosis.maxResultChars,
+      defaultTimeWindowMs: opts.baseConfig.diagnosis.defaultTimeWindowMs,
+      fallbackTimeWindowMs: opts.baseConfig.diagnosis.fallbackTimeWindowMs,
     },
     scorerVersion: SCORER_VERSION,
     wall,
@@ -226,6 +247,7 @@ async function runTrial(opts: RunSuiteOptions, loaded: LoadedCase, runDir: strin
   let investigationId = "";
   let sessionCode: string | undefined;
   let prevExternalId: string | undefined;
+  let capturePtr = 0;
   const sourceCalls: SourceCallRecord[] = [];
 
   trace.emit("trial_started", { engine: capture.name, maxRounds: caseDesc.maxRounds });
@@ -244,7 +266,13 @@ async function runTrial(opts: RunSuiteOptions, loaded: LoadedCase, runDir: strin
           logDir: join(caseDir, round.materialView),
           allowedServices: [...round.services],
           allowedRepos: round.repos.map((repo) => repo.repoId),
-          repos: round.repos.map((repo) => ({ repoId: repo.repoId, dir: resolve(opts.projectRoot, repo.dir) })),
+          repos: round.repos.map((repo) => ({
+            repoId: repo.repoId,
+            dir: resolve(opts.projectRoot, repo.dir),
+            // 版本一致性（P2）：把隔离预检核验过的 expectedSha 钉成显式 rev，
+            // 使模型实际可读版本与预检 tree 强制同一，按时间/HEAD 漂移被结构上排除。
+            ...(repo.expectedSha ? { rev: repo.expectedSha } : {}),
+          })),
         },
       };
       const recordingSource = new RecordingFileLogSource({
@@ -291,7 +319,10 @@ async function runTrial(opts: RunSuiteOptions, loaded: LoadedCase, runDir: strin
       }
 
       const runRow = store.getRun(claimed.run.id)!;
-      const raw = capture.captured.at(r);
+      // 原始结果按"实际发生的引擎调用"消费（指针），失败轮不占位——
+      // capture.captured.at(r) 会在失败轮后错位（审计配套项）。
+      const raw = capture.captured[capturePtr];
+      if (raw) capturePtr += 1;
       const outcome = runError ? "error" : outcomeOf(raw);
       const reportRow = store.getReportByRun(claimed.run.id);
       const validatedReport = reportRow
@@ -369,7 +400,14 @@ async function runTrial(opts: RunSuiteOptions, loaded: LoadedCase, runDir: strin
 
       // 累计可见性上下文（A/B/C1 跨轮累计；D 本轮报告引用）。
       sourceCalls.push(...recordingSource.calls);
-      const toolReturnText = layerC1(db, investigationId).map((t) => t.text).join("\n");
+      const toolReturns = layerC1(db, investigationId);
+      const batchByCall = layerBatchesByCall(db, investigationId);
+      const callEvidence: CallEvidence[] = toolReturns.map((t) => ({
+        callId: t.callId,
+        text: t.text,
+        isError: t.isError,
+        evidence: batchByCall.get(t.callId) ?? [],
+      }));
       const persisted = layerBByInvestigation(db, investigationId);
       const cited = validatedReport
         ? citedEvidence(db, investigationId, (validatedReport as { hypotheses?: Array<{ evidenceIds?: string[] }> }).hypotheses?.flatMap((h) => h.evidenceIds ?? []) ?? [])
@@ -381,12 +419,26 @@ async function runTrial(opts: RunSuiteOptions, loaded: LoadedCase, runDir: strin
         ctx: {
           sourceCalls,
           persisted,
-          toolReturnText,
+          callEvidence,
           cited,
           observationLevel: "b-c1-d",
           c2Reason: "未接请求观测（C2 恒 null）",
         },
       });
+
+      // 版本核对（P2）：报告 scope 的实际钉定 SHA 必须等于 expectedSha；reply 轮无 scope →
+      // 本轮不核对（rev 已钉定使漂移结构性不可能），由 manifest 的 repo 指纹兜底。
+      const scopeShaMismatch: RoundScoreInput["scopeShaMismatch"] = [];
+      const scopeRepos = (validatedReport as { scope?: { repos?: Array<{ repoId?: string; sha?: string }> } } | undefined)?.scope?.repos;
+      if (scopeRepos) {
+        for (const repo of round.repos) {
+          if (!repo.expectedSha) continue;
+          const resolved = scopeRepos.find((x) => x.repoId === repo.repoId)?.sha ?? null;
+          if (resolved !== repo.expectedSha) {
+            scopeShaMismatch.push({ repoId: repo.repoId, expected: repo.expectedSha, resolved });
+          }
+        }
+      }
 
       const allLogQueriesEmpty = recordingSource.calls.length > 0 && recordingSource.calls.every((c) => c.entries.length === 0);
 
@@ -430,6 +482,7 @@ async function runTrial(opts: RunSuiteOptions, loaded: LoadedCase, runDir: strin
         citations,
         allLogQueriesEmpty,
         expectedShas,
+        scopeShaMismatch,
         visibility,
         requiredTraceEvents: ["round_input", "engine_result_raw", "output_persisted", "usage", "round_finished"],
         presentTraceEvents: [...presentEvents, "round_finished"],
@@ -471,12 +524,15 @@ function aggregateMetrics(cases: SuiteSummaryV2["cases"]): Record<string, Metric
     "traceCompletion",
     "citationValidity",
     "claimSupport",
+    "requiredFactCoverage",
     "unsupportedAssertionRate",
     "clarificationSuccess",
     "contradictionUpdateSuccess",
     "writebackSuccess",
   ];
   const trials = cases.flatMap((c) => c.trials);
+  // 汇总不得重新生成未评分（P3）：任一构成 trial 缺测（unscored>0）或无分母时，
+  // 聚合 value 保持 null——缺测不允许被分子分母平均成 0/1。
   const pool = (get: (t: CaseScoreV2) => MetricValue | null | undefined): MetricValue => {
     let num = 0;
     let den = 0;
@@ -490,7 +546,7 @@ function aggregateMetrics(cases: SuiteSummaryV2["cases"]): Record<string, Metric
       na += m.notApplicable;
       unscored += m.unscored;
     }
-    return { numerator: num, denominator: den, notApplicable: na, unscored, value: den > 0 ? num / den : null };
+    return { numerator: num, denominator: den, notApplicable: na, unscored, value: den > 0 && unscored === 0 ? num / den : null };
   };
   const out: Record<string, MetricValue> = {};
   for (const key of keys) {
