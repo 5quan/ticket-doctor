@@ -225,3 +225,20 @@ test("隔离：仓库 tree 出现答案性文件名 → answer_filename", () => 
     rmSync(repoDir, { recursive: true, force: true });
   }
 });
+
+test("schema：正式 case（非 engineering）缺 expectedSha → 拒绝（读取前核验依据）", () => {
+  const root = tmpRoot();
+  try {
+    const formal = baseCaseJson({
+      split: "development",
+      admission: "admitted",
+      rounds: [{ roundId: "r1", messageRef: "r1-message.txt", receivedAt: "2026-09-06T10:30:00+08:00", occurredAt: null, materialView: "round-1", services: ["svc"], repos: [{ repoId: "app", dir: "fixtures/demo-repo" }] }],
+    });
+    const { caseDir } = setupCase(root, formal, baseTruthJson());
+    const result = validateCaseDescriptor(JSON.parse(readFileSync(join(caseDir, "case.json"), "utf8")), { caseDir, projectRoot: PROJECT_ROOT });
+    assert.equal(result.ok, false);
+    assert.ok(result.ok === false && result.errors.some((e) => e.path.includes("expectedSha")));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

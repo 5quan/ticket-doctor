@@ -322,11 +322,28 @@ async function runTrial(opts: RunSuiteOptions, loaded: LoadedCase, runDir: strin
             // 在模型取证前阻断。事件先落 trace，随后抛错由编排层 failRun（fail-closed）。
             onPrepared: ({ scope }) => {
               const resolved = scope.repos.map((r) => ({ repoId: r.repoId, resolvedSha: r.sha ?? null, pinnedBy: r.pinnedBy ?? null }));
+              // 按全部期望仓库逐一核对（工单 §2）：缺席/unresolved/错配都不得漏检；
+              // 工程场景允许缺期望版本，但仍必须核对实际准备出的可读版本，不能跳过检查进入运行。
+              const checks = round.repos.map((repo) => {
+                const expected = repo.expectedSha ?? null;
+                const actual = resolved.find((x) => x.repoId === repo.repoId);
+                if (!actual) {
+                  return { repoId: repo.repoId, expected, resolvedSha: null, pinnedBy: null, check: "missing-in-scope" as const };
+                }
+                if (!actual.resolvedSha) {
+                  return { repoId: repo.repoId, expected, resolvedSha: null, pinnedBy: actual.pinnedBy, check: "unresolved" as const };
+                }
+                if (expected && actual.resolvedSha !== expected) {
+                  return { repoId: repo.repoId, expected, resolvedSha: actual.resolvedSha, pinnedBy: actual.pinnedBy, check: "mismatch" as const };
+                }
+                return { repoId: repo.repoId, expected, resolvedSha: actual.resolvedSha, pinnedBy: actual.pinnedBy, check: expected ? ("ok" as const) : ("no-expected" as const) };
+              });
               trace.emit(
                 "scope_resolved",
                 {
                   expected: Object.fromEntries(expectedByRepo),
                   resolved,
+                  checks,
                   pinnedByBasis: "time|head|explicit|unresolved（见 pinnedBy）",
                   timeWindowBasis: scope.timeWindowBasis ?? null,
                   occurredAt: scope.occurredAt ?? null,
@@ -336,13 +353,15 @@ async function runTrial(opts: RunSuiteOptions, loaded: LoadedCase, runDir: strin
                 { roundId: round.roundId, runId: claimed.run.id },
               );
               presentEvents.add("scope_resolved");
-              for (const r of resolved) {
-                const expected = expectedByRepo.get(r.repoId);
-                if (expected && r.resolvedSha !== expected) {
-                  throw new Error(
-                    `版本一致性阻断（模型取证前）：repo ${r.repoId} resolved=${r.resolvedSha ?? "unresolved"} (pinnedBy=${r.pinnedBy ?? "?"}) ≠ expected ${expected}`,
-                  );
-                }
+              const bad = checks.find((c) => c.check !== "ok" && c.check !== "no-expected");
+              if (bad) {
+                const detail =
+                  bad.check === "mismatch"
+                    ? `resolved=${bad.resolvedSha} ≠ expected ${bad.expected}`
+                    : bad.check === "missing-in-scope"
+                      ? "实际材料范围缺少该仓库（构建失败或未解析）"
+                      : "实际未解析出可读版本（unresolved）";
+                throw new Error(`版本一致性阻断（模型取证前）：repo ${bad.repoId} ${detail}（pinnedBy=${bad.pinnedBy ?? "?"}）`);
               }
             },
           },

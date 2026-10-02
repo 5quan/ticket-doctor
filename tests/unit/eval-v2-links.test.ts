@@ -148,18 +148,86 @@ test("预检：扫描跳过的可读内容使隔离结论不完整（不得判�
   }
 });
 
-test("回归：Windows junction 逃逸（非 Windows 跳过，Windows 上运行）", { skip: process.platform !== "win32" }, () => {
-  const root = mkdtempSync(join(tmpdir(), "eval-v2-junction-"));
+test("预检：视图父子包含——两个方向都拒绝（工单 §1）", () => {
+  const root = mkdtempSync(join(tmpdir(), "eval-v2-nest-"));
   try {
+    gitInit(join(root, "repo"));
+    // 方向一：未来轮视图位于先前轮视图内部（round-2 ⊂ round-1）
+    mkdirSync(join(root, "public", "c1", "round-1", "inner"), { recursive: true });
+    writeFileSync(join(root, "public", "c1", "round-1", "past.log"), PAST_LINE);
+    writeFileSync(join(root, "public", "c1", "round-1", "inner", "future-svc.log"), FUTURE_LINE);
+    writeFileSync(join(root, "public", "c1", "r1-message.txt"), "m1");
+    writeFileSync(join(root, "public", "c1", "r2-message.txt"), "m2");
+    const desc1 = caseJson([round("r1", "round-1", ["svc"], join(root, "repo")), round("r2", "round-1/inner", ["future-svc"], join(root, "repo"))]);
+    const v1 = checkIsolation(root, join(root, "public", "c1"), desc1, truthStub, join(root, "private", "c1"));
+    assert.ok(v1.some((v) => v.code === "path_overlap" && /位于先前轮.*内部/.test(v.message)), JSON.stringify(v1));
+
+    // 方向二：先前轮视图位于未来轮视图内部（round-1 ⊂ round-2）——边界同样不成立
+    mkdirSync(join(root, "public", "c2", "round-2"), { recursive: true });
+    mkdirSync(join(root, "public", "c2", "round-2", "past"));
+    writeFileSync(join(root, "public", "c2", "round-2", "future-svc.log"), FUTURE_LINE);
+    writeFileSync(join(root, "public", "c2", "round-2", "past", "past.log"), PAST_LINE);
+    writeFileSync(join(root, "public", "c2", "r1-message.txt"), "m1");
+    writeFileSync(join(root, "public", "c2", "r2-message.txt"), "m2");
+    const desc2 = { ...caseJson([round("r1", "round-2/past", ["svc"], join(root, "repo")), round("r2", "round-2", ["future-svc"], join(root, "repo"))]), caseId: "c1" } as CaseDescriptorV2;
+    const v2 = checkIsolation(root, join(root, "public", "c2"), desc2, truthStub, join(root, "private", "c1"));
+    assert.ok(v2.some((v) => v.code === "path_overlap" && /视图边界不成立/.test(v.message)), JSON.stringify(v2));
+  } finally {
+    /* tmp */
+  }
+});
+
+test("回归：首轮合法已授权服务经硬链接实际读到未来日志 → 预检按 inode 阻断（运行期规则发现不了）", async () => {
+  const root = mkdtempSync(join(tmpdir(), "eval-v2-hardlink-"));
+  try {
+    gitInit(join(root, "repo"));
     mkdirSync(join(root, "public", "c1", "round-1"), { recursive: true });
     mkdirSync(join(root, "public", "c1", "round-2"), { recursive: true });
     writeFileSync(join(root, "public", "c1", "round-2", "future-svc.log"), FUTURE_LINE);
-    symlinkSync(join(root, "public", "c1", "round-2"), join(root, "public", "c1", "round-1", "future"), "junction");
-    const source = new FileLogSource({ dir: join(root, "public", "c1", "round-1"), allowedServices: ["future-svc"] });
-    assert.rejects(
-      () => source.query({ service: "future/future-svc", from: 0, to: Date.now() + 1e9, keywords: [] }, new AbortController().signal),
-      LogAccessError,
-      "junction 目录别名必须被服务名规则或真实路径核验拒绝",
+    // 首轮的 svc.log 是指向未来轮日志的硬链接：首轮授权合法、路径合法、realpath 也在视图内
+    const { linkSync, statSync } = await import("node:fs");
+    linkSync(join(root, "public", "c1", "round-2", "future-svc.log"), join(root, "public", "c1", "round-1", "svc.log"));
+    assert.equal(statSync(join(root, "public", "c1", "round-1", "svc.log")).ino, statSync(join(root, "public", "c1", "round-2", "future-svc.log")).ino, "前置：硬链接已建立");
+
+    // 运行期规则（服务名/realpath）发现不了它——授权服务真的能读到未来内容（这就是缺口本身）
+    const runtime = new FileLogSource({ dir: join(root, "public", "c1", "round-1"), allowedServices: ["svc"] });
+    const leaked = await runtime.query({ service: "svc", from: 0, to: Date.now() + 1e9, keywords: [] }, new AbortController().signal);
+    assert.equal(leaked.length, 1);
+    assert.match(leaked[0].message, /FUTURE-GOLD-LINE/, "前置：运行期确实读到未来日志（证明必须由预检阻断）");
+
+    // 预检按 inode 识别并阻断
+    writeFileSync(join(root, "public", "c1", "r1-message.txt"), "m1");
+    writeFileSync(join(root, "public", "c1", "r2-message.txt"), "m2");
+    const desc = caseJson([round("r1", "round-1", ["svc"], join(root, "repo")), round("r2", "round-2", ["future-svc"], join(root, "repo"))]);
+    const violations = checkIsolation(root, join(root, "public", "c1"), desc, truthStub, join(root, "private", "c1"));
+    assert.ok(violations.some((v) => v.code === "hardlink_escape"), JSON.stringify(violations));
+  } finally {
+    /* tmp */
+  }
+});
+
+test("回归：Windows junction 真正触达路径检查（preflight 视图别名 + 运行期文件 junction realpath），异步断言", { skip: process.platform !== "win32" }, async () => {
+  const root = mkdtempSync(join(tmpdir(), "eval-v2-junction2-"));
+  try {
+    gitInit(join(root, "repo"));
+    mkdirSync(join(root, "public", "c1", "round-1"), { recursive: true });
+    mkdirSync(join(root, "public", "c1", "round-2"), { recursive: true });
+    writeFileSync(join(root, "public", "c1", "round-2", "future-svc.log"), FUTURE_LINE);
+    // (a) 视图目录 junction：round-1 → round-2（别名）→ 预检真实路径判重阻断
+    symlinkSync(join(root, "public", "c1", "round-2"), join(root, "public", "c1", "round-1"), "junction");
+    writeFileSync(join(root, "public", "c1", "r1-message.txt"), "m1");
+    writeFileSync(join(root, "public", "c1", "r2-message.txt"), "m2");
+    const desc = caseJson([round("r1", "round-1", ["svc"], join(root, "repo")), round("r2", "round-2", ["future-svc"], join(root, "repo"))]);
+    const violations = checkIsolation(root, join(root, "public", "c1"), desc, truthStub, join(root, "private", "c1"));
+    assert.ok(violations.some((v) => v.code === "path_overlap"), JSON.stringify(violations));
+
+    // (b) 视图内文件 junction 指向未来日志 → FileLogSource 真实路径核验拒绝（非服务名规则）
+    mkdirSync(join(root, "plain", "round-1"), { recursive: true });
+    symlinkSync(join(root, "public", "c1", "round-2", "future-svc.log"), join(root, "plain", "round-1", "future-svc.log"), "junction");
+    const source = new FileLogSource({ dir: join(root, "plain", "round-1"), allowedServices: ["future-svc"] });
+    await assert.rejects(
+      () => source.query({ service: "future-svc", from: 0, to: Date.now() + 1e9, keywords: [] }, new AbortController().signal),
+      (err: unknown) => err instanceof LogAccessError && /链接\/别名逃逸|越出日志目录/.test((err as Error).message),
     );
   } finally {
     /* tmp */

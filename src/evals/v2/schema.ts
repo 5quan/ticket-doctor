@@ -95,6 +95,12 @@ export function validateCaseDescriptor(
           if (!isStr(repo.dir) || !existsSync(dir)) {
             errors.push({ path: `rounds[${i}].repos[${j}].dir`, message: `仓库目录不存在：${String(repo.dir)}` });
           }
+          if (c.split !== "engineering" && !repo.expectedSha) {
+            errors.push({
+              path: `rounds[${i}].repos[${j}].expectedSha`,
+              message: "正式 case（非 engineering）每轮仓库必须声明完整 expectedSha——读取前核验的依据，缺省即拒绝运行",
+            });
+          }
         });
       }
     });

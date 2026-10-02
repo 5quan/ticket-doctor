@@ -63,6 +63,13 @@ npm run eval:v2 -- summary --suite daily-1   # 汇总视图（含硬失败清单
   非空=白名单。评测逐轮传 `round.services`，空授权轮不允许任何日志查询。
   路径核验用真实路径（realpath）：符号链接/目录别名/junction 逃逸同样被拒；
   Windows junction 回归用例在非 Windows 环境 skip（保留在 tests/unit/eval-v2-links.test.ts）。
+  视图两两关系拒绝相等与**两个方向的父子包含**（真实路径判定）；跨轮硬链接（inode 重合）
+  由预检识别——运行期路径规则发现不了，预检阻断是唯一防线。
+- 读取前版本核对覆盖**全部期望仓库**：缺席（missing-in-scope）、无法解析（unresolved）、
+  错配（mismatch）都阻断；正式 case 每轮仓库必须声明完整 expectedSha（schema 拒绝缺省）；
+  工程场景允许缺期望，但仍核对实际可读版本（no-expected），不得跳过检查进入运行。
+- 隔离扫描完整性与"是否存在未来消息"是两项独立检查：每轮（单轮/末轮也算）对视图文件与
+  仓库树（expectedSha 与 HEAD 两棵）扫描，超限或失败 → incomplete_scan，不判隔离通过。
 - 硬失败单列不进均值：引用不可解析、版本错配、越界断言、反证后固执、空日志推健康等。
 - 隔离预检失败的 case 直接 blocked，不进评测；私有标准/未来材料/补丁结构性不可达。
 
