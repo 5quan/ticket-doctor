@@ -1,7 +1,7 @@
 // 阶段一验收反例：真实访问边界（符号链接/目录别名/junction/空授权/扫描不完整）。
 // junction 用例在非 Windows 环境标记 skip（保留回归，Windows 上运行）。
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
+import { linkSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -215,12 +215,21 @@ test("回归：Windows junction 真正触达路径检查（preflight 视图别�
     mkdirSync(join(root, "public", "c1", "round-2"), { recursive: true });
     writeFileSync(join(root, "public", "c1", "round-2", "future-svc.log"), FUTURE_LINE);
     // (a) 视图目录 junction：round-1 → round-2（别名）→ 预检真实路径判重阻断
-    try {
-      symlinkSync(join(root, "public", "c1", "round-2"), join(root, "public", "c1", "round-1"), "junction");
-    } catch (err) {
-      t.skip(`环境限制：创建 junction 失败（需管理员或开发者模式）——${err instanceof Error ? err.message : String(err)}`);
-      return;
-    }
+    const mkJunction = (target: string, link: string): void => {
+      const { rmSync: rm } = require("node:fs") as typeof import("node:fs");
+      rm(link, { force: true, recursive: true }); // 预清理：防止残留导致 EEXIST 干扰
+      try {
+        symlinkSync(target, link, "junction");
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException).code ?? "";
+        if (code === "EPERM" || code === "EACCES") {
+          t.skip(`环境限制：创建 junction 需管理员/开发者模式（${code}）`);
+          return;
+        }
+        throw err; // EEXIST/EINVAL 等属实现错误，不得标为权限 skip
+      }
+    };
+    mkJunction(join(root, "public", "c1", "round-2"), join(root, "public", "c1", "round-1"));
     writeFileSync(join(root, "public", "c1", "r1-message.txt"), "m1");
     writeFileSync(join(root, "public", "c1", "r2-message.txt"), "m2");
     const desc = caseJson([round("r1", "round-1", ["svc"], join(root, "repo")), round("r2", "round-2", ["future-svc"], join(root, "repo"))]);
@@ -229,7 +238,7 @@ test("回归：Windows junction 真正触达路径检查（preflight 视图别�
 
     // (b) 视图内文件 junction 指向未来日志 → FileLogSource 真实路径核验拒绝（非服务名规则）
     mkdirSync(join(root, "plain", "round-1"), { recursive: true });
-    symlinkSync(join(root, "public", "c1", "round-2", "future-svc.log"), join(root, "plain", "round-1", "future-svc.log"), "junction");
+    mkJunction(join(root, "public", "c1", "round-2", "future-svc.log"), join(root, "plain", "round-1", "future-svc.log"));
     const source = new FileLogSource({ dir: join(root, "plain", "round-1"), allowedServices: ["future-svc"] });
     await assert.rejects(
       () => source.query({ service: "future-svc", from: 0, to: Date.now() + 1e9, keywords: [] }, new AbortController().signal),
@@ -237,5 +246,93 @@ test("回归：Windows junction 真正触达路径检查（preflight 视图别�
     );
   } finally {
     /* tmp */
+  }
+});
+
+test("回归：单轮合法授权日志硬链接私有答案文件 → 预检阻断（运行期先证缺口）", async () => {
+  const root = mkdtempSync(join(tmpdir(), "eval-v2-privhl-"));
+  try {
+    gitInit(join(root, "repo"));
+    // 单轮 case（无未来轮）：私有目录存放制作侧答案；首轮 svc.log 是答案文件的硬链接
+    mkdirSync(join(root, "public", "c1", "round-1"), { recursive: true });
+    mkdirSync(join(root, "private", "c1"), { recursive: true });
+    // 答案文件伪装成日志格式（TSV）——FileLogSource 只上浮 TSV 行，这是真实的攻击面
+    writeFileSync(join(root, "private", "c1", "answers.md"), "2026-09-06T10:05:00.000+08:00\tINFO\t私有答案 GOLD-PRIVATE-CONTENT：根因是 X 模块 Y 配置\n");
+    linkSync(join(root, "private", "c1", "answers.md"), join(root, "public", "c1", "round-1", "svc.log"));
+
+    // 运行期缺口实证：授权合法、路径合法、realpath 在视图内（硬链接不改变路径）→ 答案可读
+    const runtime = new FileLogSource({ dir: join(root, "public", "c1", "round-1"), allowedServices: ["svc"] });
+    const leaked = await runtime.query({ service: "svc", from: 0, to: Date.now() + 1e9, keywords: [] }, new AbortController().signal);
+    assert.equal(leaked.length, 1);
+    assert.match(leaked[0].message, /GOLD-PRIVATE-CONTENT/, "前置：运行期确实读到私有答案（证明必须由预检阻断）");
+
+    // 预检按 inode 身份比对阻断（单轮也执行；不依赖未来消息检查）
+    writeFileSync(join(root, "public", "c1", "r1-message.txt"), "svc 服务：接口异常，帮忙看下日志");
+    const desc = caseJson([round("r1", "round-1", ["svc"], join(root, "repo"))]);
+    const violations = checkIsolation(root, join(root, "public", "c1"), desc, truthStub, join(root, "private", "c1"));
+    assert.ok(violations.some((v) => v.code === "hardlink_escape" && /私有\/禁止访问材料/.test(v.message)), JSON.stringify(violations));
+  } finally {
+    /* tmp */
+  }
+});
+
+test("泄漏比较统一：CRLF/多行拆分/连续空白写入材料仍命中，改写文本不误报", () => {
+  const root = mkdtempSync(join(tmpdir(), "eval-v2-leaknorm-"));
+  try {
+    gitInit(join(root, "repo"));
+    mkdirSync(join(root, "public", "c1", "round-1"), { recursive: true });
+    mkdirSync(join(root, "public", "c1", "round-2"), { recursive: true });
+    // 未来消息正文（两行）；材料里以 CRLF + 连续空格 + 拆行方式出现——归一化后必须命中
+    writeFileSync(join(root, "public", "c1", "r1-message.txt"), "m1");
+    writeFileSync(join(root, "public", "c1", "r2-message.txt"), "第二轮补充：库存服务其他调用方都正常，请复核完整日志再判断\n机密核对文本 MHX-99");
+    writeFileSync(
+      join(root, "public", "c1", "round-1", "svc.log"),
+      // CRLF 出现在未来文本自身的空格位置 + 连续空格折叠 → 归一化后应命中
+      "2026-09-06T10:01:00.000+08:00\tINFO\t第二轮补充：库存服务其他调用方都正常，请复核完整日志再判断\r\n   机密核对文本 MHX-99\n",
+    );
+    const desc = caseJson([round("r1", "round-1", ["svc"], join(root, "repo")), round("r2", "round-2", ["svc"], join(root, "repo"))]);
+    const violations = checkIsolation(root, join(root, "public", "c1"), desc, truthStub, join(root, "private", "c1"));
+    assert.ok(violations.some((v) => v.code === "future_message_leak"), JSON.stringify(violations));
+
+    // 改写后的文本（关键字不同）不得命中——避免误报
+    mkdirSync(join(root, "public", "c2", "round-1"), { recursive: true });
+    mkdirSync(join(root, "public", "c2", "round-2"), { recursive: true });
+    writeFileSync(join(root, "public", "c2", "r1-message.txt"), "m1");
+    writeFileSync(join(root, "public", "c2", "r2-message.txt"), "第二轮补充：库存服务其他调用方都正常，请复核完整日志再判断\n机密核对文本 MHX-99");
+    writeFileSync(join(root, "public", "c2", "round-1", "svc.log"), "2026-09-06T10:01:00.000+08:00\tINFO\t完全无关的另一条日志\n");
+    const desc2 = { ...caseJson([round("r1", "round-1", ["svc"], join(root, "repo")), round("r2", "round-2", ["svc"], join(root, "repo"))]), caseId: "c1" } as CaseDescriptorV2;
+    const v2 = checkIsolation(root, join(root, "public", "c2"), desc2, truthStub, join(root, "private", "c1"));
+    assert.ok(!v2.some((v) => v.code === "future_message_leak"), JSON.stringify(v2));
+  } finally {
+    /* tmp */
+  }
+});
+
+test("读取不完整：视图文件不可读 → incomplete_scan，不崩溃不判通过", { skip: process.platform === "win32" }, async (t) => {
+  const { chmodSync } = await import("node:fs");
+  const root = mkdtempSync(join(tmpdir(), "eval-v2-unread-"));
+  try {
+    gitInit(join(root, "repo"));
+    mkdirSync(join(root, "public", "c1", "round-1"), { recursive: true });
+    writeFileSync(join(root, "public", "c1", "round-1", "svc.log"), PAST_LINE);
+    writeFileSync(join(root, "public", "c1", "r1-message.txt"), "m1");
+    chmodSync(join(root, "public", "c1", "round-1", "svc.log"), 0o000);
+    try {
+      readFileSync(join(root, "public", "c1", "round-1", "svc.log"));
+      t.skip("环境限制：当前用户（可能为 root）不受文件权限约束，无法构造不可读文件");
+      return;
+    } catch {
+      // 预期：确实不可读，继续断言
+    }
+    const desc = caseJson([round("r1", "round-1", ["svc"], join(root, "repo"))]);
+    const violations = checkIsolation(root, join(root, "public", "c1"), desc, truthStub, join(root, "private", "c1"));
+    assert.ok(violations.some((v) => v.code === "incomplete_scan"), JSON.stringify(violations));
+  } finally {
+    const { chmodSync: ch2 } = await import("node:fs");
+    try {
+      ch2(join(root, "public", "c1", "round-1", "svc.log"), 0o644);
+    } catch {
+      /* tmp 清理尽力而为 */
+    }
   }
 });

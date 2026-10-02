@@ -56,8 +56,22 @@ export interface ViewScanResult {
 
 const ANSWER_FILENAME_RE = /(truth|gold|answer|solution|private|\.patch$|\.diff$)/i;
 
+/**
+ * 泄漏比较的统一归一化（预检与解析树扫描共用，避免两处口径漂移）：
+ * CRLF→LF、任意空白（含换行/制表）折叠为单空格、去首尾——
+ * 未来消息跨行/换行符差异/连续空格写入材料时仍能命中；大小写保留（不做弱化）。
+ */
 function normText(s: string): string {
-  return s.replace(/\s+/g, " ").trim();
+  return s.replace(/\r\n?/g, "\n").replace(/\s+/g, " ").trim();
+}
+
+/** 双端归一化后的泄漏判定；futureTexts 至少一项命中即泄漏。 */
+function leakHit(haystack: string, futureTexts: string[]): boolean {
+  const hay = normText(haystack);
+  return futureTexts.some((f) => {
+    const n = normText(f);
+    return n.length >= 12 && hay.includes(n);
+  });
 }
 
 function realOf(p: string): string {
@@ -189,7 +203,14 @@ export function checkIsolation(
         isLink: lst.isSymbolicLink(),
       };
       if (st.isFile() && st.size <= maxViewFileBytes) {
-        record.text = readFileSync(abs, "utf8");
+        try {
+          record.text = readFileSync(abs, "utf8");
+        } catch {
+          // 读取失败（权限/编码）= 可读内容未全部核验，不得静默跳过也不得崩溃
+          integritySkipped += 1;
+          integrityNotes.push(`${round.materialView}/${rel}: 文件读取失败（权限或解码）`);
+          skipped += 1;
+        }
       }
       files.push(record);
       if (isAnswerFilename(rel.split("/").pop() ?? rel)) {
@@ -350,11 +371,8 @@ export function checkIsolation(
       haystacks.push({ where: hay.where, text: hay.text });
     }
     for (const hay of haystacks) {
-      const hayNorm = normText(hay.text);
-      for (const future of futureTexts) {
-        if (future.length >= 12 && hayNorm.includes(future)) {
-          violations.push({ code: "future_message_leak", message: `${hay.where} 包含未来轮用户消息正文` });
-        }
+      if (leakHit(hay.text, futureTexts)) {
+        violations.push({ code: "future_message_leak", message: `${hay.where} 包含未来轮用户消息正文` });
       }
     }
   }
@@ -405,11 +423,8 @@ export function scanResolvedTreeForIsolation(opts: {
     if (isAnswerFilename(f.path.split("/").pop() ?? f.path)) {
       out.push({ code: "answer_filename", message: `${opts.label}:${f.path} 答案性文件名出现在实际可读版本` });
     }
-    const norm = normText(f.text);
-    for (const future of opts.futureTexts) {
-      if (future.length >= 12 && norm.includes(future)) {
-        out.push({ code: "future_message_leak", message: `${opts.label}:${f.path} 包含未来轮用户消息正文` });
-      }
+    if (leakHit(f.text, opts.futureTexts)) {
+      out.push({ code: "future_message_leak", message: `${opts.label}:${f.path} 包含未来轮用户消息正文` });
     }
   }
   if (skipped > 0 || failed) {
