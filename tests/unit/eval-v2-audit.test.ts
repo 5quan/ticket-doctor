@@ -36,9 +36,11 @@ test("隔离：首轮无法经 ../ 读取未来轮日志（路径逃逸拒绝）
         `应拒绝 ${service}`,
       );
     }
-    // 合法服务名不受影响；不存在的服务仍是"材料不存在"而非路径逃逸。
+    // 空授权列表下连"存在的文件"也拒绝——由 eval-v2-links.test.ts 的空白名单反例覆盖；
+    // 这里改为验证：未配置授权（undefined）时，不存在的服务仍是"材料不存在"而非路径逃逸。
+    const unrestricted = new FileLogSource({ dir: join(root, "round-1"), allowedServices: undefined });
     await assert.rejects(
-      () => source.query({ service: "checkout-service", from: 0, to: Date.now() + 1e9, keywords: [] }, signal),
+      () => unrestricted.query({ service: "checkout-service", from: 0, to: Date.now() + 1e9, keywords: [] }, signal),
       (err: unknown) => err instanceof LogAccessError && /日志文件不存在/.test((err as Error).message),
     );
   } finally {
@@ -237,7 +239,7 @@ test("suite：同名运行目录已存在 → 拒绝，不混合新旧记录；�
       engine: "scripted" as const, repeat: 1, baseConfig: testConfig(),
     };
     const summary1 = await runSuite(opts);
-    assert.equal(summary1.cases.length, 3);
+    assert.equal(summary1.cases.length, 5, "三个行为 case + 两个版本 case（版本 case 预期失败但不阻断 suite）");
     await assert.rejects(() => runSuite(opts), /已存在且非空/, "同名 suite 必须拒绝");
     // 单 case 异常：写一个缺脚本的 scripted case 到 catalog，suite 仍应完成其余 case。
     const catalogPath = join(root, "catalog", "catalog.json");
@@ -250,7 +252,7 @@ test("suite：同名运行目录已存在 → 拒绝，不混合新旧记录；�
     catalog.cases.push({ caseId: "eng-broken", publicDir: "public/eng-broken", privateDir: "private/eng-broken" });
     wfs(catalogPath, JSON.stringify(catalog));
     const summary2 = await runSuite({ ...opts, suiteRunId: "dup-2" });
-    assert.equal(summary2.cases.length, 3, "好 case 全部完成");
+    assert.equal(summary2.cases.length, 5, "好 case（含两个预期失败的版本 case）全部完成，坏 case 被隔离");
     assert.ok(summary2.families.every((f) => f.trials > 0));
   } finally {
     // 临时目录留给系统清理

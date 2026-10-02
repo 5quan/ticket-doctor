@@ -34,7 +34,7 @@ export function testConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     },
     feishu: { botOpenId: "ou_bot", requireMention: true },
     host: { host: "127.0.0.1", port: 0, sseReplayLimit: 1000, feishuDirect: false },
-    sources: { logDir: join(ROOT, "fixtures", "samples"), repoDir: ROOT, allowedServices: [], allowedRepos: [], repos: [] },
+    sources: { logDir: join(ROOT, "fixtures", "samples"), repoDir: ROOT, allowedServices: undefined, allowedRepos: [], repos: [] },
     delivery: { maxAttempts: 3, baseBackoffMs: 10 },
   };
   return { ...base, ...overrides };

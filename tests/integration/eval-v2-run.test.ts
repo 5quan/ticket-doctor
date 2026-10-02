@@ -42,8 +42,8 @@ test("多轮运行：补问→补证→限定结论 + 反证→降级，全程�
       baseConfig: testConfig(),
     });
 
-    // ---- 执行与评分 ----
-    for (const c of summary.cases) {
+    // ---- 执行与评分（行为类 case 必须全绿；版本漂移类 case 预期失败，另行在 version 测试断言） ----
+    for (const c of summary.cases.filter((x) => x.familyId === "eng-checkout")) {
       for (const t of c.trials) {
         assert.equal(t.executionSuccess, true, `${c.caseId}/${t.trialId} 应执行成功：${JSON.stringify(t.hardFailures)}`);
         assert.deepEqual(t.hardFailures, []);
@@ -80,7 +80,7 @@ test("多轮运行：补问→补证→限定结论 + 反证→降级，全程�
     // ---- trace：事件流完整，含派生工具事件 ----
     const traceText = readFileSync(join(root, "runs", "int-a", "eng-clarify", "t1", "trace.jsonl"), "utf8");
     const eventTypes = traceText.trim().split("\n").map((l) => (JSON.parse(l) as { eventType: string }).eventType);
-    for (const required of ["trial_started", "round_input", "tool_returned", "evidence_committed", "engine_result_raw", "output_persisted", "delivery_captured", "round_finished", "trial_finished"]) {
+    for (const required of ["trial_started", "round_input", "scope_resolved", "tool_returned", "evidence_committed", "engine_result_raw", "output_persisted", "delivery_captured", "round_finished", "trial_finished"]) {
       assert.ok(eventTypes.includes(required), `trace 缺少事件 ${required}`);
     }
     const toolReturned = traceText.trim().split("\n").map((l) => JSON.parse(l) as { eventType: string; payload?: { derived?: boolean; returnedText?: string | null } }).filter((e) => e.eventType === "tool_returned");

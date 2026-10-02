@@ -264,15 +264,12 @@ async function runTrial(opts: RunSuiteOptions, loaded: LoadedCase, runDir: strin
         sources: {
           ...opts.baseConfig.sources,
           logDir: join(caseDir, round.materialView),
+          // 逐轮授权（方案 §10.2）：空列表 = 显式空授权 → FileLogSource 全拒，不打开全部服务。
           allowedServices: [...round.services],
           allowedRepos: round.repos.map((repo) => repo.repoId),
-          repos: round.repos.map((repo) => ({
-            repoId: repo.repoId,
-            dir: resolve(opts.projectRoot, repo.dir),
-            // 版本一致性（P2）：把隔离预检核验过的 expectedSha 钉成显式 rev，
-            // 使模型实际可读版本与预检 tree 强制同一，按时间/HEAD 漂移被结构上排除。
-            ...(repo.expectedSha ? { rev: repo.expectedSha } : {}),
-          })),
+          // 不注入 rev：评测必须走生产「按发生时间/HEAD 钉版本」的真实路径（本批工单 §2），
+          // expectedSha 的核对由 onPrepared 观察点在模型取证前执行，不匹配即阻断。
+          repos: round.repos.map((repo) => ({ repoId: repo.repoId, dir: resolve(opts.projectRoot, repo.dir) })),
         },
       };
       const recordingSource = new RecordingFileLogSource({
@@ -312,8 +309,45 @@ async function runTrial(opts: RunSuiteOptions, loaded: LoadedCase, runDir: strin
       trace.emit("run_claimed", { round }, { roundId: round.roundId, runId: claimed.run.id, attemptId: claimed.attemptId });
 
       let runError: string | undefined;
+      const expectedByRepo = new Map<string, string>();
+      for (const repo of round.repos) if (repo.expectedSha) expectedByRepo.set(repo.repoId, repo.expectedSha);
       try {
-        await executeRun({ store, config: cfg, engine: capture, logSource: recordingSource }, claimed);
+        await executeRun(
+          {
+            store,
+            config: cfg,
+            engine: capture,
+            logSource: recordingSource,
+            // 读取前核验（方案 §10.1/§10.2）：prepare 得到的实际源码版本与期望不符时，
+            // 在模型取证前阻断。事件先落 trace，随后抛错由编排层 failRun（fail-closed）。
+            onPrepared: ({ scope }) => {
+              const resolved = scope.repos.map((r) => ({ repoId: r.repoId, resolvedSha: r.sha ?? null, pinnedBy: r.pinnedBy ?? null }));
+              trace.emit(
+                "scope_resolved",
+                {
+                  expected: Object.fromEntries(expectedByRepo),
+                  resolved,
+                  pinnedByBasis: "time|head|explicit|unresolved（见 pinnedBy）",
+                  timeWindowBasis: scope.timeWindowBasis ?? null,
+                  occurredAt: scope.occurredAt ?? null,
+                  authorizedServices: [...round.services],
+                  materialView: round.materialView,
+                },
+                { roundId: round.roundId, runId: claimed.run.id },
+              );
+              presentEvents.add("scope_resolved");
+              for (const r of resolved) {
+                const expected = expectedByRepo.get(r.repoId);
+                if (expected && r.resolvedSha !== expected) {
+                  throw new Error(
+                    `版本一致性阻断（模型取证前）：repo ${r.repoId} resolved=${r.resolvedSha ?? "unresolved"} (pinnedBy=${r.pinnedBy ?? "?"}) ≠ expected ${expected}`,
+                  );
+                }
+              }
+            },
+          },
+          claimed,
+        );
       } catch (err) {
         runError = err instanceof Error ? err.message : String(err);
       }
@@ -426,8 +460,8 @@ async function runTrial(opts: RunSuiteOptions, loaded: LoadedCase, runDir: strin
         },
       });
 
-      // 版本核对（P2）：报告 scope 的实际钉定 SHA 必须等于 expectedSha；reply 轮无 scope →
-      // 本轮不核对（rev 已钉定使漂移结构性不可能），由 manifest 的 repo 指纹兜底。
+      // 事后核对记录（读取前核验已由 onPrepared 观察点承担并阻断；此处仅对已产生报告的
+      // 轮次补记 scope 实际 SHA 与期望的差值，供评分层 wrong_sha 留痕）。
       const scopeShaMismatch: RoundScoreInput["scopeShaMismatch"] = [];
       const scopeRepos = (validatedReport as { scope?: { repos?: Array<{ repoId?: string; sha?: string }> } } | undefined)?.scope?.repos;
       if (scopeRepos) {
@@ -484,7 +518,7 @@ async function runTrial(opts: RunSuiteOptions, loaded: LoadedCase, runDir: strin
         expectedShas,
         scopeShaMismatch,
         visibility,
-        requiredTraceEvents: ["round_input", "engine_result_raw", "output_persisted", "usage", "round_finished"],
+        requiredTraceEvents: ["round_input", "scope_resolved", "engine_result_raw", "output_persisted", "usage", "round_finished"],
         presentTraceEvents: [...presentEvents, "round_finished"],
       });
 

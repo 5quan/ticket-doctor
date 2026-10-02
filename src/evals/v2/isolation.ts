@@ -7,13 +7,25 @@
 //
 // 这是评测开工前的准入门槛，不是运行时沙箱：任何 violation 都阻止该 case 进入正式评测。
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { join, resolve, sep } from "node:path";
 import type { CaseDescriptorV2, TruthFileV2 } from "./types.ts";
 
 export interface IsolationViolation {
-  code: "path_overlap" | "future_message_leak" | "answer_filename" | "repo_not_pinned";
+  code:
+    | "path_overlap"
+    | "future_message_leak"
+    | "answer_filename"
+    | "repo_not_pinned"
+    | "link_escape"
+    | "incomplete_scan";
   message: string;
+}
+
+export interface IsolationLimits {
+  maxFiles?: number;
+  maxFileBytes?: number;
+  maxViewFileBytes?: number;
 }
 
 const ANSWER_FILENAME_RE = /(truth|gold|answer|solution|private|\.patch$|\.diff$)/i;
@@ -76,46 +88,77 @@ function listDirFiles(dir: string, prefix = ""): string[] {
   return out;
 }
 
-/** 对一个 case 做全轮隔离预检；返回空数组 = 通过。 */
+/** 对一个 case 做全轮隔离预检；返回空数组 = 通过。limits 供测试收紧扫描阈值。 */
 export function checkIsolation(
   projectRoot: string,
   caseDir: string,
   caseDesc: CaseDescriptorV2,
   _truth: TruthFileV2,
   privateDir: string,
+  limits: IsolationLimits = {},
 ): IsolationViolation[] {
   const violations: IsolationViolation[] = [];
   const resolveUnder = (p: string) => resolve(projectRoot, p);
+  const realOf = (p: string): string => {
+    try {
+      return realpathSync(p);
+    } catch {
+      return p;
+    }
+  };
+  const maxViewFileBytes = limits.maxViewFileBytes ?? 1024 * 1024;
+  let viewScanSkipped = 0;
 
-  // 1. 路径闭包：私有目录与各轮材料视图不得互相包含。
+  // 1. 路径闭包：私有目录与各轮材料视图不得互相包含；视图之间按「真实路径」判重——
+  //    目录符号链接/junction 别名（round-1 → round-2）在真实路径下必然重合（审计新增缺口）。
   const reachable = new Set<string>();
   for (const round of caseDesc.rounds) {
-    reachable.add(resolveUnder(join(caseDir, round.materialView)));
-    for (const repo of round.repos) reachable.add(resolveUnder(repo.dir));
+    reachable.add(realOf(resolveUnder(join(caseDir, round.materialView))));
+    for (const repo of round.repos) reachable.add(realOf(resolveUnder(repo.dir)));
   }
-  const privAbs = resolveUnder(privateDir);
+  const privAbs = realOf(resolveUnder(privateDir));
   for (const dir of reachable) {
-    if (privAbs === dir || privAbs.startsWith(dir + "/") || privAbs.startsWith(dir + sep2())) {
+    if (privAbs === dir || privAbs.startsWith(dir + sep) || privAbs.startsWith(dir + sep2())) {
       violations.push({ code: "path_overlap", message: `私有目录 ${privateDir} 落在工具可达目录内` });
     }
   }
   for (let i = 0; i < caseDesc.rounds.length; i++) {
     for (let j = i + 1; j < caseDesc.rounds.length; j++) {
-      const earlier = resolveUnder(join(caseDir, caseDesc.rounds[i].materialView));
-      const later = resolveUnder(join(caseDir, caseDesc.rounds[j].materialView));
+      const earlier = realOf(resolveUnder(join(caseDir, caseDesc.rounds[i].materialView)));
+      const later = realOf(resolveUnder(join(caseDir, caseDesc.rounds[j].materialView)));
       if (earlier === later) {
         violations.push({
           code: "path_overlap",
-          message: `round ${caseDesc.rounds[j].roundId} 与先前轮共用材料视图，未来材料提前可读`,
+          message: `round ${caseDesc.rounds[j].roundId} 与先前轮共用材料视图（真实路径重合，含目录别名），未来材料提前可读`,
         });
       }
     }
   }
 
-  // 2. 答案性文件名不得出现在材料视图与仓库 tree。
+  // 2. 答案性文件名不得出现在材料视图与仓库 tree；链接逃逸与扫描跳过单独记账。
   for (const round of caseDesc.rounds) {
     const viewDir = join(caseDir, round.materialView);
+    const realViewDir = realOf(viewDir);
     for (const f of listDirFiles(viewDir)) {
+      const p = join(viewDir, f);
+      let st;
+      try {
+        st = lstatSync(p);
+      } catch {
+        continue;
+      }
+      if (st.isSymbolicLink()) {
+        const realFile = realOf(p);
+        if (realFile !== realViewDir && !realFile.startsWith(realViewDir + sep)) {
+          violations.push({
+            code: "link_escape",
+            message: `材料视图 ${round.materialView} 内的链接 ${f} 指向视图之外（${realFile}）——链接逃逸`,
+          });
+        }
+      }
+      if (st.isFile() && st.size > maxViewFileBytes) {
+        viewScanSkipped += 1; // 超限文件工具仍可读——无论是否进入泄漏扫描都要记账
+      }
       if (isAnswerFilename(f.split("/").pop() ?? f)) {
         violations.push({ code: "answer_filename", message: `材料视图 ${round.materialView} 内出现答案性文件名：${f}` });
       }
@@ -165,13 +208,20 @@ export function checkIsolation(
     const haystacks: Array<{ where: string; text: string }> = [];
     for (const f of listDirFiles(viewDir)) {
       const p = join(viewDir, f);
-      if (statSync(p).isFile() && statSync(p).size <= 1024 * 1024) {
-        haystacks.push({ where: `${round.materialView}/${f}`, text: readFileSync(p, "utf8") });
+      if (!statSync(p).isFile()) continue;
+      if (statSync(p).size > maxViewFileBytes) {
+        viewScanSkipped += 1; // 跳过的内容工具仍可读 → 不得判隔离通过（见函数末尾）
+        continue;
       }
+      haystacks.push({ where: `${round.materialView}/${f}`, text: readFileSync(p, "utf8") });
     }
     for (const repo of round.repos) {
       if (!repo.expectedSha) continue; // 候选期无 SHA：泄漏检查降级为仅材料视图
-      const { files } = repoTextFiles(resolve(projectRoot, repo.dir), repo.expectedSha);
+      const { files, skipped } = repoTextFiles(resolve(projectRoot, repo.dir), repo.expectedSha, {
+        maxFiles: limits.maxFiles,
+        maxFileBytes: limits.maxFileBytes,
+      });
+      if (skipped > 0) viewScanSkipped += skipped;
       for (const f of files) {
         haystacks.push({ where: `${repo.repoId}@${repo.expectedSha.slice(0, 10)}:${f.path}`, text: f.text });
       }
@@ -186,7 +236,32 @@ export function checkIsolation(
     }
   }
 
+  // 扫描跳过的内容仍可被工具读取——不得判隔离通过（方案 §10.2 / 本批工单）。
+  if (viewScanSkipped > 0) {
+    violations.push({
+      code: "incomplete_scan",
+      message: `泄漏/答案扫描跳过了 ${viewScanSkipped} 个可读内容（超大小/数量上限），隔离结论不完整，须收紧阈值后重扫`,
+    });
+  }
   return violations;
+}
+
+/** 材料目录真实位置（manifest 记录 + 授权归属核验用）。 */
+export function materialRealPaths(
+  projectRoot: string,
+  caseDir: string,
+  caseDesc: CaseDescriptorV2,
+): Array<{ roundId: string; viewDir: string; realViewDir: string; authorizedServices: string[] }> {
+  return caseDesc.rounds.map((round) => {
+    const viewDir = resolve(projectRoot, join(caseDir, round.materialView));
+    let realViewDir = viewDir;
+    try {
+      realViewDir = realpathSync(viewDir);
+    } catch {
+      // 不存在的视图由 schema 拒绝；此处如实返回原路径
+    }
+    return { roundId: round.roundId, viewDir, realViewDir, authorizedServices: [...round.services] };
+  });
 }
 
 function sep2(): string {

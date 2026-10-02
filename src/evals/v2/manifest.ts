@@ -5,6 +5,7 @@
 import { execFileSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { buildMaterialManifest, repoFingerprint, sha256File } from "./hash.ts";
+import { materialRealPaths } from "./isolation.ts";
 import type { CaseDescriptorV2, MaterialManifestV2, TruthFileV2 } from "./types.ts";
 
 export interface SuiteManifestV2 {
@@ -46,6 +47,8 @@ export interface SuiteManifestV2 {
       receivedAt: string;
       occurredAt: string | null;
       messageHash: string;
+      viewRealPath: string;
+      authorizedServices: string[];
       material: MaterialManifestV2;
       repos: Array<{ repoId: string; expectedSha: string | null; head: string | null; treeHash: string | null; dirty: boolean | null }>;
     }>;
@@ -114,11 +117,15 @@ export function buildSuiteManifest(args: {
         caseHash: sha256File(join(caseDir, "case.json")),
         truthHash: truth ? sha256File(join(args.privateDirOf(caseDesc.caseId), "truth.private.json")) : null,
         isolation,
-        rounds: caseDesc.rounds.map((round) => ({
+        rounds: caseDesc.rounds.map((round) => {
+          const realPaths = materialRealPaths(args.projectRoot, caseDir, caseDesc).find((x) => x.roundId === round.roundId)!;
+          return ({
           roundId: round.roundId,
           receivedAt: round.receivedAt,
           occurredAt: round.occurredAt,
           messageHash: sha256File(join(caseDir, round.messageRef)),
+          viewRealPath: realPaths.realViewDir,
+          authorizedServices: realPaths.authorizedServices,
           material: buildMaterialManifest(join(caseDir, round.materialView), round.materialView),
           repos: round.repos.map((repo) => {
             const fp = repoFingerprint(resolve(args.projectRoot, repo.dir));
@@ -130,7 +137,8 @@ export function buildSuiteManifest(args: {
               dirty: fp.dirty ?? null,
             };
           }),
-        })),
+          });
+        }),
       };
     }),
   };

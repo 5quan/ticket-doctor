@@ -4,7 +4,7 @@
 // harness/可见性/评分/隔离/回写工程能力，不用于声称真实诊断质量。
 // data/ 在 .gitignore 中，因此用代码生成器落盘，保证可重建、可复现。
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { CaseDescriptorV2, TruthFileV2 } from "./types.ts";
 
@@ -62,6 +62,28 @@ interface CaseBuild {
   materials: Record<string, string>;
   truth: TruthFileV2;
   script?: unknown[];
+  /** "version-pair"：生成自带故障/修复双提交的仓库（提交时间固定），expectedSha=故障提交。 */
+  repoSpec?: "version-pair";
+}
+
+/** 构建双提交仓库：commit1=故障版（09-01），commit2=修复版（09-06 09:00，含 FIXED 标记）。 */
+function buildVersionPairRepo(repoDir: string): { faultSha: string; fixSha: string } {
+  const mkd = mkdirSync;
+  rmSync(repoDir, { recursive: true, force: true });
+  mkd(join(repoDir, "src"), { recursive: true });
+  const env = (date: string) => ({ ...process.env, GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date });
+  execFileSync("git", ["init", "-q"], { cwd: repoDir });
+  execFileSync("git", ["config", "user.email", "eval-v2@example.com"], { cwd: repoDir });
+  execFileSync("git", ["config", "user.name", "eval-v2"], { cwd: repoDir });
+  writeFileSync(join(repoDir, "src", "App.java"), 'class App { String version = "FAULT-VERSION-MARKER"; }');
+  execFileSync("git", ["add", "-A"], { cwd: repoDir });
+  execFileSync("git", ["commit", "-qm", "fault version"], { cwd: repoDir, env: env("2026-09-01T00:00:00+08:00") });
+  const faultSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repoDir, encoding: "utf8" }).trim();
+  writeFileSync(join(repoDir, "src", "App.java"), 'class App { String version = "FIXED-VERSION-MARKER"; }');
+  execFileSync("git", ["add", "-A"], { cwd: repoDir });
+  execFileSync("git", ["commit", "-qm", "fix version"], { cwd: repoDir, env: env("2026-09-06T09:00:00+08:00") });
+  const fixSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repoDir, encoding: "utf8" }).trim();
+  return { faultSha, fixSha };
 }
 
 const BENCH_REPOS = (sha?: string) => [{ repoId: "app", dir: REPO_DIR, ...(sha ? { expectedSha: sha } : {}) }];
@@ -340,6 +362,100 @@ export function engineeringCaseBuilds(projectRoot: string): CaseBuild[] {
         },
       ],
     },
+
+    // ---- eng-version-drift：正文时间把源码钉到修复版 → 读取前阻断（工单 §2 验收 a） ----
+    {
+      caseId: "eng-version-drift",
+      caseDesc: {
+        caseId: "eng-version-drift",
+        familyId: "eng-version",
+        split: "engineering",
+        sourceTier: "synthetic_engineering",
+        publicBenchmark: false,
+        admission: "admitted",
+        maxRounds: 1,
+        scriptedEngine: true,
+        rounds: [
+          {
+            roundId: "r1",
+            messageRef: "r1-message.txt",
+            receivedAt: "2026-09-06T10:30:00+08:00",
+            occurredAt: "2026-09-06T10:01:00+08:00",
+            materialView: "round-1",
+            services: ["version-svc"],
+            repos: [{ repoId: "app", dir: "REPO_DIR_INJECTED_AT_MATERIALIZATION" }],
+          },
+        ],
+      },
+      messages: {
+        "r1-message.txt": "version-svc 服务：2026-09-06 10:01 起接口异常，帮忙看下日志和源码",
+      },
+      materials: {
+        "round-1/version-svc.log": "2026-09-06T10:01:30.000+08:00	ERROR	version-svc request failed\n",
+      },
+      truth: {
+        schemaVersion: "prediagnosis-truth-v2",
+        caseId: "eng-version-drift",
+        locators: [{ kind: "log", locatorId: "loc-fail", keyContent: "version-svc request failed", level: "ERROR" }],
+        rounds: [
+          { roundId: "r1", allowedOutcomes: ["report"], allowedClaimDepth: "root", requiredFacts: [], forbiddenRules: [],
+            materialNeeds: [], evidenceRequirements: [{ requirementId: "req-log", depth: "direct", supportsAnyOf: [{ allOf: ["loc-fail"] }] }],
+            contradictedClaims: [], writebackRequirements: [] },
+        ],
+        review: { author: "eval-v2-builder", reviewer: "provisional-self", provisional: true, notes: "预期：时间钉版选中修复提交，读取前阻断" },
+      },
+      script: [
+        { kind: "reply", reason: "clarify", text: "（不应到达）" },
+      ],
+      repoSpec: "version-pair",
+    },
+
+    // ---- eng-version-headfix：无发生时间 → HEAD 含修复 → 读取前阻断（工单 §2 验收 b） ----
+    {
+      caseId: "eng-version-headfix",
+      caseDesc: {
+        caseId: "eng-version-headfix",
+        familyId: "eng-version",
+        split: "engineering",
+        sourceTier: "synthetic_engineering",
+        publicBenchmark: false,
+        admission: "admitted",
+        maxRounds: 1,
+        scriptedEngine: true,
+        rounds: [
+          {
+            roundId: "r1",
+            messageRef: "r1-message.txt",
+            receivedAt: "2026-09-06T10:30:00+08:00",
+            occurredAt: null,
+            materialView: "round-1",
+            services: ["version-svc"],
+            repos: [{ repoId: "app", dir: "REPO_DIR_INJECTED_AT_MATERIALIZATION" }],
+          },
+        ],
+      },
+      messages: {
+        "r1-message.txt": "version-svc 服务：下单接口大量失败，帮忙看下日志和源码（未提供发生时间）",
+      },
+      materials: {
+        "round-1/version-svc.log": "2026-09-06T10:01:30.000+08:00	ERROR	version-svc request failed\n",
+      },
+      truth: {
+        schemaVersion: "prediagnosis-truth-v2",
+        caseId: "eng-version-headfix",
+        locators: [{ kind: "log", locatorId: "loc-fail", keyContent: "version-svc request failed", level: "ERROR" }],
+        rounds: [
+          { roundId: "r1", allowedOutcomes: ["report"], allowedClaimDepth: "root", requiredFacts: [], forbiddenRules: [],
+            materialNeeds: [], evidenceRequirements: [{ requirementId: "req-log", depth: "direct", supportsAnyOf: [{ allOf: ["loc-fail"] }] }],
+            contradictedClaims: [], writebackRequirements: [] },
+        ],
+        review: { author: "eval-v2-builder", reviewer: "provisional-self", provisional: true, notes: "预期：HEAD 即修复提交，读取前阻断" },
+      },
+      script: [
+        { kind: "reply", reason: "clarify", text: "（不应到达）" },
+      ],
+      repoSpec: "version-pair",
+    }
   ];
 }
 
@@ -358,6 +474,15 @@ export function materializeEngineeringCases(projectRoot: string, evalV2Root: str
     }
 
     const caseJson: CaseDescriptorV2 = { schemaVersion: "prediagnosis-case-v2", ...build.caseDesc };
+    if (build.repoSpec === "version-pair") {
+      const repoDir = join(publicDir, "repo");
+      const { faultSha } = buildVersionPairRepo(repoDir);
+      const repoRef = caseJson.rounds[0].repos[0];
+      if (repoRef) {
+        repoRef.dir = repoDir; // 绝对路径：tmp 物化的树必须自足，不得静默解析回真实 data 目录
+        repoRef.expectedSha = faultSha; // 期望=故障版；实际钉版由生产路径决定，读取前核对
+      }
+    }
     writeFileSync(join(publicDir, "case.json"), JSON.stringify(caseJson, null, 2), "utf8");
     for (const [name, content] of Object.entries(build.messages)) {
       writeFileSync(join(publicDir, name), content, "utf8");

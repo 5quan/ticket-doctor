@@ -91,8 +91,9 @@ export interface RoundScoreInput {
   /** 本轮实际材料范围的 repoId → expectedSha（版本核对基准）。 */
   expectedShas: Record<string, string>;
   /**
-   * 预检出的范围版本错配（resolved ≠ expected）。钉定失败必须在取证前暴露（P2），
-   * 这里是 runner 在本轮开始前/后核对 scope 的结果；非空 → wrong_sha 硬失败。
+   * 事后核对记录：报告 scope 的实际 SHA 与 expectedSha 的差值（非空 → wrong_sha 硬失败）。
+   * 读取前的核验与阻断由 runner 的 onPrepared 观察点（trace: scope_resolved）承担——
+   * 不得把此处描述成"取证前检查"。
    */
   scopeShaMismatch?: Array<{ repoId: string; expected: string; resolved: string | null }>;
   visibility: RequirementSatisfaction[];
@@ -180,7 +181,8 @@ function applyRules(rules: AssertionRuleV2[], stage: "raw" | "validated", round:
 function hardChecksForRound(round: RoundScoreInput, stage: "raw" | "validated"): HardFailure[] {
   const failures: HardFailure[] = [];
 
-  // 0. 范围版本错配（P2）：与引用无关，属于"模型可读版本≠隔离预检版本"，必须硬失败。
+  // 0. 范围版本错配（事后核对记录）：读取前阻断由 runner 的 onPrepared 观察点承担；
+  //    此处对已产生报告的轮次补记差值，防止漏网。
   for (const m of round.scopeShaMismatch ?? []) {
     failures.push({
       code: "wrong_sha",

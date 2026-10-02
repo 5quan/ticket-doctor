@@ -53,6 +53,16 @@ npm run eval:v2 -- summary --suite daily-1   # 汇总视图（含硬失败清单
 - 召回按"需求"计（requirementId），分母=本轮适用需求；不可判记 unscored，不冒充 0/1。
 - 可见性分四层：A 源返回 / B 入库 / C1 工具返回文本 / C2 请求上下文（未观测，恒 null）/
   D 报告引用。入库≠可见：预览上限与渲染预算都会造成 B、C1 差距，由指标直接暴露。
+  C1 命中按调用身份绑定：该次调用返回文本含关键内容，且同一调用提交的批次证据匹配
+  类型/仓库/SHA/路径/内容——错误版本的相同文本不命中。
+- 版本核对分两层：runner 的 `onPrepared` 观察点在模型取证前记录 `scope_resolved`
+  （expectedSha/resolvedSha/pinnedBy/依据），与期望不符即阻断；报告轮再由评分层补记
+  scope 差值（事后核对，不得表述成"取证前检查"）。评测不注入 rev——生产按时间/HEAD
+  钉版的真实路径被完整考验。
+- 日志授权语义：`allowedServices` 未配置=不限（生产遗留默认）；显式空数组=全拒；
+  非空=白名单。评测逐轮传 `round.services`，空授权轮不允许任何日志查询。
+  路径核验用真实路径（realpath）：符号链接/目录别名/junction 逃逸同样被拒；
+  Windows junction 回归用例在非 Windows 环境 skip（保留在 tests/unit/eval-v2-links.test.ts）。
 - 硬失败单列不进均值：引用不可解析、版本错配、越界断言、反证后固执、空日志推健康等。
 - 隔离预检失败的 case 直接 blocked，不进评测；私有标准/未来材料/补丁结构性不可达。
 
