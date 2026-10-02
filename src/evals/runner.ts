@@ -46,7 +46,8 @@ export async function runScenario(opts: RunScenarioOptions): Promise<ScenarioSco
       sources: {
         ...opts.config.sources,
         logDir: join(opts.scenarioDir, "logs"),
-        allowedServices: [],
+        // 空数组语义已改为「显式空授权=全拒」；旧评测未配置授权 → undefined（不限）
+        allowedServices: undefined,
         allowedRepos: [c.repo ?? "app"],
         repos: [{ repoId: c.repo ?? "app", dir: join(opts.scenarioDir, "repo") }],
       },

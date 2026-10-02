@@ -15,7 +15,7 @@ import type { EventStore } from "../host/event-store.ts";
 import { ToolBudgetExceeded } from "../agent/toolbox.ts";
 import type { DiagnosisEngine } from "../agent/types.ts";
 import { StoreEvidenceSink } from "../evidence/store-sink.ts";
-import { prepareDiagnosis } from "./prepare.ts";
+import { prepareDiagnosis, type PreparedDiagnosis } from "./prepare.ts";
 import { RunSession } from "./run-session.ts";
 import { renderDiagnosisInput } from "../agent/input-text.ts";
 import { classifyRunError, failRun, finalizeEngineResult } from "./finalize.ts";
@@ -28,6 +28,12 @@ export interface OrchestratorDeps {
   logSource?: FileLogSource;
   /** Host EventStore（SSE）：提供时把生命周期事件持久化并推送。 */
   eventStore?: EventStore;
+  /**
+   * 可选观察钩（方案 §7.3/§10.2 最小生产观测）：在 prepareDiagnosis 完成之后、
+   * 引擎开始取证之前调用。抛错 = 在模型读取任何材料前阻断本轮（fail-closed）。
+   * 缺省不提供 → 行为与以前完全一致。评测用它做「读取前」版本一致性核验。
+   */
+  onPrepared?: (prepared: { scope: PreparedDiagnosis["scope"]; missingMaterial: string[] }) => void;
 }
 
 export async function executeRun(deps: OrchestratorDeps, claimed: ClaimedRun): Promise<void> {
@@ -101,6 +107,10 @@ export async function executeRun(deps: OrchestratorDeps, claimed: ClaimedRun): P
       logSource: deps.logSource,
       sink,
     });
+    // 读取前观察点：观察器抛错会被下方 catch 捕获并 failRun——模型尚未发起任何取证。
+    if (deps.onPrepared) {
+      deps.onPrepared({ scope, missingMaterial });
+    }
     const question = input.question;
     // 首次执行：把本轮用户输入落成会话条目（恢复时不追加，避免重复）。
     if (!runSession.resumed) runSession.appendUserMessage(renderDiagnosisInput(input));
