@@ -76,8 +76,8 @@ export interface SourcesConfig {
   repoDir: string;
   allowedServices: string[];
   allowedRepos: string[];
-  /** repoId → 本地仓库路径。默认把 allowedRepos 全部指向 repoDir。 */
-  repos: Array<{ repoId: string; dir: string }>;
+  /** repoId → 本地仓库路径。默认把 allowedRepos 全部指向 repoDir。rev 为可选显式版本钉定。 */
+  repos: Array<{ repoId: string; dir: string; rev?: string }>;
 }
 
 export interface AppConfig {
@@ -117,6 +117,8 @@ function parseRepos(raw: string | undefined, allowedRepos: string[], repoDir: st
   }
   return repos;
 }
+// 说明：TD_REPOS 环境变量不携带 rev；rev 只经编程式配置注入（评测钉 expectedSha、
+// 部署方已知版本时），避免在 env 里塞 40 位 SHA。
 
 export function loadConfig(opts: { envFile?: string } = {}): AppConfig {
   loadDotEnv(opts.envFile ?? join(PROJECT_ROOT, ".env"));

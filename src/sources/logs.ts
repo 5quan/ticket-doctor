@@ -3,7 +3,7 @@
 // 端口存在的意义：第一版用本地文件跑通，之后换 SLS/ELK 适配器时，
 // 上层编排与工具定义一行不改。权限与时间窗约束落在实现里。
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve, sep } from "node:path";
 import type { LogEntry } from "../domain/types.ts";
 
 export interface LogQueryIntent {
@@ -29,6 +29,27 @@ export interface FileLogSourceOptions {
   allowedServices?: string[];
 }
 
+/**
+ * 服务名是标识符，不是路径。模型传参完全可控，历史实现直接 `join(dir, service + ".log")`，
+ * `../` 可逃逸出日志目录读到任意同后缀文件（审计探针 futureLogTraversal）。
+ * 这里拒绝一切路径语法，并在解析后核验真实位置仍在日志目录内。
+ */
+const SERVICE_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
+
+function assertSafeService(service: string, dir: string): string {
+  const name = service.trim();
+  if (!name || !SERVICE_RE.test(name) || name.includes("..") || name.includes("/") || name.includes("\\")) {
+    throw new LogAccessError(`query_logs：非法服务名 ${JSON.stringify(service.slice(0, 80))}（服务名不允许包含路径语法）`);
+  }
+  const file = join(dir, `${name}.log`);
+  const root = resolve(dir);
+  const resolved = resolve(file);
+  if (resolved !== root && !resolved.startsWith(root + sep)) {
+    throw new LogAccessError(`query_logs：解析路径 ${resolved} 越出日志目录 ${root}`);
+  }
+  return file;
+}
+
 export class FileLogSource implements LogSource {
   readonly name: string;
   private readonly dir: string;
@@ -50,7 +71,7 @@ export class FileLogSource implements LogSource {
     }
     if (intent.from > intent.to) throw new LogAccessError("query_logs：时间窗非法（from > to）");
 
-    const file = join(this.dir, `${intent.service}.log`);
+    const file = assertSafeService(intent.service, this.dir);
     let raw: string;
     try {
       raw = await readFile(file, "utf8");

@@ -54,8 +54,9 @@ export async function prepareDiagnosis(config: AppConfig, params: PrepareParams)
   const to = anchor + 60 * 60 * 1000;
   const repositories: RepositoryRef[] = config.sources.repos.map((r) => ({
     repoId: r.repoId,
-    // 未显式给 rev 时，按事件发生时间钉版本；未获取到发生时间则回退当前 HEAD（在报告标注）。
-    ...(occurredAt !== undefined ? { at: occurredAt } : {}),
+    // 显式 rev 优先（评测钉 expectedSha / 部署方已知版本）；否则按发生时间钉版本；
+    // 都没有则回退当前 HEAD（在报告标注）。
+    ...(r.rev ? { rev: r.rev } : { ...(occurredAt !== undefined ? { at: occurredAt } : {}) }),
   }));
 
   const repoDirs = new Map(config.sources.repos.map((r) => [r.repoId, r.dir]));
