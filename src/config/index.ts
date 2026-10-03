@@ -74,7 +74,13 @@ export interface HostConfig {
 export interface SourcesConfig {
   logDir: string;
   repoDir: string;
-  allowedServices: string[];
+  /**
+   * 授权语义（方案 §10.2）：
+   *   * `undefined` —— 未配置授权，保持既有默认（不限服务）；生产入口未设 TD_ALLOWED_SERVICES 时的行为。
+   *   * `[]`       —— 显式空授权：拒绝一切查询（评测逐轮授权为空时不得打开全部服务）。
+   *   * 非空数组   —— 服务白名单，越权直接报错。
+   */
+  allowedServices: string[] | undefined;
   allowedRepos: string[];
   /** repoId → 本地仓库路径。默认把 allowedRepos 全部指向 repoDir。 */
   repos: Array<{ repoId: string; dir: string }>;
@@ -164,7 +170,7 @@ export function loadConfig(opts: { envFile?: string } = {}): AppConfig {
     sources: {
       logDir: process.env.TD_LOG_DIR ?? join(PROJECT_ROOT, "fixtures", "samples"),
       repoDir: process.env.TD_REPO_DIR ?? PROJECT_ROOT,
-      allowedServices: list("TD_ALLOWED_SERVICES", []),
+      allowedServices: process.env.TD_ALLOWED_SERVICES === undefined ? undefined : list("TD_ALLOWED_SERVICES", []),
       allowedRepos: list("TD_ALLOWED_REPOS", ["app"]),
       repos: parseRepos(
         process.env.TD_REPOS,
