@@ -86,6 +86,22 @@ export interface SourcesConfig {
   repos: Array<{ repoId: string; dir: string }>;
 }
 
+export interface ObservabilityConfig {
+  /** 总开关：默认 false，不发任何观测请求、不初始化 SDK。 */
+  enabled: boolean;
+  /** 启用时必填：本地/内网 Langfuse 地址，不允许落到云端默认值。 */
+  baseUrl?: string;
+  publicKey?: string;
+  secretKey?: string;
+  /** 部署标签（development/production…），不混同被诊断业务的环境字段。 */
+  environment: string;
+  release?: string;
+  /** 单事件字节上限（按 UTF-8 字节计），超出截断并标记。 */
+  maxEventBytes: number;
+  /** 进程退出前观测关闭的兜底期限（ms），超时不阻塞退出。 */
+  shutdownMs: number;
+}
+
 export interface AppConfig {
   dbPath: string;
   /** 会话日志（JSONL）目录：逐次消息/工具/用量/压缩事件的真相源。 */
@@ -96,6 +112,7 @@ export interface AppConfig {
   host: HostConfig;
   sources: SourcesConfig;
   delivery: { maxAttempts: number; baseBackoffMs: number };
+  observability: ObservabilityConfig;
   projectRoot: string;
 }
 
@@ -181,6 +198,16 @@ export function loadConfig(opts: { envFile?: string } = {}): AppConfig {
     delivery: {
       maxAttempts: num("TD_DELIVERY_MAX_ATTEMPTS", 3),
       baseBackoffMs: num("TD_DELIVERY_BACKOFF_MS", 3_000),
+    },
+    observability: {
+      enabled: process.env.TD_OBSERVABILITY_ENABLED === "true",
+      baseUrl: process.env.LANGFUSE_BASE_URL,
+      publicKey: process.env.LANGFUSE_PUBLIC_KEY,
+      secretKey: process.env.LANGFUSE_SECRET_KEY,
+      environment: process.env.LANGFUSE_TRACING_ENVIRONMENT ?? "development",
+      release: process.env.LANGFUSE_TRACING_RELEASE,
+      maxEventBytes: num("TD_OBSERVABILITY_MAX_EVENT_BYTES", 524_288),
+      shutdownMs: num("TD_OBSERVABILITY_SHUTDOWN_MS", 5_000),
     },
   };
 }

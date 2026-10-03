@@ -10,6 +10,7 @@ import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { AppConfig } from "../config/index.ts";
 import { classifyRunError, failRun, finalizeEngineResult } from "../diagnosis/finalize.ts";
 import { buildSavedToolResults } from "../evidence/recovery.ts";
+import type { ObservationRecorder, ObservationRunIdentity } from "../observability/langfuse.ts";
 import {
   EVIDENCE_PROTOCOL_VERSION,
   encodeMessage,
@@ -24,6 +25,8 @@ export interface RunnerExecutorDeps {
   store: Store;
   config: AppConfig;
   eventStore?: EventStore;
+  /** Langfuse 观测记录器：未启用时缺省（Runner 不产生观测事件）。 */
+  recorder?: ObservationRecorder;
   /** 覆盖 Runner 入口（测试注入）。默认 src/entrypoints/runner.ts。 */
   runnerEntry?: string;
 }
@@ -69,6 +72,27 @@ export function createRunnerExecutor(deps: RunnerExecutorDeps): RunExecutor {
     // 发送前协议版本校验（D12）：不匹配不派发，判本轮失败
     if (task.protocolVersion !== EVIDENCE_PROTOCOL_VERSION) {
       return failRun(deps, claimed, "runtime_error", "Runner 任务协议版本不匹配");
+    }
+
+    // 观测：scope 与身份都由 Host 生成/持有（观测方案 §6），Runner 只透传事件。
+    const obsIdentity: ObservationRunIdentity = {
+      investigationId: investigation.id,
+      runId: run.id,
+      attemptId: claimed.attemptId,
+      generation: claimed.generation,
+    };
+    const scopeId = deps.recorder?.beginAttempt(obsIdentity, {
+      question: message.text,
+      service: investigation.service ?? undefined,
+      environment: investigation.environment ?? undefined,
+      engine: config.diagnosis.engine,
+    });
+    if (deps.recorder && scopeId) {
+      task.observability = {
+        enabled: true,
+        maxEventBytes: config.observability.maxEventBytes,
+        scopeId,
+      };
     }
 
     return new Promise<void>((resolve) => {
@@ -142,6 +166,11 @@ export function createRunnerExecutor(deps: RunnerExecutorDeps): RunExecutor {
                 "runtime_error",
                 `Runner 协议版本不匹配：runner=${message_.protocolVersion} host=${EVIDENCE_PROTOCOL_VERSION}`,
               );
+              deps.recorder?.endAttempt(obsIdentity, {
+                status: "error",
+                kind: "protocol_mismatch",
+                error: "Runner 协议版本不匹配",
+              });
               done();
             }
             return;
@@ -162,6 +191,14 @@ export function createRunnerExecutor(deps: RunnerExecutorDeps): RunExecutor {
               attemptId: claimed.attemptId,
               ...message_.record,
             });
+            return;
+          case "observation":
+            // 观测 best-effort：身份由 Host 注入，事件结构异常不穿透到业务协议错误路径。
+            try {
+              deps.recorder?.record(message_.event, obsIdentity);
+            } catch {
+              // ignore
+            }
             return;
           case "evidence_commit": {
             // 身份由 Host 从实际派发任务注入（D4），不信任 Runner 自带身份字段
@@ -213,6 +250,11 @@ export function createRunnerExecutor(deps: RunnerExecutorDeps): RunExecutor {
               toolCalls: result.toolCalls,
               question: message.text,
             });
+            deps.recorder?.endAttempt(obsIdentity, {
+              status: "ok",
+              kind: result.kind === "report" ? "report" : `reply:${result.reason}`,
+              summary: result.kind === "report" ? result.draft.summary : result.text.slice(0, 200),
+            });
             done();
             return;
           }
@@ -226,8 +268,10 @@ export function createRunnerExecutor(deps: RunnerExecutorDeps): RunExecutor {
               } catch {
                 // ignore
               }
+              deps.recorder?.endAttempt(obsIdentity, { status: "aborted", kind: "cancelled" });
             } else {
               const code = timedOut ? "timeout" : leaseLost ? "interrupted" : classifyRunError(message_.error.message);
+              deps.recorder?.endAttempt(obsIdentity, { status: "error", kind: code, error: message_.error.message });
               void failRun(deps, claimed, code, message_.error.message);
             }
             done();
@@ -271,12 +315,17 @@ export function createRunnerExecutor(deps: RunnerExecutorDeps): RunExecutor {
           if (cancelRequested) {
             store.finishCancelled(run.id, claimed.generation, "用户取消", Date.now());
             store.appendRunEvent(run.id, claimed.attemptId, "run_cancelled", null);
+            deps.recorder?.endAttempt(obsIdentity, { status: "aborted", kind: "cancelled" });
           } else if (timedOut) {
+            deps.recorder?.endAttempt(obsIdentity, { status: "aborted", kind: "timeout", error: "执行超时" });
             void failRun(deps, claimed, "timeout", `Runner 超时（${config.diagnosis.timeoutMs}ms）`);
           } else if (leaseLost) {
+            deps.recorder?.endAttempt(obsIdentity, { status: "aborted", kind: "interrupted", error: "租约丢失" });
             void failRun(deps, claimed, "interrupted", "执行租约丢失");
           } else {
-            void failRun(deps, claimed, "runtime_error", `Runner 异常退出（code=${code}, signal=${signal}）`);
+            const messageText = `Runner 异常退出（code=${code}, signal=${signal}）`;
+            deps.recorder?.endAttempt(obsIdentity, { status: "error", kind: "runtime_error", error: messageText });
+            void failRun(deps, claimed, "runtime_error", messageText);
           }
         }
         done();

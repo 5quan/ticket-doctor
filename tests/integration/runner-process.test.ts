@@ -10,6 +10,7 @@ import type { InboundMessage } from "../../src/domain/types.ts";
 import { createRunnerExecutor } from "../../src/host/runner-executor.ts";
 import { routeInbound } from "../../src/intake/router.ts";
 import { evidencePayloadHash } from "../../src/evidence/util.ts";
+import { EVIDENCE_PROTOCOL_VERSION } from "../../src/runner/protocol.ts";
 import { memoryStore, testConfig } from "../helpers.ts";
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -113,7 +114,7 @@ const items = ${JSON.stringify(items)};
 const entry = { type: "message", id: "e-crash", parentId: null, timestamp: new Date().toISOString(),
   message: { role: "assistant", content: [{ type: "toolCall", id: "call-crash", name: "query_logs" }] } };
 let started = false;
-process.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 2 }) + "\\n");
+process.stdout.write(JSON.stringify({ type: "ready", protocolVersion: ${EVIDENCE_PROTOCOL_VERSION} }) + "\\n");
 process.stdin.on("data", (d) => {
   if (started) return;
   started = true;

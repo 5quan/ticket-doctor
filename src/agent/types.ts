@@ -2,6 +2,7 @@
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { SavedToolResult } from "./session-recovery.ts";
 import type { DiagnosisInput, ReportDraft } from "../domain/types.ts";
+import type { AttemptObservationScope } from "../observability/types.ts";
 
 export type { SavedToolResult };
 
@@ -94,5 +95,15 @@ export type EngineResult = EngineReportResult | EngineReplyResult;
 
 export interface DiagnosisEngine {
   readonly name: string;
-  run(input: DiagnosisInput, toolbox: Toolbox, signal: AbortSignal, session?: SessionSink): Promise<EngineResult>;
+  /**
+   * obs：本次运行的观测范围（scopeId 由调用方生成，进程模式下事件经 Runner 上报）。
+   * 未提供时不采集，业务行为不变；引擎不依赖任何 Langfuse SDK，只依赖中立事件接口。
+   */
+  run(
+    input: DiagnosisInput,
+    toolbox: Toolbox,
+    signal: AbortSignal,
+    session?: SessionSink,
+    obs?: AttemptObservationScope,
+  ): Promise<EngineResult>;
 }
