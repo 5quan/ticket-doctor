@@ -131,6 +131,21 @@ pi SDK（0.84.2）关键事实，改观测代码前先核对：
 - 流契约：不 throw、失败以最终 AssistantMessage（stopReason=error/aborted）经 `result()` 传递；
 - `onPayload` 经 agent loop 进入 stream options，链式包装即可捕获真实 provider 请求体。
 
+已踩过的坑（2026-10-04 实测）：
+- **`LangfuseSpanProcessor` 默认 `shouldExportSpan` 只放行官方 tracer 名的 span**，自建
+  `BasicTracerProvider.getTracer("ticket-doctor")` 产生的 span 会被静默丢弃（无任何报错，
+  ClickHouse 全空）。必须传 `shouldExportSpan: () => true`（本 provider 专用、无自动埋点，安全）。
+- **v4 events_only 模式没有 legacy 查询 API**：`GET /api/public/traces` 返回
+  "endpoint is not available"。验证数据落库直接查 ClickHouse：
+  `docker exec langfuse-clickhouse-1 clickhouse-client --user clickhouse --password <.env 的 CLICKHOUSE_PASSWORD>
+   --query "SELECT type, name, count() FROM events_core GROUP BY type, name"`。
+
+端到端验证记录（2026-10-04）：`TD_ENGINE=pi npm run demo`（显式开观测）两轮真实调查 →
+`events_core` 39 条：diagnose-turn trace ×2（共享同一 session=investigationId）、
+diagnosis-attempt ×2、model-request generation ×11（usage 全部真实，cache_read 由
+DeepSeek 返回）、tool ×22（query_logs/search_code/read_code/list_files/submit_report）、
+report-validation ×2。
+
 ## 8. 快速重建清单（TL;DR）
 
 1. 装依赖：`npm ci`（含 §7 的 OTel/langfuse 包）。

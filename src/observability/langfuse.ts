@@ -108,6 +108,9 @@ export function createLangfuseRecorder(
     baseUrl: config.baseUrl!,
     environment: config.environment,
     ...(config.release ? { release: config.release } : {}),
+    // 默认过滤器只放行 Langfuse 官方 tracer 名的 span，自建 tracer 会被静默丢弃；
+    // 本 provider 专用（不加载 Node 自动埋点），无噪声风险，全部放行。
+    shouldExportSpan: () => true,
   });
   const provider = new BasicTracerProvider({ spanProcessors: [processor] });
   const tracer = provider.getTracer("ticket-doctor");
