@@ -63,8 +63,6 @@ const walk = (dir) =>
 const docFiles = [join(ROOT, "README.md"), ...walk(join(ROOT, "docs")).filter((f) => f.endsWith(".md"))];
 const VOLATILE = "<!-- status:volatile -->";
 
-// 时点操作手册：正文引用旧口径是"示例清单"而非陈述，豁免旧口径/数字规则（内链与版本仍查）。
-const GREP_EXEMPT = new Set(["docs/eval-calibration-and-doc-consistency.md"]);
 
 // 禁用旧口径（出现即 fail）
 const FORBIDDEN = [
@@ -90,13 +88,12 @@ function linkExists(captured) {
 for (const file of docFiles) {
   const rel = file.startsWith(ROOT) ? file.slice(ROOT.length + 1) : file;
   const lines = readFileSync(file, "utf8").split("\n");
-  const exempt = GREP_EXEMPT.has(rel);
   lines.forEach((text, i) => {
     const lineNo = i + 1;
     const volatile = text.includes(VOLATILE);
 
     // 2. 禁用旧口径
-    if (!exempt) {
+    {
       for (const { re, why } of FORBIDDEN) {
         if (re.test(text)) fail(rel, lineNo, `旧口径：${why}`);
       }
@@ -106,7 +103,7 @@ for (const file of docFiles) {
       }
     }
     // 3. 测试数字一致性（带豁免标记的行跳过）
-    if (!volatile && !exempt) {
+    if (!volatile) {
       const patterns = [/TS\s*(\d{2,4})\s*个/g, /当前\s*(\d{2,4})\s*个/g, /(\d{2,4})\s*个测试/g, /TS\s*(\d{3})\b/g];
       for (const re of patterns) {
         for (const m of text.matchAll(re)) {
@@ -124,7 +121,7 @@ for (const file of docFiles) {
       fail(rel, lineNo, "`npm run gateway` 必须同句标注 旧链路/过渡/legacy");
     }
     // 5. 内链存在性（时点手册里的模板示例豁免）
-    if (!exempt) {
+    {
       for (const m of text.matchAll(/((?:docs|fixtures|adapters|scripts|migrations)\/[A-Za-z0-9._/-]+)/g)) {
         if (!linkExists(m[1])) fail(rel, lineNo, `内链不存在：${m[1]}`);
       }

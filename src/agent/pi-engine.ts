@@ -5,6 +5,7 @@
 // 显式关闭内置工具（noTools: builtin）与文件发现（自定义 ResourceLoader），
 // 避免意外加载 shell、写文件或全局扩展。
 import { mkdirSync, rmSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -24,6 +25,15 @@ import type { DiagnosisEngine, EngineResult, SessionSink, Toolbox } from "./type
 import { reconcileSession } from "./session-recovery.ts";
 import { renderDiagnosisInput } from "./input-text.ts";
 import { writeSeedFile } from "./seed-file.ts";
+import { attachPiObserver } from "../observability/pi-observer.ts";
+import { noopObservationSink } from "../observability/noop.ts";
+import {
+  envelope,
+  observeText,
+  type AttemptObservationScope,
+  type ObservationStatus,
+  type ObservationText,
+} from "../observability/types.ts";
 
 const SYSTEM_PROMPT = `你是飞书群里的 Bug 预检助手，像一名耐心、务实的同事一样和用户交流。
 
@@ -114,6 +124,8 @@ export interface PiEngineOptions {
   /** 上下文压缩兜底：接近上下文窗口时自动总结旧内容（TD_COMPACTION_ENABLED）。 */
   compactionEnabled: boolean;
   systemPrompt?: string;
+  /** 单事件字节预算（TD_OBSERVABILITY_MAX_EVENT_BYTES），观测截断用。 */
+  maxEventBytes?: number;
 }
 
 type SessionMessages = AgentSession["messages"];
@@ -137,29 +149,83 @@ function lastAssistantText(messages: SessionMessages): string | undefined {
 const RECOVERY_NUDGE =
   "（恢复）上一轮回复已结束但没有提交报告。请基于当前会话继续：若材料已足够就调用 submit_report，否则继续取证。";
 
-/** 包一次工具执行：记录耗时/成败/结果规模（T3 可观测）。callId 用 pi 的 toolCallId，便于关联。 */
+/** 单次运行的工具观测上下文：业务记账（sessionSink.recordTool）与中立观测上报（obs）分离。 */
+interface RunToolContext {
+  sessionSink: SessionSink | undefined;
+  obs: AttemptObservationScope | undefined;
+  signal: AbortSignal;
+  maxEventBytes: number;
+  seq: () => number;
+}
+
+function observationHeader(seq: number) {
+  return envelope(seq);
+}
+
+/**
+ * 包一次工具执行：业务记账照旧（T3 可观测，callId 用 pi 的 toolCallId）。
+ * 观测只走这一条路径产生 tool span（观测方案 §5.2）：attemptId + toolCallId 天然去重，
+ * 不再从 session 的 tool_execution_start/end 重复建 span。
+ */
 async function timedTool<T extends { content: Array<{ type: string; text?: string }> }>(
-  sink: SessionSink | undefined,
+  ctx: RunToolContext,
   name: string,
   callId: string,
   input: unknown,
   fn: () => Promise<T>,
 ): Promise<T> {
   const started = Date.now();
+  const obsId = ctx.obs ? randomUUID() : undefined;
+  if (ctx.obs && obsId) {
+    ctx.obs.sink.record({
+      ...observationHeader(ctx.seq()),
+      kind: "tool_start",
+      logicalObservationId: obsId,
+      parentLogicalId: ctx.obs.scopeId,
+      tool: name,
+      toolCallId: callId,
+      input: observeText(input, ctx.maxEventBytes),
+    });
+  }
+  const finish = (patch: {
+    status: ObservationStatus;
+    output?: ObservationText;
+    outputChars?: number;
+    error?: string;
+  }): void => {
+    if (!ctx.obs || !obsId) return;
+    ctx.obs.sink.record({
+      ...observationHeader(ctx.seq()),
+      kind: "tool_end",
+      logicalObservationId: obsId,
+      parentLogicalId: ctx.obs.scopeId,
+      tool: name,
+      toolCallId: callId,
+      status: patch.status,
+      output: patch.output,
+      outputChars: patch.outputChars,
+      error: patch.error,
+      durationMs: Date.now() - started,
+    });
+  };
   try {
     const out = await fn();
+    const text = out.content.map((c) => c.text ?? "").join("\n");
     const chars = out.content.reduce((n, c) => n + (c.text?.length ?? 0), 0);
-    sink?.recordTool({ callId, tool: name, input, ok: true, durationMs: Date.now() - started, outputChars: chars });
+    ctx.sessionSink?.recordTool({ callId, tool: name, input, ok: true, durationMs: Date.now() - started, outputChars: chars });
+    finish({ status: "ok", output: observeText(text, ctx.maxEventBytes), outputChars: chars });
     return out;
   } catch (err) {
-    sink?.recordTool({
+    const message = err instanceof Error ? err.message : String(err);
+    ctx.sessionSink?.recordTool({
       callId,
       tool: name,
       input,
       ok: false,
       durationMs: Date.now() - started,
-      error: err instanceof Error ? err.message : String(err),
+      error: message,
     });
+    finish({ status: ctx.signal.aborted ? "aborted" : "error", error: message });
     throw err;
   }
 }
@@ -177,6 +243,7 @@ export class PiDiagnosisEngine implements DiagnosisEngine {
     toolbox: Toolbox,
     signal: AbortSignal,
     sink?: SessionSink,
+    obs?: AttemptObservationScope,
   ): Promise<EngineResult> {
     const agentDir = join(tmpdir(), "ticket-doctor-agent");
     mkdirSync(agentDir, { recursive: true });
@@ -207,9 +274,21 @@ export class PiDiagnosisEngine implements DiagnosisEngine {
       retry: { enabled: true, maxRetries: 2 },
     });
 
+    // 观测范围：scopeId 由调用方生成；未提供时用 noop sink（不发事件），计数包装仍安装，
+    // 保证 modelTurns 的"逻辑模型调用"口径与观测开关无关（观测方案 §5.2/§8）。
+    const obsSink = obs?.sink ?? noopObservationSink;
+    const maxEventBytes = this.opts.maxEventBytes ?? 524_288;
+    let obsSeq = 0;
+    const toolsCtx: RunToolContext = {
+      sessionSink: sink,
+      obs,
+      signal,
+      maxEventBytes,
+      seq: () => ++obsSeq,
+    };
+
     let submitted: ReportDraft | undefined;
     let requested: string | undefined;
-    let turns = 0;
 
     const queryLogsTool = defineTool({
       name: "query_logs",
@@ -217,7 +296,7 @@ export class PiDiagnosisEngine implements DiagnosisEngine {
       description: "查询服务在时间窗内的日志，返回带 [E#] 证据编号的原文。",
       parameters: queryLogsSchema,
       execute: (id, params: Static<typeof queryLogsSchema>) =>
-        timedTool(sink, "query_logs", id, params, async () => {
+        timedTool(toolsCtx, "query_logs", id, params, async () => {
           const from = Date.parse(params.from);
           const to = Date.parse(params.to);
           if (Number.isNaN(from) || Number.isNaN(to)) throw new Error("from/to 必须是 ISO8601 时间");
@@ -235,7 +314,7 @@ export class PiDiagnosisEngine implements DiagnosisEngine {
       description: "列出本次运行的代码版本里的文件路径（路径层）。不确定文件在哪时先用它缩小范围，再 search_code / read_code。返回带 [E#] 的路径清单。",
       parameters: listFilesSchema,
       execute: (id, params: Static<typeof listFilesSchema>) =>
-        timedTool(sink, "list_files", id, params, async () => {
+        timedTool(toolsCtx, "list_files", id, params, async () => {
           const text = await toolbox.listFiles({ glob: params.glob, repoId: params.repoId }, id);
           return { content: [{ type: "text" as const, text }], details: {} };
         }),
@@ -249,7 +328,7 @@ export class PiDiagnosisEngine implements DiagnosisEngine {
         "命中很多时先用 glob 缩小范围，再用 read_code 读取具体位置。",
       parameters: searchCodeSchema,
       execute: (id, params: Static<typeof searchCodeSchema>) =>
-        timedTool(sink, "search_code", id, params, async () => {
+        timedTool(toolsCtx, "search_code", id, params, async () => {
           const text = await toolbox.searchCode(
             { pattern: params.pattern, glob: params.glob, repoId: params.repoId },
             id,
@@ -264,7 +343,7 @@ export class PiDiagnosisEngine implements DiagnosisEngine {
       description: "读取指定版本文件的一段内容，返回带 [E#] 的原文。",
       parameters: readCodeSchema,
       execute: (id, params: Static<typeof readCodeSchema>) =>
-        timedTool(sink, "read_code", id, params, async () => {
+        timedTool(toolsCtx, "read_code", id, params, async () => {
           const text = await toolbox.readCode(
             {
               path: params.path,
@@ -284,7 +363,7 @@ export class PiDiagnosisEngine implements DiagnosisEngine {
       description: "提交最终结构化报告并结束本次运行。假设用 evidenceIds 引用 [E#]；随后程序会做确定性校验。",
       parameters: reportSchema,
       execute: (id, params: Static<typeof reportSchema>) =>
-        timedTool(sink, "submit_report", id, params, async () => {
+        timedTool(toolsCtx, "submit_report", id, params, async () => {
           submitted = params as ReportDraft;
           return {
             content: [{ type: "text" as const, text: "报告已收到。" }],
@@ -302,7 +381,7 @@ export class PiDiagnosisEngine implements DiagnosisEngine {
         "不要用它做普通寒暄。调用后本次运行结束，等待用户补充后继续。",
       parameters: requestInfoSchema,
       execute: (id, params: Static<typeof requestInfoSchema>) =>
-        timedTool(sink, "request_info", id, params, async () => {
+        timedTool(toolsCtx, "request_info", id, params, async () => {
           requested = params.question;
           return {
             content: [{ type: "text" as const, text: "已向用户追问，本次运行结束。" }],
@@ -348,13 +427,36 @@ export class PiDiagnosisEngine implements DiagnosisEngine {
     const session: AgentSession = created.session;
     // create 期间可能追加元数据条目（model_change / thinking_level_change）；一并落库，按 entry_id 去重。
     for (const entry of manager.getEntries()) sink?.appendEntry(entry);
+    // 包装模型请求边界：计数 + model 观测事件（覆盖 compaction 与 pi 重新发起的请求）。
+    const observer = attachPiObserver({
+      session,
+      sink: obsSink,
+      scopeId: obs?.scopeId ?? "no-scope",
+      maxEventBytes,
+    });
+    if (obs) {
+      obs.sink.record({
+        ...observationHeader(++obsSeq),
+        kind: "phase_start",
+        phase: "attempt",
+        logicalObservationId: obs.scopeId,
+        input: observeText(input.question, maxEventBytes),
+        metadata: {
+          service: input.service,
+          occurredAt: input.occurredAt,
+          receivedAt: input.receivedAt,
+        },
+      });
+    }
     const unsubscribe = session.subscribe((event) => {
-      if (event.type === "tool_execution_start") turns += 1;
       if (event.type === "entry_appended") sink?.appendEntry(event.entry);
     });
     const onAbort = () => void session.abort();
     signal.addEventListener("abort", onAbort, { once: true });
 
+    let attemptStatus: ObservationStatus = "ok";
+    let attemptOutput: ObservationText | undefined;
+    let attemptError: string | undefined;
     try {
       if (mode === "continue") await session.agent.continue();
       else if (mode === "nudge") await session.prompt(RECOVERY_NUDGE);
@@ -363,12 +465,13 @@ export class PiDiagnosisEngine implements DiagnosisEngine {
 
       // 反问：向用户要缺失信息，本次运行结束，等用户补充后进入下一轮。
       if (requested) {
+        attemptOutput = observeText({ kind: "reply", reason: "clarify", text: requested }, maxEventBytes);
         return {
           kind: "reply",
           reason: "clarify",
           text: requested,
           toolCalls: toolbox.toolCalls,
-          modelTurns: turns,
+          modelTurns: observer.modelCalls,
           model: this.opts.modelId,
         };
       }
@@ -377,7 +480,8 @@ export class PiDiagnosisEngine implements DiagnosisEngine {
         // 没有调用任何工具、也没有提交报告：视为闲聊，直接返回自然语言回复。
         const text = lastAssistantText(session.messages);
         if (toolbox.toolCalls === 0 && text) {
-          return { kind: "reply", reason: "chat", text, toolCalls: 0, modelTurns: turns, model: this.opts.modelId };
+          attemptOutput = observeText({ kind: "reply", reason: "chat", text }, maxEventBytes);
+          return { kind: "reply", reason: "chat", text, toolCalls: 0, modelTurns: observer.modelCalls, model: this.opts.modelId };
         }
         const draft: ReportDraft = {
           completeness: "partial",
@@ -388,14 +492,40 @@ export class PiDiagnosisEngine implements DiagnosisEngine {
           nextSteps: [],
           missingMaterial: ["模型未在预算内提交结构化报告"],
         };
-        return { kind: "report", draft, toolCalls: toolbox.toolCalls, modelTurns: turns, model: this.opts.modelId };
+        attemptOutput = observeText({ kind: "report", completeness: "partial", summary: draft.summary }, maxEventBytes);
+        return { kind: "report", draft, toolCalls: toolbox.toolCalls, modelTurns: observer.modelCalls, model: this.opts.modelId };
       }
-      return { kind: "report", draft: submitted, toolCalls: toolbox.toolCalls, modelTurns: turns, model: this.opts.modelId };
+      attemptOutput = observeText(
+        { kind: "report", completeness: submitted.completeness, summary: submitted.summary },
+        maxEventBytes,
+      );
+      return { kind: "report", draft: submitted, toolCalls: toolbox.toolCalls, modelTurns: observer.modelCalls, model: this.opts.modelId };
+    } catch (err) {
+      attemptStatus = signal.aborted ? "aborted" : "error";
+      attemptError = err instanceof Error ? err.message : String(err);
+      throw err;
     } finally {
-      signal.removeEventListener("abort", onAbort);
+      // 终态前收口：在飞 generation 结算为 aborted；此后晚到的 result() 不再产生事件。
+      observer.settlePending();
       unsubscribe();
       session.dispose();
       if (seedFile) rmSync(seedFile, { force: true });
+      if (obs) {
+        obs.sink.record({
+          ...observationHeader(++obsSeq),
+          kind: "phase_end",
+          phase: "attempt",
+          logicalObservationId: obs.scopeId,
+          status: attemptStatus,
+          output: attemptOutput,
+          error: attemptError,
+          metadata: {
+            toolCalls: toolbox.toolCalls,
+            modelCalls: observer.modelCalls,
+            model: this.opts.modelId,
+          },
+        });
+      }
     }
   }
 }

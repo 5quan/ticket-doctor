@@ -12,6 +12,7 @@ import type { AppConfig } from "../config/index.ts";
 import { renderDiagnosisInput } from "../agent/input-text.ts";
 import { IpcEvidenceSink } from "../evidence/ipc-sink.ts";
 import { prepareDiagnosis } from "../diagnosis/prepare.ts";
+import type { AttemptObservationScope, ObservationEvent, ObservationSink } from "../observability/types.ts";
 import {
   EVIDENCE_PROTOCOL_VERSION,
   encodeMessage,
@@ -55,7 +56,28 @@ function runnerConfig(task: RunnerTask): AppConfig {
     host: { host: "127.0.0.1", port: 0, sseReplayLimit: 1_000, feishuDirect: false },
     sources: task.sources,
     delivery: { maxAttempts: 1, baseBackoffMs: 0 },
+    observability: {
+      enabled: false,
+      environment: "runner",
+      maxEventBytes: task.observability?.maxEventBytes ?? 524_288,
+      shutdownMs: 5_000,
+    },
   };
+}
+
+/**
+ * 观测事件经 stdout 上报（fire-and-forget，异常自捕获，不影响业务协议）。
+ * seq 在此统一重排：stdout 的发送顺序即序号顺序，Host 用它做 FIFO 完整性校验。
+ */
+class IpcObservationSink implements ObservationSink {
+  private seq = 0;
+  record(event: ObservationEvent): void {
+    try {
+      emit({ type: "observation", event: { ...event, seq: ++this.seq } });
+    } catch {
+      // 采集失败允许丢弃（best-effort）
+    }
+  }
 }
 
 /** 会话槽：把 pi 条目通过 IPC 上报给 Host 落库，不在 Runner 内持久化。 */
@@ -102,6 +124,11 @@ async function runTask(task: RunnerTask, controller: AbortController): Promise<v
   const config = runnerConfig(task);
   const engine = buildEngine(config);
   const sink = new IpcSessionSink(task);
+  // 观测：scopeId 由 Host 注入（Runner 不自报身份）；未启用时不产生任何观测事件。
+  const obs: AttemptObservationScope | undefined =
+    task.observability?.enabled && task.observability.scopeId
+      ? { scopeId: task.observability.scopeId, sink: new IpcObservationSink() }
+      : undefined;
   // 证据两阶段提交（D4/D9）：evidence_commit 写 stdout，等待 Host 的 evidence_ack/reject
   const ipcEvidenceSink = new IpcEvidenceSink({ emit: (message) => emit(message), signal: controller.signal });
   evidenceSink = ipcEvidenceSink;
@@ -122,7 +149,7 @@ async function runTask(task: RunnerTask, controller: AbortController): Promise<v
     if (!sink.resumed) sink.appendUserMessage(renderDiagnosisInput(input));
     emit({ type: "progress", name: "prepared", payload: { services: scope.services, repos: scope.repos.length } });
 
-    const result = await engine.run(input, toolbox, controller.signal, sink);
+    const result = await engine.run(input, toolbox, controller.signal, sink, obs);
     if (result.kind === "reply") {
       await emitFinal({
         type: "result",

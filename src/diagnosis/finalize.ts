@@ -8,6 +8,7 @@ import { onFailure } from "../domain/run-state.ts";
 import type { DiagnosisReport, MaterialScope, RunErrorCode } from "../domain/types.ts";
 import type { EventStore } from "../host/event-store.ts";
 import type { EngineResult } from "../agent/types.ts";
+import type { ObservationRecorder, ObservationRunIdentity } from "../observability/langfuse.ts";
 import type { ClaimedRun, InvestigationRow, MessageRow, Store } from "../storage/store.ts";
 import { StoreEvidenceResolver } from "../evidence/store-resolver.ts";
 import { validateDraft } from "./validate.ts";
@@ -16,6 +17,8 @@ export interface FinalizeDeps {
   store: Store;
   config: AppConfig;
   eventStore?: EventStore;
+  /** Langfuse 观测记录器：提供时记录 report-validation span。 */
+  recorder?: ObservationRecorder;
 }
 
 /** 只有 IM 来源的轮次才回平台；Web 来源只进 EventStore/SSE。 */
@@ -103,6 +106,7 @@ export function finalizeEngineResult(
   const scope = args.scope ?? EMPTY_SCOPE;
   // 证据已在工具 commit 时入库（D8）；校验按调查内已持久化证据解析（§9），跨调查结构性不可达。
   const resolver = new StoreEvidenceResolver(store, args.investigation.id, claimed.run.id);
+  const validationStartedAt = Date.now();
   const { report } = validateDraft(draft, {
     resolver,
     scope,
@@ -112,6 +116,15 @@ export function finalizeEngineResult(
       `时间预算 ${config.diagnosis.timeoutMs}ms`,
     ],
   });
+
+  // 观测：report-validation span（草稿 → 校验后报告与程序修正），与 attempt 是兄弟节点。
+  const obsIdentity: ObservationRunIdentity = {
+    investigationId: args.investigation.id,
+    runId: claimed.run.id,
+    attemptId: claimed.attemptId,
+    generation: claimed.generation,
+  };
+  deps.recorder?.recordReportValidation(obsIdentity, { draft, report, startedAt: validationStartedAt });
 
   // v2 报告的 evidenceIds 已统一为 uid；展示层用 uid → 短号映射还原成 [E#]（§9.2.4）
   const evidenceLabels = new Map(

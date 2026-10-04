@@ -16,6 +16,7 @@ export function buildEngine(config: AppConfig): DiagnosisEngine {
       maxToolCalls: config.diagnosis.maxToolCalls,
       maxModelTurns: config.diagnosis.maxModelTurns,
       compactionEnabled: config.diagnosis.compactionEnabled,
+      maxEventBytes: config.observability.maxEventBytes,
     });
   }
   return new FakeDiagnosisEngine({ defaultService: "checkout-service" });

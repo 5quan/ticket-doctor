@@ -10,16 +10,21 @@ import { createRunnerExecutor } from "../host/runner-executor.ts";
 import { createHostServer } from "../host/server.ts";
 import { FeishuClient } from "../integrations/feishu/client.ts";
 import { createFeishuGateway } from "../integrations/feishu/gateway.ts";
+import { createLangfuseRecorder } from "../observability/langfuse.ts";
 import { startWorkerPool } from "../scheduling/worker-pool.ts";
 import { bootstrap } from "./bootstrap.ts";
 
 const config = loadConfig();
 const { store, engine } = bootstrap(config);
 const eventStore = new EventStore(store);
+// 观测：未启用或缺配置返回 undefined（不采集）；加载失败降级不阻塞业务启动。
+const recorder = createLangfuseRecorder(config.observability);
 
 // 生产默认可用独立 Runner 子进程（TD_RUNNER_MODE=process）；内联模式用于本地/测试。
 const execute =
-  config.scheduler.runnerMode === "process" ? createRunnerExecutor({ store, config, eventStore }) : undefined;
+  config.scheduler.runnerMode === "process"
+    ? createRunnerExecutor({ store, config, eventStore, recorder })
+    : undefined;
 const pool = startWorkerPool({
   store,
   config,
@@ -27,6 +32,7 @@ const pool = startWorkerPool({
   workerCount: config.scheduler.workerCount,
   eventStore,
   execute,
+  recorder,
 });
 const host = createHostServer({ store, config, eventStore });
 const { host: bindHost, port } = await host.listen();
@@ -69,6 +75,8 @@ async function shutdown(): Promise<void> {
   if (deliveryTimer) clearInterval(deliveryTimer);
   await feishu?.stop().catch(() => {});
   await host.close().catch(() => {});
+  // 观测有界关闭：导出剩余批次，超时不阻塞退出（观测方案 §6/§8）。
+  await recorder?.shutdown().catch(() => {});
   process.exit(0);
 }
 process.on("SIGINT", () => void shutdown());

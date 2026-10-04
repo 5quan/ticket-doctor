@@ -36,6 +36,7 @@ export function testConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     host: { host: "127.0.0.1", port: 0, sseReplayLimit: 1000, feishuDirect: false },
     sources: { logDir: join(ROOT, "fixtures", "samples"), repoDir: ROOT, allowedServices: undefined, allowedRepos: [], repos: [] },
     delivery: { maxAttempts: 3, baseBackoffMs: 10 },
+    observability: { enabled: false, environment: "test", maxEventBytes: 524_288, shutdownMs: 5_000 },
   };
   return { ...base, ...overrides };
 }

@@ -7,9 +7,6 @@
   "scripts": {
     "demo": "node --experimental-strip-types src/entrypoints/demo.ts",
     "predemo": "node scripts/init-demo-repo.mjs",
-    "eval": "node --experimental-strip-types src/evals/cli.ts",
-    "preeval": "node scripts/init-eval-fixture.mjs",
-    "eval:v2": "node --experimental-strip-types src/evals/v2/cli.ts",
     "gateway": "node --experimental-strip-types src/entrypoints/gateway.ts",
     "host": "node --experimental-strip-types src/entrypoints/host.ts",
     "worker": "node --experimental-strip-types src/entrypoints/worker.ts",
@@ -17,12 +14,18 @@
     "test": "node --experimental-strip-types --test tests/unit/*.test.ts tests/integration/*.test.ts",
     "docs:check": "node scripts/check-docs.mjs",
     "test:go": "cd adapters/go && go test ./...",
-    "pretest": "node scripts/init-demo-repo.mjs && node scripts/init-eval-fixture.mjs"
+    "pretest": "node scripts/init-demo-repo.mjs"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "0.84.2",
     "@earendil-works/pi-coding-agent": "0.84.2",
-    "@larksuiteoapi/node-sdk": "^1.74.0"
+    "@langfuse/otel": "^5.11.1",
+    "@langfuse/tracing": "^5.11.1",
+    "@larksuiteoapi/node-sdk": "^1.74.0",
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/core": "^2.0.1",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.207.0",
+    "@opentelemetry/sdk-trace-base": "^2.0.1"
   },
   "devDependencies": {
     "@types/node": "^26.6.2",

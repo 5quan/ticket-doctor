@@ -1,15 +1,17 @@
-// 离线端到端演示：不接飞书、不调模型，验证"消息 → 调查/轮次 → 诊断 → 报告 → 投递"整条链路。
-// 运行：npm run demo
+// 离线端到端演示：不接飞书，验证"消息 → 调查/轮次 → 诊断 → 报告 → 投递"整条链路。
+// 运行：npm run demo（默认 fake 引擎、不采集观测，不依赖 Langfuse）；
+// 显式 TD_ENGINE=pi + TD_OBSERVABILITY_ENABLED=true 时走真实模型并把 trace 导出到 LANGFUSE_BASE_URL。
 import { join } from "node:path";
 import { loadConfig } from "../config/index.ts";
 import { processDeliveriesOnce } from "../delivery/delivery.ts";
 import { createFeishuGateway } from "../integrations/feishu/gateway.ts";
 import { FakeFeishuClient } from "../integrations/feishu/fake-client.ts";
+import { createLangfuseRecorder } from "../observability/langfuse.ts";
 import { startWorkerPool } from "../scheduling/worker-pool.ts";
 import { bootstrap } from "./bootstrap.ts";
 
 const config = loadConfig();
-// 演示配置：内存库 + 假引擎 + 自带样例日志与样例仓库
+// 演示配置：内存库 + 自带样例日志与样例仓库；引擎由 TD_ENGINE 决定
 config.dbPath = ":memory:";
 config.diagnosis.engine = process.env.TD_ENGINE === "pi" ? "pi" : "fake";
 config.feishu.botOpenId = "ou_bot";
@@ -21,7 +23,9 @@ config.sources.allowedRepos = ["app"];
 const { store, engine } = bootstrap(config);
 const feishu = new FakeFeishuClient();
 const gateway = createFeishuGateway({ store, config, sender: feishu, logger: () => {} });
-const pool = startWorkerPool({ store, config, engine, workerCount: 1 });
+// 观测按配置门控：默认 disabled → undefined（不依赖 Langfuse）；显式启用才导出。
+const recorder = createLangfuseRecorder(config.observability);
+const pool = startWorkerPool({ store, config, engine, workerCount: 1, recorder });
 
 function feishuEvent(input: {
   messageId: string;
@@ -90,3 +94,5 @@ const events = store.db
 for (const e of events) console.log(`${e.sequence}\t${e.type}\t${e.payload ?? ""}`);
 
 pool.stop();
+// 观测有界关闭：把剩余批次导出给 Langfuse（默认禁用时为空操作）。
+await recorder?.shutdown().catch(() => {});

@@ -1,5 +1,9 @@
 # 评测与记忆规则迭代（RSI）设计方案
 
+> **历史设计文档（2026-10 标注）**：本文描述的 v1 评测 harness（`npm run eval` 与
+> `fixtures/evals/`）已随观测平台接入方案的分支清理被移除，不属于现行实现。
+> 新评测/评分体系另行立项；本文仅保留为历史设计记录，文中脚本与入口不再可用。
+>
 > 针对「Bug 预诊断」场景的评测闭环设计。目标：用证据召回率 + 决策正确率两个指标，
 > 冻结记忆引擎与诊断主链路，只迭代「该场景下什么该记 / 什么不该记」的规则文件。
 > 对应 backlog Q6、路线图阶段二第一项。
@@ -8,7 +12,7 @@
 
 > 基线数字的唯一事实源是 `docs/status.json#eval`；本节只叙述，不维护数字快照。
 
-- **M1 已完成**：离线 harness（`npm run eval`）+ `fixtures/evals/checkout-timeout`（5 case + fixture 日志/仓库 + `rules.md`）+ 打分器 + 结果 JSONL。
+- **M1 已完成**：离线 harness（`npm run eval`）+ checkout-timeout 评测 fixture（已随清理移除）（5 case + fixture 日志/仓库 + `rules.md`）+ 打分器 + 结果 JSONL。
 - **v2 校准基线（OQ-41，scorer=2.0.0，git=e1449cd）**：
   - fake（离线，CI 用）：召回 **70%** / 精确 **20%** / 正确率 **40%**。
   - 真实模型（`TD_ENGINE=pi`，连跑 3 次）：召回 90/90/**80**、精确 26.8/22.3/17.8、正确率 80/80/60 → **中位数 90 / 22.3 / 80**。

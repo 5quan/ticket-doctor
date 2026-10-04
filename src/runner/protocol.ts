@@ -7,12 +7,22 @@
 //   * 协议版本硬校验（D12）：不匹配即拒绝本轮，不做双向协商（Runner 由 Host 同仓库 spawn）。
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { ToolExecutionRecord } from "../agent/types.ts";
-import type { DiagnosisConfig, SourcesConfig } from "../config/index.ts";
+import type { DiagnosisConfig, ObservabilityConfig, SourcesConfig } from "../config/index.ts";
 import type { EvidenceItem, EvidenceRef } from "../evidence/types.ts";
 import type { MaterialScope, ReportDraft } from "../domain/types.ts";
+import type { ObservationEvent } from "../observability/types.ts";
 
-/** 证据持久化协议版本（docs/evidence-uid-design.md §6 / D12）。 */
-export const EVIDENCE_PROTOCOL_VERSION = 2;
+/** 证据持久化协议版本（docs/evidence-uid-design.md §6 / D12）。v3：+observation 观测消息与 RunnerTask.observability。 */
+export const EVIDENCE_PROTOCOL_VERSION = 3;
+
+export interface RunnerTaskObservability {
+  /** Host 侧观测已启用且初始化成功；false 时 Runner 不产生观测事件。 */
+  enabled: boolean;
+  /** 单事件字节预算，与 Host 保持一致。 */
+  maxEventBytes: number;
+  /** Host 生成并注册的 scope ID：Runner 的观测事件以它关联到本次 attempt。 */
+  scopeId: string;
+}
 
 export interface RunnerTask {
   runId: string;
@@ -36,6 +46,8 @@ export interface RunnerTask {
   engine: "fake" | "pi";
   diagnosis: DiagnosisConfig;
   sources: SourcesConfig;
+  /** 观测开关与 scope（v3）：身份由 Host 注入，Runner 不自报。 */
+  observability?: RunnerTaskObservability;
 }
 
 export type RunnerResult =
@@ -61,6 +73,7 @@ export type RunnerMessage =
   | { type: "ready"; protocolVersion: number }
   | { type: "session_entry"; entry: SessionEntry }
   | { type: "tool_execution"; record: ToolExecutionRecord }
+  | { type: "observation"; event: ObservationEvent }
   | { type: "progress"; name: string; payload?: unknown }
   | { type: "result"; result: RunnerResult }
   | { type: "error"; error: { code: string; message: string } }
