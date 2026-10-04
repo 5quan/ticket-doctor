@@ -379,3 +379,18 @@ zcode 收尾必须分别报告：
 
 官方 Pi 插件仍为实验性，且本项目自行创建 session、默认扩展列表为空。可参考其事件建模，但本方案优先包装当前项目公开 SDK 请求边界，不安装 CLI 插件后假定已经覆盖业务。
 
+
+
+---
+
+## 12.A 交付回执（2026-10-04 补记）
+
+本文 §12 所述"尚未实现"各项已全部落地并合入 main（PR #1，合并提交 fc8ccba）：
+SDK 接线（@langfuse/otel 与 @langfuse/tracing 5.11.1 + OTel peer）、旧 eval 移除（v1 与 v2，
+含与 main 的同步和冲突处理）、日志源安全修复回植与独立安全测试、`deploy/langfuse/` 部署资产、
+Linux 实机验证。协议升至 v3（observation 消息 + RunnerTask.observability）。
+
+实测证据：typecheck / docs:check / 测试 140 全绿；`TD_ENGINE=pi` 真实调查两轮，
+Langfuse 事件表 39 条（2 个 trace 共享 session=investigationId；generation 含模型回答、
+thinking 与真实 usage，工具与 report-validation 层级正确）。
+生产 Host 以 systemd（`ticket-doctor-host`）运行，观测已启用。

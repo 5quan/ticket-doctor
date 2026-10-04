@@ -12,7 +12,7 @@
 
 ```bash
 npm install
-npm run demo        # 离线端到端：不接飞书、不调模型，跑通 消息→调查→诊断→报告→投递
+npm run demo        # 离线端到端：不接飞书，跑通 消息→调查→诊断→报告→投递（默认 fake 引擎；TD_ENGINE=pi + TD_OBSERVABILITY_ENABLED=true 跑真实模型并导出观测）
 npm test            # 单元 + 集成测试
 npm run typecheck
 ```
@@ -81,6 +81,7 @@ src/
 ├─ runner/          Host↔Runner NDJSON 协议
 ├─ diagnosis/       内联编排、证据登记、报告校验、提交边界（finalize）
 ├─ agent/           pi 引擎 / 假引擎 / 工具箱 / 工厂
+├─ observability/   中立观测事件、Pi 请求边界包装、Langfuse OTel 适配（TD_OBSERVABILITY_ENABLED 门控）
 ├─ sources/         日志源、Git 源码源（端口 + 实现）
 ├─ delivery/        待发送记录、重试与不确定态
 ├─ integrations/
@@ -101,6 +102,20 @@ fixtures/           样例日志与样例仓库（demo 用）
 - **投递与诊断解耦**：报告、终态、待发送记录同事务提交；发送失败只重试投递，绝不重跑模型。
 - **会话标号**：每条回复带 `[TD-xxxxxxxx]`，用户任意回复只要带标号即可精确路由回原调查。
 - **commit 不强制**：工单可不给版本，缺省用仓库当前解析出的 SHA 并在报告中如实标注。
+
+## 观测（Langfuse）
+
+自托管 Langfuse v4.50.0（部署资产 `deploy/langfuse/`，部署手册 `docs/self-host-langfuse-runbook.md`）。
+Host 侧开关与凭据（默认关闭；启用但缺配置时降级为不采集，业务不受影响）：
+
+```sh
+TD_OBSERVABILITY_ENABLED=true
+LANGFUSE_BASE_URL=http://127.0.0.1:3001
+LANGFUSE_PUBLIC_KEY=pk-lf-...   # 项目 key 已预置在 deploy/langfuse/.env
+LANGFUSE_SECRET_KEY=sk-lf-...
+```
+
+trace 层次：`diagnose-turn` → `diagnosis-attempt`（agent）→ `model-request`（generation，含回答/thinking/usage）与工具节点；`report-validation` 为兄弟 span。观测为 best-effort：Langfuse 离线只丢观测，业务不受影响。
 
 ## 配置
 
@@ -128,3 +143,4 @@ fixtures/           样例日志与样例仓库（demo 用）
 - 会话条目已进 SQLite（`session_entries`），pi 按 seq 读回重建；不再用 JSONL 持久化。
 - Web 会话页已提供（`src/host/web/`：列表/时间线/进度/证据报告 + SSE 实时刷新）；无登录与权限限制。
 - Go 适配器：飞书 Webhook 与长连接（`ADAPTER_MODE=ws`，OQ-40）均已实现；多平台（钉钉/Slack）为骨架待实装。
+- 观测为 best-effort：Langfuse 离线/过载只丢观测，业务不受影响；本期未接数据集/评分/CI 门禁。

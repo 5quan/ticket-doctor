@@ -71,7 +71,7 @@ Go 接入适配器（adapters/go）                  │
 ### 4.2 Host ↔ Runner 协议（src/runner/protocol.ts）
 
 - stdin：一行 `RunnerTask` JSON；之后可下发 `{"type":"cancel"}`。
-- stdout：NDJSON `ready | session_entry | tool_execution | progress | result | error`。
+- stdout：NDJSON `ready | session_entry | tool_execution | observation | progress | result | error`（v3 起含 observation 观测消息，seq 由 Runner 统一重排）。
 - stderr：运行日志，不作为业务结果。
 - Runner **不碰数据库**；Host 校验代次后代为落库 `session_entries` / `tool_executions` / 报告。
 
@@ -98,5 +98,5 @@ Go 接入适配器（adapters/go）                  │
 
 - Go 适配器：钉钉/Slack 实装（长连接已完成，OQ-40；签名校验与 Encrypt Key 解密已实现）。
 - Web 会话页已提供（列表/时间线/进度/证据报告，SSE 实时刷新）；**登录与权限**待做（当前无限制），移动端待优化。
-- ✅ 证据持久化 + 稳定 UID 已实施（OQ-38）：协议 v2 `evidence_commit/ack/reject`、恢复经 `savedToolResults`；见 `docs/evidence-uid-design.md`。
+- ✅ 证据持久化 + 稳定 UID 已实施（OQ-38）：协议 v2 `evidence_commit/ack/reject`（v3 起新增 observation 观测消息，见 `docs/evidence-uid-design.md` 与 `docs/langfuse-observability-implementation-plan.md §6`）、恢复经 `savedToolResults`。
 - ✅ 阶段五故障注入测试与部署收口已完成（docker-compose：host + adapter + 数据卷）。

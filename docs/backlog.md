@@ -3,7 +3,7 @@
 状态：`待办` / `进行中` / `已完成` / `暂缓` / `待探讨`。优先级：P0 最高。
 
 > 路线图见 `roadmap.md`；问题与结论见 `open-questions.md`；接口约束见 `interface.md`。
-> **当前优先级见 `docs/session-handover.md §6`**（打分器 v2 校准与 S3 长连接已完成；接下来 S4 弃用直连、独立审计 Agent、评测 M2/M3）。
+> **当前优先级见 `docs/session-handover.md §6`**（打分器 v2 校准与 S3 长连接已完成；2026-10-04 评测 harness 已整体移除、另行立项；接下来 S4 弃用直连、独立审计 Agent）。
 
 ## 一、飞书端触发的问题
 

@@ -8,7 +8,7 @@
 | 阶段 | 目标 | 状态 |
 |---|---|---|
 | 一、闭环与治理观测 | 外部触发 → 只读取证 → 结论写回；会话/对话记录满足治理与观测 | 接近完成（剩：时区统一；脱敏暂缓） |
-| 二、评测与效果优化 | Benchmark 评测（RSI）、独立审计 Agent、提示词、skill/经验案例 | 进行中（M1 已落；scorer v2 已校准，OQ-41） |
+| 二、评测与效果优化 | Benchmark 评测（RSI）、独立审计 Agent、提示词、skill/经验案例 | 已调整（2026-10-04）：评测 harness 整体移除、另行立项；审计 Agent 不受影响 |
 | 三、扩展（按触发条件） | 生产诊断 MCP Server、真实日志平台、图片、多机/DB、前端、复现沙箱 | 未开始 |
 
 ---
@@ -35,7 +35,10 @@
 
 ---
 
-## 阶段二：评测与效果优化（进行中）
+## 阶段二：评测与效果优化（已调整）
+
+> **2026-10-04**：评测 harness（v1/v2）随观测接入方案整体移除，`npm run eval` 等入口不复存在，
+> 以下打勾项保留为历史记录，基线数字不可复现；M2/M3 另行立项时以观测数据为起点。
 
 - [x] **评测 Benchmark（RSI）— M1**：harness + `checkout-timeout` 5 case + 打分器（`npm run eval`）。基线数字唯一事实源见 `docs/status.json#eval`；v2 校准口径（OQ-41）：真实模型中位数 90 / 22.3 / 80（3 次明细在内）。旧口径 90/30.7/80（D6 前 + scorer v1）**已作废，勿引用**。详见 `docs/eval-design.md`。
 - [x] **修评测打分器（P0）**：已修——`scorer` 同时按 `evidence_uid` 与 `E#` 建索引，`EvidenceRecord` 增 `evidenceUid`（UID 兼容）；fake 基线误报 0% 已纠正。口径随后升级 v2 校准（OQ-41），数字以 `docs/status.json#eval` 为准。见 `docs/session-handover.md §4`。

@@ -12,6 +12,12 @@
 证据已升级为**持久化 + 稳定 UID（两阶段提交）**，飞书触发链路已修（门控单点化 + `-help`）。
 当前缺口集中在：**真实数据源、审计 Agent、评测 M2/M3、图片**（飞书长连接 S3 已实现，待真机验证）。
 
+> **2026-10-04 更新**：Langfuse OTel 观测已接入（trace=attempt；generation 含模型回答/thinking/usage，
+> 工具与报告校验全埋点；`TD_OBSERVABILITY_ENABLED` 门控，默认关闭。方案见
+> `docs/langfuse-observability-implementation-plan.md`，部署与避坑见 `deploy/langfuse/` 与
+> `docs/self-host-langfuse-runbook.md`）。旧评测体系（v1/v2）已整体移除、另行立项，
+> roadmap 中的 M2/M3 条目已作相应标注。生产 Host 以 systemd（`ticket-doctor-host`）运行并已开启观测。
+
 ---
 
 ## 2. 基线事实
@@ -21,7 +27,7 @@
 | 版本 / 分支 | `0.3.1` / `main` |
 | 测试 | TS 140（`npm test`，数字以 docs/status.json 为准）+ Go adapter（`npm run test:go`）+ `typecheck` 全绿 |
 | 迁移 | `001` … `006_evidence_uid.sql` |
-| 运行 | `npm run host`（生产）/ `npm run demo`（离线）/ `npm run eval`（评测） |
+| 运行 | `npm run host`（生产，systemd `ticket-doctor-host`）/ `npm run demo`（离线；可开观测做验证） |
 | 部署 | `docker-compose.yml` + `Dockerfile` + `adapters/go/Dockerfile`（已构建并冒烟） |
 
 ---

@@ -52,7 +52,7 @@
 | D9 | commit 失败 = **终止本轮**（fail-closed）。工具内有限重试（默认 3 次，指数退避）后仍失败 → 抛错 → 本轮按可重试错误失败。 | 见 §5.4 |
 | D10 | 历史证据 sha 与本轮 scope sha 不同时：**允许引用**，但若某假设的**全部**支撑证据 sha 都 ≠ 本轮 scope sha → 强制 `supported → candidate` 并记 correction。 | 不拿旧版本冒充本轮验证通过 |
 | D11 | 失败/取消轮次已 commit 的证据**保留**（审计事实）；hydrate/展示按 `run_id/attempt` 分组；报告只要求"被引用的证据存在"。 | 逐次可回放 |
-| D12 | 协议加 `protocolVersion`（常量 `EVIDENCE_PROTOCOL_VERSION = 2`）。Host/Runner 不匹配 → 硬失败（拒绝本轮），不做双向协商。 | Runner 由 Host 同仓库 spawn，协商是过度设计 |
+| D12 | 协议加 `protocolVersion`（常量 `EVIDENCE_PROTOCOL_VERSION`，v2=2；**v3=3**：+`observation` 观测消息与 `RunnerTask.observability`，2026-10-04）。Host/Runner 不匹配 → 硬失败（拒绝本轮），不做双向协商。 | Runner 由 Host 同仓库 spawn，协商是过度设计 |
 | D13 | 评测走**同款 Store sink**（`:memory:` 库 + 合成 `running` run），不用内存 sink 绕过；`MemoryEvidenceSink` 仅供单测。 | 评测必须测线上行为 |
 
 ---
@@ -236,7 +236,7 @@ commitEvidenceBatch(input: {
 `src/runner/protocol.ts` 增加：
 
 ```ts
-export const EVIDENCE_PROTOCOL_VERSION = 2;
+export const EVIDENCE_PROTOCOL_VERSION = 3; // v2=2；v3 起新增 observation 观测消息（2026-10-04）
 
 // RunnerTask 增加（向后不兼容，故用 protocolVersion 硬校验）
 protocolVersion: number;

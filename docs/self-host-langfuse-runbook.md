@@ -151,5 +151,18 @@ report-validation ×2。
 1. 装依赖：`npm ci`（含 §7 的 OTel/langfuse 包）。
 2. 拉镜像（§2）→ 起 Langfuse（§3）→ 健康检查。
 3. 迁移 Docker 数据根到大盘（§5，可选）。
-4. Host 侧配观测变量（§7）→ `npm run host`。
+4. Host 侧配观测变量（§7）→ systemd 服务（§9）。
+5. 生产 Host 接入（§9）。
 5. 验证：跑一条真实调查，Langfuse Web（:3001）能看到 diagnose-turn trace。
+
+## 9. 生产 Host 接入（本机 systemd，2026-10-04 实装）
+
+- 服务单元：`/etc/systemd/system/ticket-doctor-host.service`（`npm run host`，User=ubuntu，
+  WorkingDirectory=/opt/ticket-doctor，Restart=on-failure，日志进 journald）。
+- 观测变量写在 `/opt/ticket-doctor/.env`（Host 启动时 loadDotEnv 读取）：`TD_OBSERVABILITY_ENABLED=true`、
+  `LANGFUSE_BASE_URL=http://127.0.0.1:3001`、`LANGFUSE_PUBLIC_KEY/SECRET_KEY`（deploy/langfuse/.env 的项目 key）、
+  `LANGFUSE_TRACING_ENVIRONMENT=production`。
+- 常用命令：`sudo systemctl restart ticket-doctor-host`；日志 `journalctl -u ticket-doctor-host -f`。
+- 验证：启动日志出现"Host 已启动"且**无**"观测已启用但缺少配置"告警 = recorder 初始化成功；
+  从 Web（:3000）或飞书发起一条真实调查，Langfuse（:3001）应出现新 trace（session=investigationId）。
+- 注意：Host 一直没有守护进程，2026-10-04 前曾静默挂掉；现在 systemd 开机自启 + 崩溃自动拉起。
