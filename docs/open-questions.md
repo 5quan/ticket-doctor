@@ -125,3 +125,26 @@
 - 额外成本/延迟（每次审计一次 LLM 调用）→ 只在"主 Agent 要提交"或"预算将尽"时触发。
 - "独立上下文"是独立**推理**，不是独立**信息**（证据相同）→ 不要把独立性绝对化。
 - 验证比生成容易 → 结构部分用程序、语义部分用小模型，性价比更高。
+
+## 观测（Langfuse）（2026-10-04 新增）
+
+| # | 问题 | 结论 | 状态 |
+|---|---|---|---|
+| OQ-42 | generation 的 completionStartTime 用请求开始时间填充，Langfuse 的 TTFT 指标可信吗？ | 不可信。该字段当前等于 span startTime（streamFunction 调用时刻），TTFT 恒为约 0。pi 流的事件时序：HTTP 响应头 → `start`（TTFB）→ 首个 `text_delta`/`thinking_delta`（真首 Token）→ `result()`；观测只被动取 `result()`，拿不到首 Token 时刻。generation 的总时延、usage、输出内容不受影响，均为可靠值。 | 待办 |
+| OQ-43 | 同一 Session 第二轮 trace 的模型上下文为什么只有各轮 user 消息？ | 会话恢复断链：pi 0.84.2 只对 custom entry 发 `entry_appended` 事件，常规 assistant/toolResult 条目从不发；引擎恰好只靠该事件落库，第一轮仅 2 条入库，第二轮重建时无历史可用（实测第二轮首次调用上下文 6,987 字符，全部工具结果缺失，模型被迫从头重查）。 | 已结论（已修复） |
+
+### OQ-42 待办方案（未实施，2026-10-04）
+
+- 方案 A（推荐）：引擎把 session 的 `message_update` 事件转发给 observer，取在飞 generation 的首个内容 delta
+  时刻作为 completionStartTime。用 pi 公开会话事件，不动流、不违反"不多消费流"约束，精度到内容级首 Token。
+- 方案 B：透明代理包装返回的流，拦截首个内容事件。可行但替换了返回对象（身份/行为面变化），风险高于 A。
+- 方案 C：不设 completionStartTime（宁缺毋假），TTFT 指标消失。
+- 备注：在实施前，Langfuse 界面上的 TTFT/首 Token 延迟数字不可引用。
+
+### OQ-43 修复记录（2026-10-04）
+
+- 修复：运行结束（终态 result 之前）按 entry_id 幂等补齐 `manager.getEntries()` 全部条目；
+  sink 侧 store/Host 本就是 INSERT OR IGNORE 去重设计；Runner/Host 进程路径同样受益
+  （条目经 stdout FIFO 先于终态 result 到达）。见提交 df308a2。
+- 实测：第一轮落库 2 → 19 条；修复后第二轮首次调用上下文 6,987 → 34,145 字符，
+  包含第一轮问题、E# 证据与全部助手轮次。修复前产生的旧 trace 不会回填，属既成数据。
