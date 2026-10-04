@@ -9,6 +9,7 @@ import { join } from "node:path";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { AppConfig } from "../config/index.ts";
 import { classifyRunError, failRun, finalizeEngineResult } from "../diagnosis/finalize.ts";
+import { usageOf } from "../diagnosis/run-session.ts";
 import { buildSavedToolResults } from "../evidence/recovery.ts";
 import type { ObservationRecorder, ObservationRunIdentity } from "../observability/langfuse.ts";
 import {
@@ -139,6 +140,18 @@ export function createRunnerExecutor(deps: RunnerExecutorDeps): RunExecutor {
         }
       };
 
+      // usage 汇总（与 inprocess 路径同权）：Runner 上报的 assistant/compaction 条目带 usage，
+      // 在此累计并在终态前写回 attempts/runs（recordSessionUsage 要求 run 仍为 running）。
+      const usage = { inputTokens: 0, outputTokens: 0, cacheTokens: 0, totalTokens: 0 };
+      const flushUsage = (): void => {
+        store.recordSessionUsage({
+          runId: run.id,
+          attemptId: claimed.attemptId,
+          generation: claimed.generation,
+          ...usage,
+        });
+      };
+
       const timeoutTimer = setTimeout(() => {
         timedOut = true;
         sendCancel();
@@ -175,7 +188,7 @@ export function createRunnerExecutor(deps: RunnerExecutorDeps): RunExecutor {
             }
             return;
           }
-          case "session_entry":
+          case "session_entry": {
             store.appendSessionEntry({
               investigationId: investigation.id,
               runId: run.id,
@@ -183,7 +196,15 @@ export function createRunnerExecutor(deps: RunnerExecutorDeps): RunExecutor {
               generation: claimed.generation,
               entry: message_.entry as unknown as { id: string; parentId: string | null; type: string; timestamp: string },
             });
+            const entryUsage = usageOf(message_.entry);
+            if (entryUsage) {
+              usage.inputTokens += entryUsage.inputTokens;
+              usage.outputTokens += entryUsage.outputTokens;
+              usage.cacheTokens += entryUsage.cacheTokens;
+              usage.totalTokens += entryUsage.totalTokens;
+            }
             return;
+          }
           case "tool_execution":
             store.recordToolExecution({
               investigationId: investigation.id,
@@ -241,6 +262,7 @@ export function createRunnerExecutor(deps: RunnerExecutorDeps): RunExecutor {
           case "result": {
             resultSeen = true;
             const result = message_.result;
+            flushUsage();
             finalizeEngineResult(deps, claimed, {
               investigation,
               message,
@@ -260,6 +282,7 @@ export function createRunnerExecutor(deps: RunnerExecutorDeps): RunExecutor {
           }
           case "error": {
             resultSeen = true;
+            flushUsage();
             if (cancelRequested || message_.error.code === "cancelled") {
               store.finishCancelled(run.id, claimed.generation, "用户取消", Date.now());
               store.appendRunEvent(run.id, claimed.attemptId, "run_cancelled", null);
@@ -307,11 +330,15 @@ export function createRunnerExecutor(deps: RunnerExecutorDeps): RunExecutor {
         process.stderr.write(`[runner:${run.id.slice(0, 8)}] ${chunk.toString("utf8")}`);
       });
       child.on("error", (err) => {
-        if (!resultSeen) void failRun(deps, claimed, "runtime_error", `Runner 启动失败：${err.message}`);
+        if (!resultSeen) {
+          flushUsage();
+          void failRun(deps, claimed, "runtime_error", `Runner 启动失败：${err.message}`);
+        }
         done();
       });
       child.on("exit", (code, signal) => {
         if (!resultSeen) {
+          flushUsage();
           if (cancelRequested) {
             store.finishCancelled(run.id, claimed.generation, "用户取消", Date.now());
             store.appendRunEvent(run.id, claimed.attemptId, "run_cancelled", null);

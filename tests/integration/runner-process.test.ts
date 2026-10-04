@@ -62,6 +62,40 @@ test("独立 Runner 子进程执行一轮诊断并由 Host 回写报告", async 
   }
 });
 
+test("Runner 上报的 usage 汇总到 run（process 路径）", async () => {
+  const store = memoryStore();
+  const cfg = config();
+  const routed = routeInbound(store, cfg, msg({ externalMessageId: "om_proc_usage" }));
+  const claimed = store.claimNextRun("w1", 60_000)!;
+
+  // 假 Runner：上报一条带 usage 的 assistant 条目，再提交 reply 结果
+  const entry = join(tmpdir(), `usage-runner-${randomUUID()}.mjs`);
+  const script = `
+const entry = { type: "message", id: "e-usage", parentId: null, timestamp: new Date().toISOString(),
+  message: { role: "assistant", content: [{ type: "text", text: "hi" }],
+             usage: { input: 100, output: 20, cacheRead: 30, cacheWrite: 0, totalTokens: 150 } } };
+process.stdout.write(JSON.stringify({ type: "ready", protocolVersion: ${EVIDENCE_PROTOCOL_VERSION} }) + "\\n");
+process.stdin.on("data", () => {
+  process.stdout.write(JSON.stringify({ type: "session_entry", entry }) + "\\n");
+  process.stdout.write(JSON.stringify({ type: "result", result: { kind: "reply", reason: "chat", text: "hi", toolCalls: 0, modelTurns: 1, model: "stub" } }) + "\\n");
+});
+`;
+  writeFileSync(entry, script);
+  try {
+    const execute = createRunnerExecutor({ store, config: cfg, runnerEntry: entry });
+    await execute(claimed);
+    const run = store.getRun(claimed.run.id)!;
+    assert.equal(run.status, "succeeded");
+    assert.equal(run.usage_input_tokens, 100);
+    assert.equal(run.usage_output_tokens, 20);
+    assert.equal(run.usage_cache_tokens, 30);
+    assert.equal(run.usage_total_tokens, 150);
+  } finally {
+    rmSync(entry, { force: true });
+    assert.ok(routed.investigationId);
+  }
+});
+
 test("Runner 输出非法协议行 → 本轮失败（不再忽略）", async () => {
   const store = memoryStore();
   const cfg = config();

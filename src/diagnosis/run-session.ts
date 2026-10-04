@@ -22,7 +22,7 @@ interface RawUsage {
   totalTokens?: number;
 }
 
-interface Usage {
+export interface Usage {
   inputTokens: number;
   outputTokens: number;
   cacheTokens: number;
@@ -30,7 +30,7 @@ interface Usage {
 }
 
 /** usage 挂在 assistant 消息 / compaction 上（pi 0.84.x 无独立 usage entry）。 */
-function usageOf(entry: SessionEntry): Usage | undefined {
+export function usageOf(entry: SessionEntry): Usage | undefined {
   const e = entry as { type: string; message?: { usage?: RawUsage }; usage?: RawUsage };
   const u = e.type === "message" ? e.message?.usage : e.usage;
   if (!u) return undefined;
