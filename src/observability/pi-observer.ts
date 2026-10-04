@@ -15,7 +15,7 @@
 // 无关（关闭观测时用 noop sink，仍保证计数正确）。
 import { randomUUID } from "node:crypto";
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
-import type { AssistantMessage, AssistantMessageEventStream, SimpleStreamOptions } from "@earendil-works/pi-ai";
+import type { AssistantMessage, AssistantMessageEventStream, SimpleStreamOptions, TextContent, ThinkingContent, ToolCall } from "@earendil-works/pi-ai";
 import { envelope, observeText, type ObservationSink, type ObservationStatus, type ObservationText, type ObservationUsage } from "./types.ts";
 
 /** pi 压缩/总结请求固定使用的 system prompt 开头（core/compaction/utils.js）。 */
@@ -89,12 +89,35 @@ export function attachPiObserver(opts: AttachPiObserverOptions): PiObserverContr
       .then((message: AssistantMessage) => {
         const aborted = message.stopReason === "aborted";
         const errored = message.stopReason === "error" || Boolean(message.errorMessage);
+        // generation output（观测方案 §4）：模型实际返回的文本、thinking/reasoning、tool calls。
+        // 只记录 provider 已返回的数据，不生成"内部思考"。
+        const parts = Array.isArray(message.content) ? message.content : [];
+        const text = parts
+          .filter((p): p is TextContent => p.type === "text")
+          .map((p) => p.text)
+          .join("\n")
+          .trim();
+        const thinking = parts
+          .filter((p): p is ThinkingContent => p.type === "thinking")
+          .map((p) => p.thinking)
+          .join("\n")
+          .trim();
+        const toolCalls = parts
+          .filter((p): p is ToolCall => p.type === "toolCall")
+          .map((p) => ({ id: p.id, name: p.name, arguments: p.arguments }));
+        const outputPayload: Record<string, unknown> = {};
+        if (text) outputPayload.text = text;
+        if (thinking) outputPayload.thinking = thinking;
+        if (toolCalls.length > 0) outputPayload.toolCalls = toolCalls;
+        const output =
+          Object.keys(outputPayload).length > 0 ? observeText(outputPayload, maxEventBytes) : undefined;
         // error/aborted 或全零初始化 usage 都不可作为真实消费证据，省略而不伪造零。
         const usage = message.usage;
         const usageReliable =
           !errored && !aborted && Boolean(usage) && (usage.input > 0 || usage.output > 0 || usage.totalTokens > 0);
         emitModelEnd(id, startedAt, {
           status: aborted ? "aborted" : errored ? "error" : "ok",
+          output,
           stopReason: message.stopReason,
           errorMessage: message.errorMessage,
           usage: usageReliable

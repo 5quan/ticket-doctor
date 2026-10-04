@@ -105,6 +105,30 @@ test("包装一次请求：计数 +1，model_start/end 成对，父节点为 sco
   const end = ends[0] as Extract<ObservationEvent, { kind: "model_end" }>;
   assert.equal(end.usage?.inputTokens, 10);
   assert.equal(end.usage?.totalTokens, 15);
+  // generation output：模型实际返回的文本（观测方案 §4）
+  const output = JSON.parse(end.output?.text ?? "{}") as { text?: string };
+  assert.equal(output.text, "hello");
+});
+
+test("generation output 捕获 thinking 与 toolCalls（provider 返回什么记什么）", async () => {
+  const h = makeHarness();
+  const message = {
+    ...okMessage(),
+    content: [
+      { type: "thinking", thinking: "先查日志再定位" },
+      { type: "toolCall", id: "c1", name: "query_logs", arguments: { service: "checkout-service" } },
+      { type: "text", text: "正在取证" },
+    ],
+  } as unknown as AssistantMessage;
+  const { session } = h.makeSession(() => fakeStream(message));
+  attachPiObserver({ session: session as never, sink: h.sink, scopeId: SCOPE, maxEventBytes: MAX_BYTES });
+  (session.agent.streamFunction as (m: unknown, c: Context) => AssistantMessageEventStream)(MODEL, { messages: [] } as unknown as Context);
+  await new Promise((r) => setTimeout(r, 0));
+  const end = h.events.find((e) => e.kind === "model_end") as Extract<ObservationEvent, { kind: "model_end" }>;
+  const output = JSON.parse(end.output!.text) as { text?: string; thinking?: string; toolCalls?: Array<{ name: string }> };
+  assert.equal(output.thinking, "先查日志再定位");
+  assert.equal(output.text, "正在取证");
+  assert.equal(output.toolCalls?.[0]?.name, "query_logs");
 });
 
 test("多次请求累加计数；compaction 以 system prompt 标记识别 callPurpose", async () => {
