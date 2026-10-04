@@ -48,6 +48,11 @@ if (head !== status.migrations.head) {
   }
 }
 
+// 问题编号上限：以 open-questions.md 里最大的 OQ 为准（供范围表述校验）
+const oqText = readFileSync(join(ROOT, "docs", "open-questions.md"), "utf8");
+const oqNumbers = [...oqText.matchAll(/^\|\s*OQ-(\d+)/gm)].map((m) => Number(m[1]));
+const maxOq = oqNumbers.length ? Math.max(...oqNumbers) : 0;
+
 // gitHead：由脚本写入或跳过；写了就必须与 HEAD 一致
 if (status.gitHead) {
   const rev = execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: ROOT, encoding: "utf8" }).trim();
@@ -101,6 +106,14 @@ for (const file of docFiles) {
       if (/30\.7|真实模型基线.*90%/.test(text) && !/作废|旧口径|deprecated/i.test(text)) {
         fail(rel, lineNo, "旧基线数字未标「作废/旧口径」");
       }
+    }
+    // 2b. status.json 锚点必须存在（如 docs/status.json#eval）
+    for (const m of text.matchAll(/docs\/status\.json#([A-Za-z0-9_]+)/g)) {
+      if (!(m[1] in status)) fail(rel, lineNo, `悬空锚点：docs/status.json#${m[1]} 不存在`);
+    }
+    // 2c. OQ 范围表述的终点必须等于当前最大编号（如 OQ-1 ~ OQ-41）
+    for (const m of text.matchAll(/OQ-(\d+)\s*[~～]\s*OQ-(\d+)/g)) {
+      if (Number(m[2]) !== maxOq) fail(rel, lineNo, `OQ 范围 ${m[0]} 终点应为 OQ-${maxOq}`);
     }
     // 3. 测试数字一致性（带豁免标记的行跳过）
     if (!volatile) {

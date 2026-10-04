@@ -7,6 +7,9 @@
 > 对应技术交接方案 §5.5（S5）。本文是实施前的设计定稿：先评审，再在**独立会话**中实现。
 > 注意：旧文档把这项工作标为「OQ-33」——实际 `open-questions.md` 的 OQ-33 是已被 OQ-34 取代的
 > JSONL 问题，属于误标；实现落地时把结论登记为 **OQ-38**。
+>
+> **迁移编号修正**：本文写作时预留的 `006_` 已被 `006_evidence_uid.sql` 占用；
+> 若将来仍需实施本文方案，迁移应用 `007_` 起（下文已改）。
 
 ---
 
@@ -48,7 +51,7 @@
 
 ## 4. 详细设计
 
-### 4.1 迁移 `006_evidence_scope.sql`
+### 4.1 迁移 `007_evidence_scope.sql`
 
 ```sql
 -- 证据作用域提升为调查级（docs/evidence-scope-design.md §4.1）。
@@ -146,7 +149,7 @@ hydrate 之后 `registry.all()` 会包含历史证据，而 `finalizeSuccess` �
 
 ## 8. 实现会话的执行清单（一次只做一件，按序）
 
-1. `006_evidence_scope.sql` + Store 三方法（`maxEvidenceNumber` / `listEvidenceByInvestigation` / `finalizeSuccess` 写列与 `issued()`）+ 迁移测试。
+1. `007_evidence_scope.sql` + Store 三方法（`maxEvidenceNumber` / `listEvidenceByInvestigation` / `finalizeSuccess` 写列与 `issued()`）+ 迁移测试。
 2. `EvidenceRegistry` seed + `issued()/all()` + `runId` getter + 单测。
 3. `validateDraft` 历史证据分支 + 单测。
 4. `prepare.ts` / `orchestrator.ts` / `protocol.ts` / `runner-executor.ts` / `runner.ts` 传 seed。

@@ -38,7 +38,7 @@
 | 版本 | 见 `docs/status.json#version` 与 `package.json` |
 | 测试 | `npm test`（TS）+ Go adapter（`npm run test:go`）全绿；数量见 `docs/status.json#tests` |
 | 迁移 | `001_init` … `006_evidence_uid.sql`（**新增迁移从 `007_` 起，禁止改历史迁移**） |
-| 运行 | `npm run host`（生产）/ `npm run gateway`（旧链路）/ `npm run demo`（离线）/ `npm run eval` |
+| 运行 | `npm run host`（生产）/ `npm run gateway`（旧链路）/ `npm run demo`（离线） |
 | 部署 | `Dockerfile` + `adapters/go/Dockerfile` + `docker-compose.yml`，已构建并冒烟通过 |
 | 已知坑 | 本机到 Debian 源/镜像仓库很慢，docker 首次构建约 30 分钟；Go 用 apt 装的 1.22 |
 
@@ -242,17 +242,20 @@ type Platform interface {
   `missingMaterial`；必要时触发 `request_info`（本轮结束）。规则集中在程序，模型不得直接改终态。
 
 **涉及**：`src/agent/`（新 auditor）、`src/runner/protocol.ts`、`src/entrypoints/runner.ts`、
-`src/diagnosis/finalize.ts`、提示词与 `docs/eval-design.md`。
+`src/diagnosis/finalize.ts`、提示词与 `docs/eval-design.md`（评测体系另行立项）。
 
 ---
 
-### 5.7 [阶段二] 评测 M2 / M3（RSI）
+### 5.7 [阶段二] 评测 M2 / M3（RSI）——另行立项
+
+> **2026-10-04**：旧评测 harness（v1/v2）已随观测接入方案整体移除，M2/M3 另行立项。
+> 本节保留为方向记录；重启时以 `docs/eval-design.md`（历史设计）与观测数据为起点。
 
 **目标/验收**：`rules.md` 条目化 + 增量 delta + 程序合并（照 ACE）；Pareto + μ_f（照 GEPA）；
 扩样本 20~30、judge 版正确率、独立 test 集、CI 门禁。
 
 **技术方案**：见 `docs/eval-design.md` 与 `docs/evolve-protocol.md`；题源必须以**历史真实 bug + 人工 gold**为准。
-新增 `src/evals/` 打分维度与 `fixtures/` 样本。**依赖**：5.5（跨轮证据）与 5.6（审计）能提升评测口径质量。
+重启时重建评测入口与 `fixtures/` 样本。**依赖**：5.5（跨轮证据）与 5.6（审计）能提升评测口径质量。
 
 ---
 
@@ -290,12 +293,12 @@ type Platform interface {
 |---|---|---|---|
 | S1 | 5.4 `search_code` 有界预览 | 无 | ✅ 已完成 |
 | S2 | 5.2 多平台抽象（先抽接口+飞书迁入） | 无 | ✅ 已完成 |
-| S0 | **修评测打分器** | 无 | ✅ 已完成（v0.3.1）：scorer 同时按 uid 与 E# 建索引；fake 基线修正为 70/20/60 |
+| S0 | **修评测打分器** | 无 | ✅ 已完成（v0.3.1）：scorer 同时按 uid 与 E# 建索引；fake 基线修正为 70/20/60（后随评测 harness 整体移除，本条为历史） |
 | S3 | 5.1 Go 长连接（SDK） | S2 | ✅ 已完成（单测通过）；真机人工验证待有凭据时执行 |
 | S4 | 5.3 弃用 Host 内直连 | S3 | 一次性清理（注意 `demo.ts` 仍用 `createFeishuGateway`） |
 | S5 | 5.5 证据持久化 + 稳定 UID | 独立 | ✅ 已实现（OQ-38，阶段 1~6；`docs/evidence-uid-design.md`） |
 | S6 | 5.6 独立审计 Agent | 5.5 | 效果向 |
-| S7 | 5.7 评测 M2/M3 | 5.5/5.6 | 迭代 rules |
+| S7 | 5.7 评测 M2/M3 | 5.5/5.6 | 另行立项（旧 harness 已移除） |
 | S8 | 5.8 / 5.9 扩展 | 触发条件 | 按需 |
 
 ---
@@ -308,7 +311,7 @@ type Platform interface {
 4. **同步文档**：设计决策进 `docs/open-questions.md`；状态进 `roadmap.md`/`backlog.md`；
    本会话进度进 `docs/handover.md` 六节；架构变化进 `docs/host-runner-design.md`。
 5. **commit + push**（保持 origin/main 同步）；重大里程碑打 tag。
-6. 新增迁移从 `006_` 起，禁止改历史迁移；DB 改动必须有迁移 + 测试。
+6. 新增迁移从 `007_` 起，禁止改历史迁移；DB 改动必须有迁移 + 测试。
 
 ---
 
@@ -320,8 +323,8 @@ type Platform interface {
 `POST /api/agent/deliveries/claim`、`POST /api/agent/deliveries/:id/result`、
 `GET /api/agent/capabilities`、`GET /`（Web 页）。
 
-**Host↔Runner**（`src/runner/protocol.ts`）：stdin `RunnerTask` + `{"type":"cancel"}`；
-stdout NDJSON `ready|session_entry|tool_execution|progress|result|error`。
+**Host↔Runner**（`src/runner/protocol.ts`）：stdin `RunnerTask`（含 `observability` 配置）+ `{"type":"cancel"}`；
+stdout NDJSON `ready|session_entry|tool_execution|observation|progress|result|error`（`observation` 自协议 v3 起，承载观测事件）。
 
 **工具**：`query_logs / list_files / search_code / read_code / request_info / submit_report`。
 
@@ -329,7 +332,7 @@ stdout NDJSON `ready|session_entry|tool_execution|progress|result|error`。
 `TD_LEASE_MS`、`TD_HEARTBEAT_MS`、`TD_MAX_ATTEMPTS`、`TD_REPOS`、`TD_LOG_DIR`、
 `FEISHU_*`、`LARK_*`（含 `LARK_ENCRYPT_KEY`）、`ADAPTER_*`。
 
-**测试入口**：`tests/unit/*`、`tests/integration/*`（`pipeline` / `fault` / `host-restart` / `host-api` / `runner-process` / `eval`）。
+**测试入口**：`tests/unit/*`、`tests/integration/*`（`pipeline` / `fault` / `host-restart` / `host-api` / `runner-process` / `docs-consistency`）。
 
 ---
 

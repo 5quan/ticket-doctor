@@ -15,9 +15,26 @@
     "multi_platform": "skeleton",
     "host_runner": "done",
     "evidence_uid": "done",
-    "eval_scorer_v2": "done",
+    "observability_langfuse": "done",
     "audit_agent": "todo",
-    "eval_m2": "in_progress",
-    "eval_v2": "done"
+    "eval_harness": "removed",
+    "eval_m2": "deferred"
+  },
+  "eval": {
+    "status": "removed",
+    "note": "旧 v1/v2 评测 harness 已随观测接入方案整体移除、另行立项；以下为冻结的历史基线，代码不可复现，勿与新体系同表对比。",
+    "scorerVersion": "2.0.0",
+    "gitRev": "e1449cd",
+    "benchmarkVersion": "ffa8cab246bd",
+    "fake": {
+      "recall": 70,
+      "precision": 20,
+      "accuracy": 40
+    },
+    "piMedian": {
+      "recall": 90,
+      "precision": 22.3,
+      "accuracy": 80
+    }
   }
 }

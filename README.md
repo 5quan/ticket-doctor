@@ -132,7 +132,7 @@ trace 层次：`diagnose-turn` → `diagnosis-attempt`（agent）→ `model-requ
 
 ## 与现有 demo / miniclaw 的关系
 
-- 诊断工具与证据模型参考 `/opt/locatebug/pi-demo`，但本项目是**从零搭建的独立框架**：
+- 诊断工具与证据模型参考 `/opt/locatebug/研发Agent平台项目文档`（平台设计）与 `/opt/pi`（工具分层），但本项目是**从零搭建的独立框架**：
   持久化调度、租约代次、多轮会话、投递可靠性都按新边界实现。
 - 飞书接入参考 `/opt/miniclaw` 的成熟做法：长连接、fail-closed mention 门控、
   结构化会话标号。详见 `docs/feishu-channel.md`。

@@ -48,7 +48,7 @@ Web 前端 ─HTTP/SSE───────────────────�
                                         SessionQueue：会话内严格轮次串行、会话间公平、全局≤4
                                                                    │
                                         RunnerManager：每轮 spawn 独立 Node 子进程
-                                                                   │ NDJSON（session_entry/tool_execution/progress/result/error）
+                                                                   │ NDJSON（session_entry/tool_execution/observation/progress/result/error）
                                         Host 校验 generation 后代为落库 → finalize（证据+报告+终态+投递 同事务）
                                                                    │
                              ┌─────────────────────────────────────┴──────────────────────┐
@@ -90,8 +90,9 @@ src/
 │  ├─ finalize.ts     提交边界：reply / report 落库 + 事件发布（两条执行路径共用）
 │  ├─ prepare.ts      时间窗 → 钉版本 → 工具箱（纯准备，不碰 DB）
 │  ├─ run-session.ts  会话槽：pi 条目读写 SQLite
-│  ├─ evidence.ts     证据登记表（E# 签发 + 从上报记录恢复）
 │  └─ validate.ts     报告校验：引用存在、版本一致、无证据强制降级
+├─ evidence/          证据两阶段提交：sink / resolver / 崩溃恢复 / 渲染
+├─ observability/     中立观测事件 + pi 请求边界 + Langfuse OTel 适配（门控）
 ├─ storage/
 │  ├─ db.ts           打开 SQLite / 迁移 / 短事务
 │  └─ store.ts        唯一读写入口：原子入队、按轮次调度、取消、事件、投递
@@ -104,7 +105,7 @@ src/
 └─ config/index.ts    环境变量集中解析（业务模块不得直接读 process.env）
 
 adapters/go/          Go 接入适配器（config/feishu/hostapi/hostclient/adapter，含测试）
-migrations/           001_init … 005_host_queue
+migrations/           001_init … 006_evidence_uid
 tests/unit/ tests/integration/
 fixtures/             样例日志与样例仓库（demo 用）
 ```
@@ -130,7 +131,7 @@ fixtures/             样例日志与样例仓库（demo 用）
 - Docker：`Dockerfile` + `docker-compose.yml` 已就绪；注意本机到 Debian 源/镜像仓库很慢，构建可能很久。
 - 配置：开发时复制 `.env.example` 为 `.env`。关键项：`TD_ENGINE=fake|pi`、`TD_RUNNER_MODE=inprocess|process`、
   `TD_FEISHU_DIRECT=true|false`、`TD_HOST_PORT`、`TD_REPOS`、`TD_LOG_DIR`、`FEISHU_*` / `LARK_*`。
-- 改动迁移：**新增 `migrations/006_*.sql`，不要改历史迁移**。
+- 改动迁移：**新增迁移用 `007_` 前缀**，不要改历史迁移（当前头：`006_evidence_uid.sql`）。
 - 参考源码（本机）：`/opt/pi`、`/opt/miniclaw`、`/opt/deepseek-harness`；
   平台文档 `/opt/locatebug/研发Agent平台项目文档`。
 
@@ -138,9 +139,10 @@ fixtures/             样例日志与样例仓库（demo 用）
 
 ## 6. 当前状态（截至最新提交）
 
-- 已实现：飞书接入、会话路由、SQLite 持久化与状态机、租约/代次、可靠投递、只读工具与证据校验、
-  评测 harness（M1）、Host 统一入口 + 原子入队 + 按会话严格轮次、独立 Runner 子进程、Host Web API + SSE、
-  Web 会话页、Go 接入适配器（含签名校验/解密）、故障注入测试。
+- 已实现：飞书接入（Webhook + 长连接）、会话路由、SQLite 持久化与状态机、租约/代次、可靠投递、只读工具与证据校验、
+  Host 统一入口 + 原子入队 + 按会话严格轮次、独立 Runner 子进程、Host Web API + SSE、
+  Web 会话页、Go 接入适配器（含签名校验/解密）、Langfuse OTel 观测（门控）、故障注入测试。
+- 已移除：旧评测 harness（v1/v2，`src/evals/`）随观测接入方案清理，另行立项（勿再跑 `npm run eval`）。
 - 测试：`npm test`（TS）+ `npm run test:go`（Go adapter）全绿；数量见 `docs/status.json#tests`；`npm run demo` 离线可跑。
 - 阶段进度：路线图见 `docs/roadmap.md`。
 
@@ -148,8 +150,8 @@ fixtures/             样例日志与样例仓库（demo 用）
 
 ## 7. 任务菜单（挑一个做，从易到难）
 
-> 每项都给了「目标 / 验收 / 主要文件」。T1/T2 已完成（见 `tests/integration/host-restart.test.ts` 与 docker compose）；
-> 下一步建议从 T3 / T4 / T5 / T9 里挑。
+> 每项都给了「目标 / 验收 / 主要文件」。T1~T4 / T6 / T7 已完成；
+> 下一步建议从 T5 / T8 / T9 或 S4（弃用 Host 内直连，见 `docs/handover-technical-plan.md §5.3`）里挑。
 
 | # | 任务 | 目标 / 验收 | 主要文件 | 难度 | token 友好 |
 |---|---|---|---|---|---|
@@ -162,7 +164,7 @@ fixtures/             样例日志与样例仓库（demo 用）
 | ✅T7 | **`search_code` 有界预览 + 路径清单（已完成）** | 输出改为“按文件聚合的路径清单（≤20 文件）+ 前 8 处带 [E#] 的预览”；每处命中仍签 `E#`，validate 语义不变（OQ-36） | `src/agent/toolbox.ts`、`src/agent/pi-engine.ts` | 中 | 中 |
 | T8 | **tool_executions 回放** | 按调查展示每次工具调用（入参/耗时/成败/结果规模），供审计与排查 | `src/storage/store.ts`、`src/host/server.ts`、`src/host/web/` | 中 | 中 |
 | T9 | **独立审计 Agent（OQ-30）** | 把「证据是否充分」剥离到独立上下文，结构化输出已确认事实/疑似原因/补证请求 | `src/diagnosis/`、`src/agent/` | 高 | 高 |
-| T10 | **评测样本扩充 / judge** | 补 20~30 个真实或合成 case、加 judge 版正确率、独立 test 集 | `src/evals/`、`fixtures/` | 中 | 高 |
+| ⛔T10 | **评测样本扩充 / judge（已移除，另行立项）** | 旧评测 harness（v1/v2）已随观测接入方案清理；新评测体系另行立项后重开此任务 | — | — | — |
 
 ---
 
@@ -185,7 +187,7 @@ npm run demo             # 离线端到端
 npm run host             # Host（Web API + SSE + Runner）
 npm run gateway          # 旧链路（Host 内直连飞书）
 npm run worker           # 只跑 worker
-npm run eval             # 离线评测（M1）
+npm run docs:check       # 文档状态一致性检查（已并入 npm test）
 
 # 单文件调试（示例）
 node --experimental-strip-types --test tests/integration/fault.test.ts
