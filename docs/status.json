@@ -1,0 +1,23 @@
+{
+  "version": "0.3.1",
+  "tests": {
+    "ts": 140,
+    "go": "adapter"
+  },
+  "migrations": {
+    "head": "006_evidence_uid.sql",
+    "nextPrefix": "007_"
+  },
+  "features": {
+    "feishu_webhook": "done",
+    "feishu_longconn": "done_unverified",
+    "feishu_trigger_fix": "done",
+    "multi_platform": "skeleton",
+    "host_runner": "done",
+    "evidence_uid": "done",
+    "eval_scorer_v2": "done",
+    "audit_agent": "todo",
+    "eval_m2": "in_progress",
+    "eval_v2": "done"
+  }
+}

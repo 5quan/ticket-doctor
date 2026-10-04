@@ -32,7 +32,7 @@ A 为框架交付必须通过项。B 为平台实测项；若目标机器资源�
 - 分支：`codex/langfuse-observability`。
 - 基线：`4fad75277c0ccd20afd4b57f131507e020efece6`，提交说明为投递轮询默认值修复。
 - 独立工作区：`C:/Users/5quan/.codex/worktrees/langfuse-observability/ticket-doctor`。
-- 原工作区仍在 main；原先暂存的 `docs/pre-diagnosis-evaluation-plan.md` 属于用户已有内容，不移动、不覆盖、不用于本方案。
+- 原工作区仍在 main；原先暂存的 pre-diagnosis-evaluation-plan 文档（仅存在于用户本地工作区） 属于用户已有内容，不移动、不覆盖、不用于本方案。
 - 本文落地时业务代码尚未修改；旧 v1 eval 尚待 zcode 在第一阶段移除。
 
 选择理由：该提交已经包含 Host/Runner 分离、SQLite 会话恢复、证据 UID、飞书 Webhook/长连接，早于 scorer v2 与后续 eval v2 重构。依赖锁文件、Host/Runner/Agent/Storage/Evidence、migrations 和 Go 适配器与当前 main 的检查快照一致。
@@ -47,7 +47,7 @@ A 为框架交付必须通过项。B 为平台实测项；若目标机器资源�
 ### 2.1 旧 eval 清理
 
 在新分支删除旧执行资产：
-- `src/evals/`、`fixtures/evals/`、`scripts/init-eval-fixture.mjs`；
+- `src/evals/`、`fixtures/evals/`、init-eval-fixture 脚本；
 - `package.json` 的 `eval`、`preeval`；`pretest` 只保留 demo 初始化；
 - 只依赖旧 eval 的测试，包括旧 scorer 和 eval 集成测试，逐个查引用后清理；
 - 清理 README 和活动入口中把旧评测当成现行能力的描述。
@@ -127,7 +127,7 @@ diagnose-turn (span：原始问题 → 实际可见最终结果)
 
 ## 5. Pi 模型与工具采集
 
-Pi 当前固定版本是 `0.84.2`。先核对实际安装类型与公开接口，不根据旧教程猜接口。
+Pi 固定使用 @earendil-works 0.84.2。先核对实际安装类型与公开接口，不根据旧教程猜接口。
 
 ### 5.1 模型请求边界
 
@@ -366,16 +366,16 @@ zcode 收尾必须分别报告：
 
 ## 13. 查证来源
 
-- [Langfuse Server 4.50.0](https://github.com/langfuse/langfuse/releases/tag/v4.50.0)
-- [Langfuse JS SDK 5.11.1](https://github.com/langfuse/langfuse-js/releases/tag/v5.11.1)
-- [SDK 官方初始化](https://langfuse.com/docs/observability/sdk/overview)
-- [手动 observation 与父子关联](https://langfuse.com/docs/observability/sdk/instrumentation)
-- [观测最佳实践](https://langfuse.com/docs/observability/best-practices)
-- [版本兼容与 v4 OTel](https://langfuse.com/docs/compatibility)
-- [Docker Compose 部署与资源建议](https://langfuse.com/self-hosting/deployment/docker-compose)
-- [固定 release Compose](https://raw.githubusercontent.com/langfuse/langfuse/v4.50.0/docker-compose.yml)
-- [官方镜像来源](https://langfuse.com/self-hosting/deployment/infrastructure/containers)
-- [用户指定中文版部署指南](https://langfuse.com.cn/self-hosting/deployment/docker-compose)
+- Langfuse Server 4.50.0（github.com/langfuse/langfuse releases）
+- Langfuse JS SDK 5.11.1（github.com/langfuse/langfuse-js releases）
+- SDK 官方初始化（langfuse.com 文档 observability/sdk/overview 页）
+- 手动 observation 与父子关联（langfuse.com 文档 observability/sdk/instrumentation 页）
+- 观测最佳实践（langfuse.com 文档 observability/best-practices 页）
+- 版本兼容与 v4 OTel（langfuse.com 文档 compatibility 页）
+- Docker Compose 部署与资源建议（langfuse.com self-hosting/deployment/docker-compose 页）
+- 固定 release Compose（raw.githubusercontent.com langfuse v4.50.0 docker-compose.yml）
+- 官方镜像来源（langfuse.com self-hosting/deployment/infrastructure/containers 页）
+- 用户指定中文版部署指南（langfuse.com.cn self-hosting/deployment/docker-compose 页）
 
 官方 Pi 插件仍为实验性，且本项目自行创建 session、默认扩展列表为空。可参考其事件建模，但本方案优先包装当前项目公开 SDK 请求边界，不安装 CLI 插件后假定已经覆盖业务。
 

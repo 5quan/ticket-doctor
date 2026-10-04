@@ -16,7 +16,7 @@ import { ToolBudgetExceeded } from "../agent/toolbox.ts";
 import type { DiagnosisEngine } from "../agent/types.ts";
 import type { ObservationRecorder } from "../observability/langfuse.ts";
 import { StoreEvidenceSink } from "../evidence/store-sink.ts";
-import { prepareDiagnosis } from "./prepare.ts";
+import { prepareDiagnosis, type PreparedDiagnosis } from "./prepare.ts";
 import { RunSession } from "./run-session.ts";
 import { renderDiagnosisInput } from "../agent/input-text.ts";
 import { classifyRunError, failRun, finalizeEngineResult } from "./finalize.ts";

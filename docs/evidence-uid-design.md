@@ -4,7 +4,7 @@
 > `a48ac1c`（协议 v2）、`ae7ba93`（崩溃恢复）、`a6bdfab`（报告 v1/v2）、`fc75ec0`（评测走 Store sink）。
 > 取代 `docs/evidence-scope-design.md`（那份的"选项 B：部分唯一索引 + seed 续号"不再单独实施，其"调查内短号续签"思想被本文 §3 吸收）。
 > 本文保留为实现依据与决策记录；后续变更先在 `docs/open-questions.md` 登记。
-> **已知遗留**：离线评测打分器尚未适配 v2（报告 `evidenceIds` 是 uid，`src/evals/scorer.ts` 仍按 `E#` 建索引 → 精确率/正确率虚低），见 `docs/session-handover.md`。
+> **遗留状态**：UID 兼容已修（fad5595）；正确率校准（scorer v2）见 OQ-41。原遗留描述（已过时）：打分器曾按 `E#` 建索引 → 精确率/正确率虚低），见 `docs/session-handover.md`。
 
 ---
 
