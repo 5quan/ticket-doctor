@@ -223,7 +223,10 @@ export function createLangfuseRecorder(
                   provider: event.provider ?? null,
                   ...(event.metadata ?? {}),
                 },
-                completionStartTime: new Date(event.timestamp),
+                // 不设 completionStartTime（OQ-42）：拿不到真正的“首个输出到达时刻”，
+                // 用请求开始时刻填充会让界面 TTFT ≈ 0 且不可信；按“宁缺毋假”省略该指标。
+                // 方案 A（订阅 session 的 message_update，取首个 text/thinking delta）见 OQ-42，未实施。
+                // generation 的总时延 / usage / 输出内容不受影响，均为可靠值。
               },
               Date.parse(event.timestamp),
             );
