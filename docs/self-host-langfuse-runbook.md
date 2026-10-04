@@ -78,6 +78,8 @@ curl http://localhost:3001/api/public/health   # {"status":"OK","version":"4.50.
 
 老 ticketing 演示栈（含 MySQL）与本项目无关，已停止未删除；恢复：
 `sudo docker start ticketing-db-1 ticketing-server-1 ticketing-mockwebhook-1`。
+- 观测已知限制：generation 的 TTFT/首 Token 延迟暂不可用（completionStartTime 为占位值，
+  详见 docs/open-questions.md OQ-42）；总时延与 usage 可靠。多轮上下文丢失已修复（OQ-43）。
 
 ## 5. Docker 数据根迁移到 /data（根分区告急时）
 
