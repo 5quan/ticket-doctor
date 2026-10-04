@@ -426,7 +426,12 @@ export class PiDiagnosisEngine implements DiagnosisEngine {
     });
     const session: AgentSession = created.session;
     // create 期间可能追加元数据条目（model_change / thinking_level_change）；一并落库，按 entry_id 去重。
-    for (const entry of manager.getEntries()) sink?.appendEntry(entry);
+    // seenEntries 记录已交给 sink 的条目，运行结束时兜底补齐其余条目（见 finally）。
+    const seenEntries = new Set<string>();
+    for (const entry of manager.getEntries()) {
+      seenEntries.add(entry.id);
+      sink?.appendEntry(entry);
+    }
     // 包装模型请求边界：计数 + model 观测事件（覆盖 compaction 与 pi 重新发起的请求）。
     const observer = attachPiObserver({
       session,
@@ -449,7 +454,10 @@ export class PiDiagnosisEngine implements DiagnosisEngine {
       });
     }
     const unsubscribe = session.subscribe((event) => {
-      if (event.type === "entry_appended") sink?.appendEntry(event.entry);
+      if (event.type === "entry_appended") {
+        seenEntries.add(event.entry.id);
+        sink?.appendEntry(event.entry);
+      }
     });
     const onAbort = () => void session.abort();
     signal.addEventListener("abort", onAbort, { once: true });
@@ -508,6 +516,15 @@ export class PiDiagnosisEngine implements DiagnosisEngine {
       // 终态前收口：在飞 generation 结算为 aborted；此后晚到的 result() 不再产生事件。
       observer.settlePending();
       unsubscribe();
+      // 兜底落库（§8 会话恢复的前提）：pi 0.84.2 只对 custom entry 发 entry_appended，
+      // 常规 assistant/toolResult 条目不发事件；运行结束时按 entry_id 补齐（sink 侧幂等去重）。
+      // 顺序保证：这里同步补齐后 run 才 resolve，条目先于终态 result 到达 Host（stdout FIFO）。
+      for (const entry of manager.getEntries()) {
+        if (!seenEntries.has(entry.id)) {
+          seenEntries.add(entry.id);
+          sink?.appendEntry(entry);
+        }
+      }
       session.dispose();
       if (seedFile) rmSync(seedFile, { force: true });
       if (obs) {
