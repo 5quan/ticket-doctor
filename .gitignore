@@ -8,3 +8,6 @@ data/
 fixtures/demo-repo/.git/
 # 评测 fixture 仓库的 .git 由 scripts/init-eval-fixture.mjs 在运行时创建
 fixtures/evals/*/repo/.git/
+
+# Go 适配器构建产物（go build -o adapter .）
+adapters/go/adapter
