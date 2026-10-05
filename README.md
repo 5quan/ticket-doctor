@@ -1,146 +1,166 @@
 # ticket-doctor
 
-测试提交 Bug 后自动触发诊断 Agent，结合日志、源码检索与飞书群补证，前置完成 Bug 预诊断，
-缩短开发接手后的排查准备时间；生产环境只读诊断，辅助定位线上异常。
-在飞书群里提交 Bug 后，自动查询日志、读取指定版本源码，生成**带证据编号**的预检报告，
-并支持在同一线程内继续补材料、追问。
+## 项目介绍
 
-边界：只读诊断，不自动修复、不写业务系统；根因假设由开发最终确认。
-规划（独立审计 Agent / 评测 Benchmark / 生产诊断 MCP Server）见 `docs/roadmap.md`。
+ticket-doctor 是面向测试与开发的 **Bug 预诊断 Agent**。提交故障描述后，
+Agent 查询日志、检索源码，整理异常线索与根因候选，输出带证据引用的报告，
+帮助开发接手排查；材料不足时追问，补充后继续同一调查。
+
+项目聚焦只读取证与预诊断，**关键在于将判断前置，让开发接手时更快定位问题，解决bug更高效**。
+最终根因由开发确认。
+
+## 核心功能
+
+### 问题接入与进度查看
+
+支持飞书、钉钉等多种IM平台与 Web 提交问题，自动创建或续接调查；Web 时间线展示消息、执行进度与结果。
+
+### 日志与源码取证
+
+按照提前制定好的清单排查，查询已配置的本地服务日志，定位源码中的相关文件与代码上下文，
+将故障描述与实际材料关联起来。
+检索工具可根据实际业务场景进行调整。
+
+### 多轮追问与补证
+
+材料不足时提出具体补充问题。用户继续原调查后，Agent 读取已保存历史，
+结合新材料继续排查，证据编号在调查内保持可追溯。
+
+### 带证据的预诊断报告
+
+报告包含事实、根因候选、证据引用、不确定项、缺失材料与下一步，
+通过 Web 展示或回写飞书，供开发继续验证。
+
+### 模型与工具过程复盘
+
+接入 Langfuse，查看捕获到的模型输入输出、工具参数与返回、耗时和 Token 用量，
+定位检索、模型调用与报告校验过程中的问题。
+
+## 工作原理
+
+推荐采用 **Go 接入适配器 + Host + 独立 Runner** 的单机多进程架构：
+Host 管理接入、调度与持久化，每次执行尝试启动一个 Runner，通过 NDJSON 协议交互。
+
+```mermaid
+flowchart TD
+    I["飞书（Go 适配器） / Web"] --> H["Host：路由、去重、调度与校验"]
+    H <--> D[("SQLite：任务、会话、证据与报告")]
+    H -->|"派发尝试 / 恢复历史"| R["Runner：pi / fake 引擎"]
+    R <--> T["只读工具：本地日志 / Git 源码"]
+    R -->|"上报证据、会话与草稿"| H
+    H --> O["Web SSE / 飞书投递"]
+    H -.-> L["Langfuse：模型与工具轨迹"]
+```
+
+一条消息依次经过 **接收与路由 → 持久化入队 → 领取执行 → 逐步取证 → 校验提交 → 展示或投递**；
+用户补充材料后进入下一轮。
+
+### 可靠调度与执行隔离
+
+同一调查按轮次串行，不同调查并行。Host 通过租约、心跳、超时回收与有限重试处理执行中断；
+每次领取递增 `generation`，在数据库事务中拒绝旧执行者提交证据和报告。
+这类机制参考 [Union 的租约设计](https://www.union.ai/blog-post/inside-union-leases-the-scheduling-engine-behind-flyte-2)
+与 [Fencing Token](https://martin.kleppmann.com/2016/02/08/how-to-do-distributed-locking.html)。
+
+### 单库持久化与会话恢复
+
+面向单机部署，选择 SQLite 统一保存业务状态、模型会话与证据，由 Host 集中写入，
+避免业务库与会话文件双写不一致。借鉴 pi durable 的恢复思路，
+通过 pi SessionManager 重建已保存上下文：已提交证据可用于恢复工具返回，
+未决结果标记为未知，已保存的本轮输入不会重复追加。
+
+### 从检索到证据
+
+Runner 准备检索时间窗，并将源码版本解析为固定 Git SHA。本次尝试都检索同一代码快照，
+诊断工具不会逐任务 clone 或 pull 仓库；当前来源为本地日志与已有 Git 仓库。
+
+模型按线索调用 `query_logs`、`list_files`、`search_code` 与 `read_code`，
+逐步定位问题。工具先提交证据，Host 保存并签发 UID 与调查内 `E#` 后才返回模型。
+材料不足时调用 `request_info` 追问，完成诊断时调用 `submit_report` 提交草稿。
+
+### 报告校验、投递与观测
+
+Host 校验引用与报告结构，将报告、执行终态和待发送记录在同一事务提交。
+发送失败单独处理，避免投递故障触发重复模型诊断；发送结果无法确认时保留不确定态。
+
+Langfuse 通过 OpenTelemetry 关联调查、执行尝试、模型、工具与报告校验。
+观测默认关闭，导出为 best-effort；会话恢复依赖 SQLite，观测失败不阻塞业务提交。
 
 ## 快速开始
 
+需要支持 `node:sqlite` 与 `--experimental-strip-types` 的 Node.js，以及 Git。
+
 ```bash
-npm install
-npm run demo        # 离线端到端：不接飞书，跑通 消息→调查→诊断→报告→投递（默认 fake 引擎；TD_ENGINE=pi + TD_OBSERVABILITY_ENABLED=true 跑真实模型并导出观测）
-npm test            # 单元 + 集成测试
+npm ci
+npm run demo
+```
+
+默认 demo 使用 fake 引擎、样例日志和仓库，跑通消息、取证、报告与假投递闭环，
+并初始化样例 Git 仓库。若已有 `.env`，检查 `TD_ALLOWED_SERVICES`：
+显式空值会拒绝全部日志查询，样例应填写 `checkout-service`。
+
+### 启动 Web 与独立 Runner
+
+复制 [.env.example](.env.example) 为 `.env`，将以下配置写入后运行 `npm run host`：
+
+```dotenv
+TD_ENGINE=fake
+TD_RUNNER_MODE=process
+TD_FEISHU_DIRECT=false
+TD_REPOS=app:./fixtures/demo-repo
+TD_ALLOWED_SERVICES=checkout-service
+```
+
+打开 `http://localhost:3000/`。调用真实模型需设置 `TD_ENGINE=pi` 与对应提供商凭据；
+使用实际材料时替换仓库、日志目录与服务白名单。
+
+飞书接入见 [Go 适配器说明](adapters/go/README.md)：单独运行 Go 时需要注入环境变量，
+它不会自动读取根目录 `.env`。也可使用 [Docker Compose](docker-compose.yml)，
+将 `.env` 中 `TD_DB_PATH` 改为 `/data/ticket-doctor.sqlite`，使数据库保存在持久卷中；
+填写 Go 适配器使用的 `LARK_*` 凭据，并按需替换源码与日志挂载。
+
+### 工程检查
+
+```bash
+npm test
 npm run typecheck
+npm run docs:check
+npm run test:go
 ```
 
-接真实飞书（新架构：Host + 独立 Runner + Go 接入适配器）：
+Go 检查需要 Go 环境。Langfuse 的启用、部署与验收见 [观测手册](docs/self-host-langfuse-runbook.md)。
 
-```bash
-cp .env.example .env        # 填 LARK_* / FEISHU_* / DEEPSEEK_API_KEY
-TD_RUNNER_MODE=process TD_FEISHU_DIRECT=false npm run host   # Host：Web API + SSE + 调度 + Runner
-cd adapters/go && go run .  # Go 接入适配器：飞书事件 → Host；Host 待发送 → 飞书
-```
+## 当前状态
 
-迁移期仍可用旧单进程链路（Host 内直连飞书、worker 内联执行）：`npm run gateway`（旧链路，过渡期保留）。
+| 能力 | 状态 |
+|---|---|
+| 接入、调度、恢复、取证、报告与投递 | 工程闭环已实现，fake demo 可运行 |
+| 真实模型与 Langfuse | 已有真实模型样例观测验收，未建立当前版本可复现的诊断质量基线 |
+| 检索来源 | 本地文件日志与 Git；远程日志、生产诊断 MCP 与仓库同步器待建设 |
+| 质量评测与独立审计 | 已有评测方案；数据集、评分、实验、CI 门禁与独立审计 Agent 尚未接入 |
+| RSI 改进闭环 | 方案阶段：优化提示词、规则与授权范围内检索参数，人工批准发布 |
+| 接入与访问控制 | 飞书长连接待真机验收；Web 无登录与权限体系；钉钉/Slack 为骨架，图片未接入 |
 
-Web 会话页：Host 启动后访问 `http://<host>:3000/`（无需构建，无框架）。
+程序校验引用有效性不等于确认根因。旧评测 harness 已移除，历史成绩不代表当前质量；
+工程 demo 与样例观测也不等同于生产诊断验收。
 
-### Docker Compose 部署
+<details>
+<summary>检索与运行的当前边界</summary>
 
-```bash
-cp .env.example .env          # 填 LARK_* / DEEPSEEK_API_KEY
-# 可选：TD_REPOS_DIR / TD_LOG_DIR_HOST 指定要挂载的源码仓库与日志目录
-docker compose up -d --build   # host(3000) + adapter(3002)
-```
+- 调查的服务与时间窗尚未用于强制授权校验，日志接口没有环境隔离字段。
+- 显式 `TD_REPOS` 尚未与 `TD_ALLOWED_REPOS` 强制取交集；只读能力不代表完整授权隔离。
+- 来源缺少分页与覆盖信息，`read_code` 的统一总输出预算、`TD_MAX_MODEL_TURNS` 强制执行仍待补齐。
+- SHA 在每次尝试准备时解析，同轮重试的固定版本机制尚未补齐；按发生时间选提交不等于确认部署版本。
+- Langfuse 观测可能截断或丢失，统一脱敏尚未实现；会话恢复以已保存内容为准。
 
-- `host`：Web API/SSE + 调度 + Runner（`TD_RUNNER_MODE=process`、`TD_FEISHU_DIRECT=false`）。
-- `adapter`：Go 接入适配器；飞书事件回调指向 `http://<adapter>:3002/feishu/events`。
-- 源码与日志**只读挂载**（`:ro`），数据卷 `ticket-data:/data` 持久化 SQLite。
+</details>
 
-## 架构
+## 详细文档
 
-```text
-飞书事件 ──► Go 接入适配器 ──HTTP──► Host Web Channel（POST /api/agent/message）
-Web 前端 ──HTTP/SSE──────────────► Host
-                                        │  原子入队（去重+关联+消息+轮次同事务）
-                                        ▼
-                              SQLite：investigations / messages / runs(round) / events …
-                                        │
-                     SessionQueue：会话内严格轮次串行、会话间公平、全局 ≤4
-                                        │
-                         RunnerManager：spawn 独立 Node 子进程（每轮一个）
-                                        │  NDJSON（条目/工具/进度/结果）
-                    Host 校验代次后代为落库 → finalize（证据+报告+终态+投递同事务）
-                                        │
-              ┌─────────────────────────┴─────────────────────────┐
-              ▼                                                     ▼
-   投递（IM 来源）：Host 待发送记录 ──► Go 适配器 ──► 飞书       EventStore ──► SSE ──► Web
+- 使用与接入：[产品使用](docs/usage.md)、[Go 适配器](adapters/go/README.md)。
+- 架构与接口：[Host/Runner](docs/host-runner-design.md)、[接口协议](docs/interface.md)、[并发设计](docs/concurrency.md)。
+- 会话与证据：[会话持久化](docs/session-log-design.md)、[证据 UID 与恢复](docs/evidence-uid-design.md)、[材料范围](docs/evidence-scope-design.md)。
+- 观测与评测：[Langfuse 手册](docs/self-host-langfuse-runbook.md)、[规则迭代协议](docs/evolve-protocol.md)。
+- 工程与进展：[代码导航与开发入口](docs/contributor-onboarding.md)、[功能状态](docs/status.json)、[路线图](docs/roadmap.md)。
 
-Runner 内部：pi 引擎（fake/pi）+ 只读工具箱 query_logs / search_code / read_code
-            + 证据签发（E#）+ 报告草稿；不碰数据库。
-```
-
-分层依赖方向：`domain ← storage / intake / scheduling / delivery / agent / sources / integrations / entrypoints`。
-`domain` 是纯业务，不依赖任何 SDK / 数据库 / 网络。
-
-## 目录
-
-```text
-src/
-├─ entrypoints/     host.ts（Host 入口）/ runner.ts（子进程）/ gateway.ts / worker.ts / demo.ts / bootstrap.ts
-├─ config/          环境变量集中解析
-├─ domain/          类型、状态机、会话标号、报告渲染（纯函数）
-├─ storage/         SQLite（node:sqlite）、迁移、Store（原子入队、按轮次调度、事件）
-├─ intake/          路由计划 + 统一原子入队
-├─ scheduling/      worker 池、租约、回收（可注入 Runner 执行器）
-├─ host/            HTTP API + SSE、EventStore、RunnerManager（子进程监管）
-├─ runner/          Host↔Runner NDJSON 协议
-├─ diagnosis/       内联编排、证据登记、报告校验、提交边界（finalize）
-├─ agent/           pi 引擎 / 假引擎 / 工具箱 / 工厂
-├─ observability/   中立观测事件、Pi 请求边界包装、Langfuse OTel 适配（TD_OBSERVABILITY_ENABLED 门控）
-├─ sources/         日志源、Git 源码源（端口 + 实现）
-├─ delivery/        待发送记录、重试与不确定态
-├─ integrations/
-│  └─ feishu/       SDK 客户端、mention 门控、事件归一化、网关逻辑（过渡期）
-adapters/go/        Go 接入适配器（协议解析 + 事件转发 + 平台发送）
-migrations/         001…006
-tests/              unit/ + integration/
-fixtures/           样例日志与样例仓库（demo 用）
-```
-
-## 关键设计
-
-- **执行状态与材料完整性正交**：`run.status = succeeded/failed/interrupted` 表示执行是否完成；
-  报告 `completeness = complete/partial` 表示材料是否齐全。两者都不等于根因确认。
-- **证据 ID 化**：工具执行时程序签发 `E1/E2…`，模型只能用 `evidenceIds` 引用；
-  来源、版本、行号由程序回填。引用错位在结构上不可能发生。
-- **代次守卫**：每次尝试对应一个 `generation`；租约过期后回收，过期执行者的提交一律被拒绝。
-- **投递与诊断解耦**：报告、终态、待发送记录同事务提交；发送失败只重试投递，绝不重跑模型。
-- **会话标号**：每条回复带 `[TD-xxxxxxxx]`，用户任意回复只要带标号即可精确路由回原调查。
-- **commit 不强制**：工单可不给版本，缺省用仓库当前解析出的 SHA 并在报告中如实标注。
-
-## 观测（Langfuse）
-
-自托管 Langfuse v4.50.0（部署资产 `deploy/langfuse/`，部署手册 `docs/self-host-langfuse-runbook.md`）。
-Host 侧开关与凭据（默认关闭；启用但缺配置时降级为不采集，业务不受影响）：
-
-```sh
-TD_OBSERVABILITY_ENABLED=true
-LANGFUSE_BASE_URL=http://127.0.0.1:3001
-LANGFUSE_PUBLIC_KEY=pk-lf-...   # 项目 key 已预置在 deploy/langfuse/.env
-LANGFUSE_SECRET_KEY=sk-lf-...
-```
-
-trace 层次：`diagnose-turn` → `diagnosis-attempt`（agent）→ `model-request`（generation，含回答/thinking/usage）与工具节点；`report-validation` 为兄弟 span。观测为 best-effort：Langfuse 离线只丢观测，业务不受影响。
-
-## 配置
-
-见 `.env.example`。核心项：
-
-| 变量 | 默认 | 说明 |
-|---|---|---|
-| `TD_ENGINE` | `fake` | `fake` 离线确定性引擎 / `pi` 真实模型 |
-| `TD_WORKER_COUNT` | `4` | 单机诊断并发上限 |
-| `TD_LEASE_MS` / `TD_HEARTBEAT_MS` | `60000` / `10000` | 租约与心跳 |
-| `TD_MAX_ATTEMPTS` | `2` | 中断/临时故障最多重试次数 |
-| `FEISHU_REQUIRE_MENTION` | `true` | 群聊新会话是否必须 @机器人 |
-| `TD_REPOS` | `app:<项目根>` | `repoId:路径`，逗号分隔 |
-
-## 与现有 demo / miniclaw 的关系
-
-- 诊断工具与证据模型参考 `/opt/locatebug/研发Agent平台项目文档`（平台设计）与 `/opt/pi`（工具分层），但本项目是**从零搭建的独立框架**：
-  持久化调度、租约代次、多轮会话、投递可靠性都按新边界实现。
-- 飞书接入参考 `/opt/miniclaw` 的成熟做法：长连接、fail-closed mention 门控、
-  结构化会话标号。详见 `docs/feishu-channel.md`。
-
-## 当前边界
-
-- 真实日志平台适配器（SLS/ELK）尚未实现，当前为本地文件日志源。
-- 会话条目已进 SQLite（`session_entries`），pi 按 seq 读回重建；不再用 JSONL 持久化。
-- Web 会话页已提供（`src/host/web/`：列表/时间线/进度/证据报告 + SSE 实时刷新）；无登录与权限限制。
-- Go 适配器：飞书 Webhook 与长连接（`ADAPTER_MODE=ws`，OQ-40）均已实现；多平台（钉钉/Slack）为骨架待实装。
-- 观测为 best-effort：Langfuse 离线/过载只丢观测，业务不受影响；本期未接数据集/评分/CI 门禁。
+设计文档中的历史路径与命令需要结合当前代码核对；规划能力以“当前状态”为准。
