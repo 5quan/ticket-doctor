@@ -1,5 +1,8 @@
 # 会话交接概要（最新）
 
+> **评测 v2 迁移在分支 `eval/v2-migrate` 上（未合 main）**：接手评测工作先读
+> **[`docs/eval-migration-handover.md`](eval-migration-handover.md)**（现状/命令/坑/下一步）。
+>
 > 给下一个接手会话：**先读本文**，再按 §5 的阅读顺序深入。
 > 版本 **0.3.1**（以 `docs/status.json` 为准）；仓库 `github.com/5quan/ticket-doctor`，分支 `main`。
 > 详细技术方案见 `docs/handover-technical-plan.md`，刻意/规程见 `docs/handover.md §7`。
