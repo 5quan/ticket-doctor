@@ -19,7 +19,7 @@
     "audit_agent": "done_first_version",
     "eval_harness": "mvp_offline",
     "eval_m2": "deferred",
-    "eval_v2": "migrating_m4m5_done"
+    "eval_v2": "migrating_m8a_done"
   },
   "eval_mvp": {
     "status": "mvp_offline",

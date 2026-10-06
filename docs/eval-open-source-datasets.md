@@ -64,3 +64,16 @@
 - **体量**：HF 3.4GB；按 suite/案例按需下载，不要整包拉。
 - **时间戳/时区**：RCAEval 用注入时刻，注意与我们 `occurredAt`/时区一致（backlog E2）。
 - **代码版本**：应用版本必须钉 SHA；没有对应代码时标 `logOnly`，别硬凑 code gold。
+
+---
+
+## 6. 实施状态（M8a，已落地）
+
+- 新增导入器 `scripts/import-rcaeval.mjs`（`npm run import:rcaeval -- --dataset RE3-OB --limit N`）：用 `hyparquet` 读 `cases.parquet`/`logs.parquet`，下载缓存到 `data/rcaeval/`，产出 **v2 布局**（`public/<case>/{case.json,r1-message.txt,round-1/<service>.log}` + `private/<case>/truth.private.json`），并**合并**写入 `catalog/catalog.json`（不覆盖工程条目）。
+- v2 schema 放宽：允许 `sourceTier=reproduced_history` 的 **log-only** 案例 `repos: []`（原先强制"至少一个仓库"）；其余拆分不变。
+- **已实测**（RE3-OB，Online Boutique adservice f3）：
+  - `--engine fake`：加载/执行/打分跑通（`executionSuccess 100%`）；
+  - `--engine pi`（真实模型，1 次）：`recall.A/B/C1=100%`、`citationValidity 19/19`、`executionSuccess 100%`，但 **`recall.D=0%`**——**模型读到了 gold 材料（C1 命中），报告却没引用它（D 未命中）**。这正是四层可见性要暴露的"入库/可见 ≠ 报告引用"。
+- **发现**：RCAEval **RE3-OB 的代码级故障（F1–F5）在根因服务自身日志里往往没有 error 行**（adservice 全为 INFO）——所以自动 gold 只能退化为"该服务出现频次最高的日志"（度量"是否读到根因服务日志"，不是故障签名）。要进一步，需要 **M8c**：为对应应用建带故障/修复双提交的 fixture 仓库，补 code gold。
+- 口径：导入案例 `split=development`、`sourceTier=reproduced_history`、`admission=admitted`（材料准入）、`review.provisional=true`（**语义待人工复核**）；题面为**合成**；**不同 sourceTier / split 禁止同表比**。
+- 待办：**M8b** 多导几例跑 pi + 人工复核（`rescore --review`）；**M8c** 代码级 gold。

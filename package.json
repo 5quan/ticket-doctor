@@ -17,6 +17,7 @@
     "eval:review": "node --experimental-strip-types scripts/eval-review.ts",
     "preeval:v2": "node scripts/init-eval-fixture.mjs",
     "eval:v2": "node --experimental-strip-types src/evals/v2/cli.ts",
+    "import:rcaeval": "node scripts/import-rcaeval.mjs",
     "docs:check": "node scripts/check-docs.mjs",
     "test:go": "cd adapters/go && go test ./...",
     "pretest": "node scripts/init-demo-repo.mjs && node scripts/init-eval-fixture.mjs"
@@ -34,6 +35,8 @@
   },
   "devDependencies": {
     "@types/node": "^26.6.2",
+    "hyparquet": "^1.31.2",
+    "hyparquet-compressors": "^1.1.2",
     "typescript": "^7.0.2"
   }
 }

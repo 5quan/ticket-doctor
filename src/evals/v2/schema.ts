@@ -81,8 +81,11 @@ export function validateCaseDescriptor(
         errors.push({ path: `rounds[${i}].materialView`, message: `材料视图目录不存在：${String(r.materialView)}` });
       }
       if (!Array.isArray(r.services)) errors.push({ path: `rounds[${i}].services`, message: "必须是数组" });
-      if (!Array.isArray(r.repos) || r.repos.length === 0) {
-        errors.push({ path: `rounds[${i}].repos`, message: "至少一个仓库" });
+      if (!Array.isArray(r.repos)) {
+        errors.push({ path: `rounds[${i}].repos`, message: "必须是数组" });
+      } else if (r.repos.length === 0 && c.sourceTier !== "reproduced_history") {
+        // log-only 真实案例（RCAEval 等）允许无代码绑定；其余拆分仍要求至少一个仓库。
+        errors.push({ path: `rounds[${i}].repos`, message: "至少一个仓库（log-only 仅允许 sourceTier=reproduced_history）" });
       } else {
         r.repos.forEach((repo, j) => {
           if (!isStr(repo.repoId)) errors.push({ path: `rounds[${i}].repos[${j}].repoId`, message: "缺失" });
