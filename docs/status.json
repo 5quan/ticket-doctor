@@ -1,7 +1,7 @@
 {
   "version": "0.3.1",
   "tests": {
-    "ts": 183,
+    "ts": 191,
     "go": "adapter"
   },
   "migrations": {
@@ -17,8 +17,17 @@
     "evidence_uid": "done",
     "observability_langfuse": "done",
     "audit_agent": "done_first_version",
-    "eval_harness": "removed",
+    "eval_harness": "mvp_offline",
     "eval_m2": "deferred"
+  },
+  "eval_mvp": {
+    "status": "mvp_offline",
+    "scorerVersion": "mvp-0.1.0",
+    "plan": "docs/eval-implementation-plan.md",
+    "runner": "src/eval/",
+    "cli": "npm run eval / npm run eval:compare / npm run eval:review",
+    "baseline": "pending_real_cases",
+    "note": "离线 MVP：复用正式诊断链路，只评材料/引用；语义正确性未人工复核=unscored。持久化/投递/调查隔离不在其内。"
   },
   "eval": {
     "status": "removed",

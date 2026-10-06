@@ -12,6 +12,9 @@
     "worker": "node --experimental-strip-types src/entrypoints/worker.ts",
     "typecheck": "tsc --noEmit",
     "test": "node --experimental-strip-types --test tests/unit/*.test.ts tests/integration/*.test.ts",
+    "eval": "node --experimental-strip-types scripts/eval.ts",
+    "eval:compare": "node --experimental-strip-types scripts/eval-compare.ts",
+    "eval:review": "node --experimental-strip-types scripts/eval-review.ts",
     "docs:check": "node scripts/check-docs.mjs",
     "test:go": "cd adapters/go && go test ./...",
     "pretest": "node scripts/init-demo-repo.mjs"

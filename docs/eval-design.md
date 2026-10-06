@@ -1,7 +1,9 @@
 # 评测与记忆规则迭代（RSI）设计方案
 
-> **历史设计文档（2026-10 标注）**：本文描述的 v1 评测 harness（`npm run eval` 与
-> `fixtures/evals/`）已随观测平台接入方案的分支清理被移除，不属于现行实现。
+> **历史设计文档（2026-10 标注）**：本文描述的 v1 评测 harness 已随观测平台接入方案的分支清理被移除。
+> **现行实现见 [`docs/eval-implementation-plan.md`](eval-implementation-plan.md)**（离线 MVP：`src/eval/`、
+> `npm run eval` / `eval:compare` / `eval:review`、`fixtures/evals/`；scorer=`mvp-0.1.0`）。
+> 本文的 v1/v2 基线数字不可复现，仅作历史参考，不得与新体系同表对比。
 > 新评测/评分体系另行立项；本文仅保留为历史设计记录，文中脚本与入口不再可用。
 >
 > 针对「Bug 预诊断」场景的评测闭环设计。目标：用证据召回率 + 决策正确率两个指标，

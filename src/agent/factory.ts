@@ -7,7 +7,8 @@ import { PiEvidenceAuditor } from "./pi-auditor.ts";
 import type { EvidenceAuditor } from "./audit-types.ts";
 import type { DiagnosisEngine } from "./types.ts";
 
-export function buildEngine(config: AppConfig): DiagnosisEngine {
+/** systemPrompt 仅评测/实验注入（规则）；生产缺省用内置提示词。 */
+export function buildEngine(config: AppConfig, systemPrompt?: string): DiagnosisEngine {
   if (config.diagnosis.engine === "pi") {
     if (!config.diagnosis.apiKey) {
       throw new Error("TD_ENGINE=pi 但缺少 DEEPSEEK_API_KEY（或对应 provider 的 key）");
@@ -20,6 +21,7 @@ export function buildEngine(config: AppConfig): DiagnosisEngine {
       maxModelTurns: config.diagnosis.maxModelTurns,
       compactionEnabled: config.diagnosis.compactionEnabled,
       maxEventBytes: config.observability.maxEventBytes,
+      ...(systemPrompt ? { systemPrompt } : {}),
     });
   }
   return new FakeDiagnosisEngine({ defaultService: "checkout-service" });

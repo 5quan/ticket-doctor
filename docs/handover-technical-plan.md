@@ -258,7 +258,10 @@ type Platform interface {
 
 ### 5.7 [阶段二] 评测 M2 / M3（RSI）——另行立项
 
-> **2026-10-04**：旧评测 harness（v1/v2）已随观测接入方案整体移除，M2/M3 另行立项。
+> **2026-10-04（离线 MVP 已启动）**：新增离线评测框架 `src/eval/` + `npm run eval` / `eval:compare` / `eval:review`
+> （scorer=`mvp-0.1.0`，只评材料/引用，语义未复核=unscored）。**详细实施工作单见
+> [`docs/eval-implementation-plan.md`](eval-implementation-plan.md)**（E0 已完成，E1–E9 待执行）。
+> 旧评测 harness（v1/v2）仍为已移除，基线数字不可复现。
 > 本节保留为方向记录；重启时以 `docs/eval-design.md`（历史设计）与观测数据为起点。
 
 **目标/验收**：`rules.md` 条目化 + 增量 delta + 程序合并（照 ACE）；Pareto + μ_f（照 GEPA）；

@@ -38,12 +38,13 @@
 
 ## 阶段二：评测与效果优化（已调整）
 
-> **2026-10-04**：评测 harness（v1/v2）随观测接入方案整体移除，`npm run eval` 等入口不复存在，
-> 以下打勾项保留为历史记录，基线数字不可复现；M2/M3 另行立项时以观测数据为起点。
+> **2026-10-04**：评测 harness（v1/v2）随观测接入方案整体移除，以下打勾项保留为历史记录，基线数字不可复现。
+> **离线评测 MVP 已启动**（`src/eval/` + `npm run eval`/`eval:compare`/`eval:review`，scorer=`mvp-0.1.0`）；
+> 后续工作单见 `docs/eval-implementation-plan.md`（E1 真实案例准入 → E5 冻结基线 → E6 单项优化）。
 
 - [x] **评测 Benchmark（RSI）— M1**：harness + `checkout-timeout` 5 case + 打分器（`npm run eval`）。基线数字唯一事实源见 `docs/status.json#eval`；v2 校准口径（OQ-41）：真实模型中位数 90 / 22.3 / 80（3 次明细在内）。旧口径 90/30.7/80（D6 前 + scorer v1）**已作废，勿引用**。详见 `docs/eval-design.md`。
 - [x] **修评测打分器（P0）**：已修——`scorer` 同时按 `evidence_uid` 与 `E#` 建索引，`EvidenceRecord` 增 `evidenceUid`（UID 兼容）；fake 基线误报 0% 已纠正。口径随后升级 v2 校准（OQ-41），数字以 `docs/status.json#eval` 为准。见 `docs/session-handover.md §4`。
-- [ ] **评测 Benchmark（RSI）— M2**：`rules.md` 条目化 + 增量 delta + 程序合并（照 ACE）；Pareto + μ_f（照 GEPA）；扩样本（20~30）、judge 版正确率、独立 test 集、CI 门禁。
+- [ ] **评测 Benchmark（RSI）— M2**：离线 MVP 框架已完成（E0）；剩余见 `docs/eval-implementation-plan.md`（E1 真实案例准入、E4 人工复核、E5 冻结基线、E6 单项优化、E2/E3 工程自测与多轮）。`rules.md` 条目化 + 增量 delta + 程序合并（照 ACE）；Pareto + μ_f（照 GEPA）；扩样本、judge、CI 门禁。
 - [ ] **评测 Benchmark（RSI）— M3**：L1 自动迭代（`docs/evolve-protocol.md`）、场景迁移验证。
 - [x] **独立上下文审计 Agent（含有界补证循环）**：诊断 → 程序冻结草稿+证据快照 → 独立审计会话（不主动检索）→ 程序逐结论降级；审计判 continue 且有缺证项时按 `TD_AUDIT_MAX_ROUNDS`（默认 1）回主诊断补证再审计；失败显式降级不阻断；`AUDIT_POLICY_VERSION=1.0.0`（OQ-30）。并行审计/主动检索待后续。
 - [ ] 提示词调优（针对"跳工具直接作答 / 过度归因 / 漏报缺失材料"做 A/B）。
