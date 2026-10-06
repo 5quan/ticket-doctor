@@ -7,9 +7,9 @@
 // 全部 trial 结束后**重取快照并对比**（materialDrift）——manifest 记录的是运行开始时的口径，
 // 结束时的漂移单列在 freezeCheck，不允许悄悄混入。
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { buildMaterialManifest, repoFingerprint, sha256Bytes, sha256File } from "./hash.ts";
+import { buildMaterialManifest, listFilesRecursive, repoFingerprint, sha256Bytes, sha256File } from "./hash.ts";
 import { materialRealPaths } from "./isolation.ts";
 import { AUDIT_POLICY_VERSION } from "../../agent/audit-types.ts";
 import { AUDIT_SYSTEM_PROMPT } from "../../agent/pi-auditor.ts";
@@ -25,8 +25,8 @@ export interface SuiteManifestV2 {
   /** 实际执行的诊断引擎（捕获装饰器的内层 engine.name，A1）。 */
   engineActual: string;
   repeat: number;
-  /** 被评项目（ticket-doctor 自身）的 git 状态；非干净提交时归档修改指纹（A3）。 */
-  project: { head: string | null; dirty: boolean; dirtyFiles: string[]; diffHash: string | null };
+  /** 被评项目（ticket-doctor 自身）的 git 状态：运行前冻结；unknown = git 不可读（交付 1.1 #4）。 */
+  project: ProjectIdentity;
   /** 模型/口径配置（不含 apiKey）。 */
   diagnosis: {
     engineConfig: string;
@@ -75,7 +75,7 @@ export interface ManifestCase {
     viewRealPath: string;
     authorizedServices: string[];
     material: MaterialManifestV2;
-    repos: Array<{ repoId: string; expectedSha: string | null; head: string | null; treeHash: string | null; dirty: boolean | null }>;
+    repos: Array<{ repoId: string; expectedSha: string | null; head: string | null; treeHash: string | null; dirty: boolean | null; basis: "git-tree" | "content-fallback" | null }>;
   }>;
 }
 
@@ -87,24 +87,74 @@ function gitHead(repoDir: string): string | null {
   }
 }
 
-function gitStatus(repoDir: string): { dirty: boolean; files: string[]; diffHash: string | null } {
+/** 项目身份（交付 1.1 #4）：运行前冻结、运行后复核；git 读取失败记 unknown，不冒充干净。 */
+export interface ProjectIdentity {
+  head: string | null;
+  dirty: boolean | null;
+  dirtyFiles: string[];
+  /** 工作区 diff HEAD 的 hash（无修改为 null）。 */
+  diffHash: string | null;
+  /** 未跟踪实现文件的内容指纹（diff HEAD 不含 untracked，单独入账）。 */
+  untrackedHash: string | null;
+  /** git 状态可读性：ok=完整指纹；unknown=git 读取失败（指纹不完整，不得宣称可复现）。 */
+  gitState: "ok" | "unknown";
+}
+
+function untrackedFingerprint(repoDir: string, files: string[]): string | null {
+  const untracked = files.filter((f) => f.startsWith("??")).map((f) => f.slice(2).trim());
+  if (untracked.length === 0) return null;
+  const canonical: string[] = [];
+  for (const rel of untracked.sort()) {
+    try {
+      const abs = join(repoDir, rel);
+      const stat = statSync(abs);
+      if (stat.isDirectory()) {
+        for (const f of listFilesRecursive(abs)) canonical.push(`${rel}/${f.path}\0${f.sha256}`);
+      } else {
+        canonical.push(`${rel}\0${sha256Bytes(readFileSync(abs))}`);
+      }
+    } catch {
+      canonical.push(`${rel}\0unreadable`);
+    }
+  }
+  return sha256Bytes(canonical.join("\n"));
+}
+
+export function projectIdentity(repoDir: string): ProjectIdentity {
   try {
     const porcelain = execFileSync("git", ["-C", repoDir, "status", "--porcelain"], { encoding: "utf8", maxBuffer: 32 * 1024 * 1024 });
     const files = porcelain.split(/\r?\n/).filter(Boolean);
     let diffHash: string | null = null;
     if (files.length > 0) {
-      // A3：非干净提交时归档完整修改内容指纹（工作区 diff HEAD；无 HEAD 时归档空 diff hash）。
+      // A3：非干净提交时归档完整修改内容指纹（工作区 diff HEAD）。
       try {
-        const diff = execFileSync("git", ["-C", repoDir, "diff", "HEAD"], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
-        diffHash = sha256Bytes(diff);
+        diffHash = sha256Bytes(execFileSync("git", ["-C", repoDir, "diff", "HEAD"], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }));
       } catch {
         diffHash = null;
       }
     }
-    return { dirty: files.length > 0, files, diffHash };
+    return {
+      head: gitHead(repoDir),
+      dirty: files.length > 0,
+      dirtyFiles: files,
+      diffHash,
+      untrackedHash: untrackedFingerprint(repoDir, files),
+      gitState: "ok",
+    };
   } catch {
-    return { dirty: false, files: [], diffHash: null };
+    // git 状态读取失败：显式 unknown，不得冒充"干净/可复现"。
+    return { head: gitHead(repoDir), dirty: null, dirtyFiles: [], diffHash: null, untrackedHash: null, gitState: "unknown" };
   }
+}
+
+/** 项目身份漂移对比（交付 1.1 #4）：运行前后 head/工作区/未跟踪指纹任一变化即漂移。 */
+export function projectIdentityDrift(before: ProjectIdentity, after: ProjectIdentity): string[] {
+  const details: string[] = [];
+  if (before.head !== after.head) details.push(`HEAD 变更 ${before.head ?? "null"} → ${after.head ?? "null"}`);
+  if (before.diffHash !== after.diffHash) details.push("工作区 diff 变更");
+  if (before.untrackedHash !== after.untrackedHash) details.push("未跟踪文件指纹变更");
+  if (before.gitState !== after.gitState) details.push(`git 状态可读性变更 ${before.gitState} → ${after.gitState}`);
+  return details;
 }
 
 /** 冻结单 case 的材料与口径指纹（trial 运行前调用；A3）。 */
@@ -148,6 +198,7 @@ export function snapshotCaseMaterials(args: {
             head: fp.head ?? null,
             treeHash: fp.treeHash ?? null,
             dirty: fp.dirty ?? null,
+            basis: fp.basis ?? null,
           };
         }),
       };
@@ -176,6 +227,7 @@ export function materialDrift(before: ManifestCase, after: ManifestCase): string
         details.push(`round ${rb.roundId} repo ${repoB.repoId} 缺失`);
         continue;
       }
+      if (repoB.basis !== repoA.basis) details.push(`round ${rb.roundId} repo ${repoB.repoId} 指纹方式变更 ${repoB.basis ?? "null"} → ${repoA.basis ?? "null"}`);
       if (repoB.treeHash !== repoA.treeHash) details.push(`round ${rb.roundId} repo ${repoB.repoId} tree 变更`);
     }
   }
@@ -188,6 +240,8 @@ export function buildSuiteManifest(args: {
   engineActual: string;
   repeat: number;
   projectRoot: string;
+  /** 运行前冻结的项目身份（交付 1.1 #4）；buildSuiteManifest 不再自行读取 git。 */
+  project: ProjectIdentity;
   auditEngine: string | null;
   frozenCases: ManifestCase[];
   freezeCheck: { checkedAt: number; ok: boolean; drifts: Array<{ caseId: string; details: string[] }> };
@@ -195,16 +249,13 @@ export function buildSuiteManifest(args: {
   scorerVersion: string;
   wall: { startedAt: number; finishedAt: number };
 }): SuiteManifestV2 {
-  const projectHead = gitHead(args.projectRoot);
-  const projectStatus = gitStatus(args.projectRoot);
-
   return {
     schemaVersion: "prediagnosis-manifest-v2",
     suiteRunId: args.suiteRunId,
     engine: args.engine,
     engineActual: args.engineActual,
     repeat: args.repeat,
-    project: { head: projectHead, dirty: projectStatus.dirty, dirtyFiles: projectStatus.files, diffHash: projectStatus.diffHash },
+    project: args.project,
     diagnosis: {
       engineConfig: args.engine,
       provider: args.diagnosis.provider,

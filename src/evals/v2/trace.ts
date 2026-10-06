@@ -174,4 +174,30 @@ export function exportUsageEvent(recorder: TraceRecorder, sqlite: ExportSqlite, 
   );
 }
 
+/**
+ * 导出一轮的完整审计事件（交付 1.1 #7）：run_events 里的 audit_round（决定）/audit_failed
+ * （失败）/audit_applied（最终应用）连同**真实发生时间**（created_at）导出为 derived 事件。
+ * 审计决定此前只落在 per-trial 内存库、trial 结束即丢——B1 联调前必须在 trace 可回放。
+ */
+export function exportAuditEvents(recorder: TraceRecorder, sqlite: ExportSqlite, ids: { roundId: string; runId: string }): void {
+  const rows = sqlite
+    .prepare(
+      "SELECT type, payload, created_at FROM run_events WHERE run_id = ? AND type IN ('audit_round','audit_failed','audit_applied') ORDER BY created_at ASC, sequence ASC",
+    )
+    .all(ids.runId) as Array<Record<string, unknown>>;
+  for (const row of rows) {
+    let payload: unknown = null;
+    try {
+      payload = row.payload === null || row.payload === undefined ? null : JSON.parse(String(row.payload));
+    } catch {
+      payload = String(row.payload);
+    }
+    recorder.emitDerived(
+      "audit_event",
+      { auditType: String(row.type), occurredAt: row.created_at === null || row.created_at === undefined ? null : Number(row.created_at), payload },
+      ids,
+    );
+  }
+}
+
 export const traceFileOf = (runDir: string, caseId: string, trialId: string): string => join(runDir, caseId, trialId, "trace.jsonl");

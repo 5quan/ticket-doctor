@@ -108,3 +108,36 @@ junction 需 Windows 管理员/开发者模式；不可读文件/目录两个用
 
 **暂缓（按方案边界）**：模型裁判、Langfuse 全文内容推送（B1）、UI 触发实验、案例扩充。
 **遗留**：`docs:check` 的用例计数已随本交付更新（258→262）。
+
+---
+
+# 交付 1.1：七项可信度补强（2026-10-07，基于 a3ebbf3）
+
+> 逐项先在 a3ebbf3 上确认缺陷存在（源码 + 反例），再修复并加确定性反例测试。
+> 反例测试集中在一个文件：`tests/integration/eval-v2-deliverable11.test.ts`（8 例）+ 既有
+> review 测试新增 1 例。修改前确认结论见各项"确认"小注。
+
+| # | 要求 | 确认的缺陷（a3ebbf3） | 修复 | 反例结果 |
+|---|---|---|---|---|
+| 1 | outcome 以持久化终态+成功提交为准 | 预算耗尽/审计 failBlocks=true 失败时 `executeRun` 内部 `failRun` 后**正常返回**，runner 的 `runError` 不置位 → `outcomeOf(最后捕获)=report`；失败轮无硬失败可通过门禁 | outcome 判定改为 `preReadBlock→blocked；runRow.status==="succeeded" 且无 runError→outcomeOf(finalCall)；否则 error` | 反例 #1a/#1b：审计失败、补证预算耗尽 → outcome=error + `outcome_out_of_policy` 硬失败；反例 #1c：failBlocks=false 合法降级仍 report 且无硬失败 |
+| 2 | replay 按冻结身份对账 | replay 按目录遍历——trial 目录整个缺失/产物不全时不可见（"目录里有什么就对什么账"） | 运行前落盘 `trials.json`（`prediagnosis-trials-v1`，admissible×repeat）；replay 逐身份核对目录+三产物；清单外目录也报不一致；缺清单本身拒绝 | 反例 #2：删 outputs.json → 失败；删整个 trial → 失败；混入 t9 目录 → 失败；完整 → 通过（对账 17 身份） |
+| 3 | selected/planned/excluded + 阈值校验 | 显式选题全被准入拒绝时 planned=0/0、门禁照常通过；`--max-hard-failures=NaN` 时 `hard > NaN` 恒 false 静默放行 | summary 增 `selected`；显式选题含准入拒绝 → 运行即抛错（分母不得静默缩小）；阈值在运行前校验（非 ≥0 整数 → exit 2） | 反例 #3：显式选题未准入 case → 抛"准入拒绝"；全量运行 admissionRejected=1 正常计数；NaN/负数阈值 exit 2 |
+| 4 | freezeCheck 阻断门禁 + 项目身份/未跟踪指纹/unknown | 门禁不读 manifest（freezeCheck 形同虚设）；git 不可读时 repoFingerprint 返回 `{}`（漂移检测失效）；项目身份只在结束时取一次；untracked 内容不入指纹 | 门禁判定抽为纯函数 `gate.ts`：freezeCheck=false / gitState=unknown / manifest 缺失都失败；`projectIdentity` 运行前冻结+运行后复核（head/diffHash/untrackedHash/gitState）；repoFingerprint git 失败回退内容指纹（`basis=content-fallback`） | 反例 #4：正常 manifest 通过；篡改 freezeCheck=false → "冻结复核失败"；git unknown → 失败；manifest 缺失 → 失败 |
+| 5 | review 不得无中生有改判回写成功 + 同轮重复/冲突拒绝 | applyReview 的 writeback ok 覆盖不检查该轮是否真有回写记录；clarifications/writeback 数组无重复检测 | validateReview 增 `writebackPresentByRound` 事实绑定（无回写记录判 ok → 整份拒绝）+ 两个数组的同轮重复检测；applyReview 增防御（无 writebackText 的 ok 按 fail 计） | 反例（eval-v2-audit）：无回写判 ok → 拒绝；判 fail → 允许；同轮两条 clarification/writeback（含冲突）→ 整份拒绝；绕过校验直接 applyReview → 不得产出 100% |
+| 6 | rescore 版本绑定 | rescore 不检查 saved 版本（新旧口径可混合出复核分）；score.reviewed.json 无绑定元数据 | rescore：saved.scorerVersion ≠ 当前 → 拒绝；基础分必须可用当前评分器逐字段复算；reviewed 增 `reviewMeta`（outputsHash/reviewHash/reviewArtifact/baseScorerVersion/rescoredAt）；summary/push 消费前 `reviewedBindingValid` 核验，失效回退程序分并告警 | 实测：对 3.2.0 旧 suite rescore → "拒绝混合口径重评分"；reviewMeta 四元组落盘；summary 消费通过 |
+| 7 | 审计事件导出 + 逐 trial 审计器 + 耗尽暴露 | 审计决定/失败/应用只落 per-trial 内存 SQLite，trial 结束即丢（trace 无任何审计事件）；审计器名只有 suite 级；ScriptedAuditor 耗尽默认放行且无任何标记 | `exportAuditEvents`：每轮导出 `audit_event` derived 事件（audit_round/audit_failed/audit_applied + 真实 `occurredAt`）；`artifacts.auditEngine` + `auditScript`（provided/consumed/exhaustedCalls）；耗尽 → ScorerInput.auditScriptExhausted → 硬失败 `audit_script_exhausted`（SCORER_VERSION 3.3.0） | 反例 #7：2 轮只给 1 审计步 → 硬失败暴露 + 账目 {provided:1, consumed:1, exhaustedCalls:1}；≥3 条 audit_event 带 occurredAt 入 trace；eng-audit-loop 补足 3 步后正常 |
+
+**测试统计**：271 tests，269 通过 + 1 平台跳过（Windows junction）+ docs:check 状态同步（计数 262→271）。
+新增反例：`eval-v2-deliverable11.test.ts` 8 例 + `eval-v2-audit.test.ts` 1 例。
+
+**修改清单**：`runner.ts`（outcome/trials.json/selected/项目身份冻结/审计导出接线）、`gate.ts`（新增，纯函数门禁）、
+`manifest.ts`（projectIdentity/projectIdentityDrift/仓库指纹回退）、`hash.ts`（repoFingerprint 回退）、`trace.ts`（exportAuditEvents）、
+`scripted-engine.ts`（ScriptedAuditor 耗尽计数）、`scorer.ts`（3.3.0 + audit_script_exhausted）、`review.ts`（writeback 事实绑定/
+重复拒绝/reviewedBindingValid）、`cli.ts`（阈值前置校验/eval-root 绝对路径/replay 对账/rescore 版本检查+reviewMeta/消费端核验/gate 接线）、
+`engcases.ts`（eng-audit-loop 审计步补足）、`types.ts`、`status.json`、`eval-v2.md`。
+
+**剩余限制**：
+- 审计事件的真实时间来自 `run_events.created_at`（SQLite 写入时刻，毫秒），非 OTLP 时钟；B1 上报时以 trace 事件时间为准即可。
+- `trials.json` 只在 1.1 之后的运行存在；旧 suite 的 replay 显式拒绝并提示重跑（不兼容静默降级）。
+- 脚本审计耗尽的报告仍会发布（默认放行内容），但硬失败保证其无法通过 `--gate on`；是否改为阻断发布属审计策略（AUDIT_POLICY_VERSION）范畴，本交付不动业务策略。
+- 仓库指纹的 content-fallback 不含历史提交（只有当前工作树内容），对非 git 目录已够用；git 仓库始终走 git-tree 指纹。

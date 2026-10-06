@@ -277,6 +277,10 @@ export interface TrialArtifacts {
   familyId: string;
   trialId: string;
   engine: string;
+  /** 本 trial 实际使用的审计器名（未启用审计为 null；交付 1.1 #7）。 */
+  auditEngine: string | null;
+  /** 脚本审计的步数账目：提供/消费/耗尽调用次数（仅 scripted-audit；交付 1.1 #7）。 */
+  auditScript?: { provided: number; consumed: number; exhaustedCalls: number };
   rounds: RoundArtifacts[];
   /** A 层日志源记录（recording source 产出）。 */
   sourceReturned: Array<{ roundId: string; tool: string; args: unknown; entries: number; excerptHead: string[] }>;
@@ -335,7 +339,8 @@ export interface HardFailure {
     | "contradiction_ignored"
     | "empty_log_health_claim"
     | "trace_incomplete"
-    | "execution_error";
+    | "execution_error"
+    | "audit_script_exhausted";
   message: string;
   roundId?: string;
   stage?: OutputStage;
@@ -385,6 +390,17 @@ export interface CaseScoreV2 {
     /** claimSupport 复核覆盖率：已复核 / 实际可判判断总数。 */
     coverage?: { reviewed: number; total: number };
   };
+  /**
+   * 复核分绑定元数据（交付 1.1 #6）：消费方据此核验 outputsHash / 评分版本，
+   * 绑定失效（trial 重跑、口径混用）时必须回退程序分，不得冒用。
+   */
+  reviewMeta?: {
+    outputsHash: string;
+    reviewHash: string;
+    reviewArtifact: string;
+    baseScorerVersion: string;
+    rescoredAt: number;
+  };
   /** 逐轮摘要：产出类型、该轮硬失败、补问/反证结论、本轮新增 C1 满足的需求。 */
   roundScores: Array<{
     roundId: string;
@@ -414,9 +430,11 @@ export interface SuiteSummaryV2 {
   suiteRunId: string;
   engine: string;
   repeat: number;
+  /** 显式选题数（--cases 给出时为其长度；全量运行为 catalog 匹配数；交付 1.1 #3）。 */
+  selected: number;
   /** 计划口径（A3）：计划 case 数与计划 trial 数（不含准入拒绝的 case）。 */
   planned: { cases: number; trials: number };
-  /** 终态计数（A3）：预期阻断的 trial 与准入拒绝的 case 单独计数，不与失败混同。 */
+  /** 准入拒绝数（交付 1.1 #3）：selected − planned = excluded，分母缩小必须显式可见。 */
   counts: { scoredTrials: number; blockedExpectedTrials: number; admissionRejected: number; unscoredCases: number };
   caseStatuses: CaseStatus[];
   cases: Array<{ caseId: string; familyId: string; split: CaseSplit; admission: Admission; trials: CaseScoreV2[] }>;

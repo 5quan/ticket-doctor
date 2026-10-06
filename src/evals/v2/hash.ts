@@ -57,15 +57,25 @@ export function gitTreeFileList(repoDir: string, ref: string): string[] {
   return stdout.split(/\r?\n/).filter(Boolean).sort();
 }
 
-/** 供 manifest 汇总的仓库目录指纹：HEAD SHA + tree 清单 hash。 */
-export function repoFingerprint(repoDir: string): { head?: string; treeHash?: string; dirty?: boolean } {
+/**
+ * 供 manifest 汇总的仓库目录指纹：HEAD SHA + tree 清单 hash。
+ * git 不可读（dubious ownership、非 git 目录等）时回退为**目录内容指纹**（排除 .git），
+ * basis 显式标记——绝不因 git 失败而记 null 让漂移检测失效（交付 1.1 #4）。
+ */
+export function repoFingerprint(repoDir: string): { head?: string | null; treeHash?: string | null; dirty?: boolean | null; basis?: "git-tree" | "content-fallback" } {
   try {
     const head = execFileSync("git", ["-C", repoDir, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
     const treeHash = sha256Bytes(gitTreeFileList(repoDir, head).join("\n"));
     const dirty = execFileSync("git", ["-C", repoDir, "status", "--porcelain"], { encoding: "utf8" }).trim().length > 0;
-    return { head, treeHash, dirty };
+    return { head, treeHash, dirty, basis: "git-tree" };
   } catch {
-    return {};
+    try {
+      const files = listFilesRecursive(repoDir).filter((f) => !f.path.split("/").includes(".git"));
+      const treeHash = sha256Bytes(files.map((f) => `${f.path}\0${f.sha256}\0${f.bytes}`).join("\n"));
+      return { head: null, treeHash, dirty: null, basis: "content-fallback" };
+    } catch {
+      return {};
+    }
   }
 }
 

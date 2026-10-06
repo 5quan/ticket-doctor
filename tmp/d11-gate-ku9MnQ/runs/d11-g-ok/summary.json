@@ -1,0 +1,1092 @@
+{
+  "schemaVersion": "prediagnosis-score-v2",
+  "suiteRunId": "d11-g-ok",
+  "engine": "scripted",
+  "repeat": 1,
+  "selected": 6,
+  "planned": {
+    "cases": 6,
+    "trials": 6
+  },
+  "counts": {
+    "scoredTrials": 6,
+    "blockedExpectedTrials": 2,
+    "admissionRejected": 0,
+    "unscoredCases": 0
+  },
+  "caseStatuses": [
+    {
+      "caseId": "eng-clarify",
+      "phase": "scored",
+      "trials": 1
+    },
+    {
+      "caseId": "eng-counter-evidence",
+      "phase": "scored",
+      "trials": 1
+    },
+    {
+      "caseId": "eng-truncation",
+      "phase": "scored",
+      "trials": 1
+    },
+    {
+      "caseId": "eng-audit-loop",
+      "phase": "scored",
+      "trials": 1
+    },
+    {
+      "caseId": "eng-version-drift",
+      "phase": "scored",
+      "trials": 1
+    },
+    {
+      "caseId": "eng-version-headfix",
+      "phase": "scored",
+      "trials": 1
+    }
+  ],
+  "cases": [
+    {
+      "caseId": "eng-clarify",
+      "familyId": "eng-checkout",
+      "split": "engineering",
+      "admission": "admitted",
+      "trials": [
+        {
+          "schemaVersion": "prediagnosis-score-v2",
+          "scorerVersion": "3.3.0",
+          "suiteRunId": "d11-g-ok",
+          "caseId": "eng-clarify",
+          "familyId": "eng-checkout",
+          "trialId": "t1",
+          "split": "engineering",
+          "sourceTier": "synthetic_engineering",
+          "engine": "scripted",
+          "executionSuccess": true,
+          "traceCompletion": {
+            "numerator": 2,
+            "denominator": 2,
+            "notApplicable": 0,
+            "unscored": 0,
+            "value": 1
+          },
+          "recall": {
+            "A": {
+              "numerator": 1,
+              "denominator": 1,
+              "notApplicable": 0,
+              "unscored": 0,
+              "value": 1
+            },
+            "B": {
+              "numerator": 1,
+              "denominator": 1,
+              "notApplicable": 0,
+              "unscored": 0,
+              "value": 1
+            },
+            "C1": {
+              "numerator": 1,
+              "denominator": 1,
+              "notApplicable": 0,
+              "unscored": 0,
+              "value": 1
+            },
+            "C2": {
+              "numerator": 0,
+              "denominator": 0,
+              "notApplicable": 0,
+              "unscored": 1,
+              "value": null
+            },
+            "D": {
+              "numerator": 1,
+              "denominator": 1,
+              "notApplicable": 0,
+              "unscored": 0,
+              "value": 1
+            }
+          },
+          "citationValidity": {
+            "numerator": 7,
+            "denominator": 7,
+            "notApplicable": 0,
+            "unscored": 0,
+            "value": 1
+          },
+          "claimSupport": {
+            "numerator": 0,
+            "denominator": 0,
+            "notApplicable": 0,
+            "unscored": 4,
+            "value": null
+          },
+          "requiredFactCoverage": {
+            "numerator": 1,
+            "denominator": 1,
+            "notApplicable": 0,
+            "unscored": 0,
+            "value": 1
+          },
+          "unsupportedAssertionRate": {
+            "numerator": 0,
+            "denominator": 2,
+            "notApplicable": 0,
+            "unscored": 0,
+            "value": 0
+          },
+          "clarificationSuccess": {
+            "numerator": 1,
+            "denominator": 1,
+            "notApplicable": 0,
+            "unscored": 0,
+            "value": 1
+          },
+          "contradictionUpdateSuccess": {
+            "numerator": 0,
+            "denominator": 0,
+            "notApplicable": 0,
+            "unscored": 0,
+            "value": null
+          },
+          "writebackSuccess": {
+            "numerator": 2,
+            "denominator": 2,
+            "notApplicable": 0,
+            "unscored": 0,
+            "value": 1
+          },
+          "hardFailures": [],
+          "stageFindings": [
+            {
+              "stage": "raw",
+              "hardFailures": []
+            },
+            {
+              "stage": "validated",
+              "hardFailures": []
+            },
+            {
+              "stage": "raw",
+              "hardFailures": []
+            },
+            {
+              "stage": "validated",
+              "hardFailures": []
+            }
+          ],
+          "semanticReview": {
+            "imported": false,
+            "provisional": true
+          },
+          "roundScores": [
+            {
+              "roundId": "r1",
+              "outcome": "clarify",
+              "hardFailures": [],
+              "clarificationSuccess": true,
+              "contradictionUpdate": null,
+              "newC1Satisfied": []
+            },
+            {
+              "roundId": "r2",
+              "outcome": "report",
+              "hardFailures": [],
+              "clarificationSuccess": null,
+              "contradictionUpdate": null,
+              "newC1Satisfied": [
+                "req-timeout-log"
+              ]
+            }
+          ],
+          "attribution": [
+            {
+              "layer": "scoring",
+              "hint": "标准为 provisional（未经独立人工复核），语义结论有限"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "eng-counter-evidence",
+      "familyId": "eng-checkout",
+      "split": "engineering",
+      "admission": "admitted",
+      "trials": [
+        {
+          "schemaVersion": "prediagnosis-score-v2",
+          "scorerVersion": "3.3.0",
+          "suiteRunId": "d11-g-ok",
+          "caseId": "eng-counter-evidence",
+          "familyId": "eng-checkout",
+          "trialId": "t1",
+          "split": "engineering",
+          "sourceTier": "synthetic_engineering",
+          "engine": "scripted",
+          "executionSuccess": true,
+          "traceCompletion": {
+            "numerator": 2,
+            "denominator": 2,
+            "notApplicable": 0,
+            "unscored": 0,
+            "value": 1
+          },
+          "recall": {
+            "A": {
+              "numerator": 1,
+              "denominator": 1,
+              "notApplicable": 0,
+              "unscored": 0,
+              "value": 1
+            },
+            "B": {
+              "numerator": 1,
+              "denominator": 1,
+              "notApplicable": 0,
+              "unscored": 0,
+              "value": 1
+            },
+            "C1": {
+              "numerator": 1,
+              "denominator": 1,
+              "notApplicable": 0,
+              "unscored": 0,
+              "value": 1
+            },
+            "C2": {
+              "numerator": 0,
+              "denominator": 0,
+              "notApplicable": 0,
+              "unscored": 1,
+              "value": null
+            },
+            "D": {
+              "numerator": 1,
+              "denominator": 1,
+              "notApplicable": 0,
+              "unscored": 0,
+              "value": 1
+            }
+          },
+          "citationValidity": {
+            "numerator": 18,
+            "denominator": 18,
+            "notApplicable": 0,
+            "unscored": 0,
+            "value": 1
+          },
+          "claimSupport": {
+            "numerator": 0,
+            "denominator": 0,
+            "notApplicable": 0,
+            "unscored": 10,
+            "value": null
+          },
+          "requiredFactCoverage": {
+            "numerator": 2,
+            "denominator": 2,
+            "notApplicable": 0,
+            "unscored": 0,
+            "value": 1
+          },
+          "unsupportedAssertionRate": {
+            "numerator": 0,
+            "denominator": 6,
+            "notApplicable": 0,
+            "unscored": 0,
+            "value": 0
+          },
+          "clarificationSuccess": {
+            "numerator": 0,
+            "denominator": 0,
+            "notApplicable": 0,
+            "unscored": 0,
+            "value": null
+          },
+          "contradictionUpdateSuccess": {
+            "numerator": 1,
+            "denominator": 1,
+            "notApplicable": 0,
+            "unscored": 0,
+            "value": 1
+          },
+          "writebackSuccess": {
+            "numerator": 2,
+            "denominator": 2,
+            "notApplicable": 0,
+            "unscored": 0,
+            "value": 1
+          },
+          "hardFailures": [],
+          "stageFindings": [
+            {
+              "stage": "raw",
+              "hardFailures": []
+            },
+            {
+              "stage": "validated",
+              "hardFailures": []
+            },
+            {
+              "stage": "raw",
+              "hardFailures": []
+            },
+            {
+              "stage": "validated",
+              "hardFailures": []
+            }
+          ],
+          "semanticReview": {
+            "imported": false,
+            "provisional": true
+          },
+          "roundScores": [
+            {
+              "roundId": "r1",
+              "outcome": "report",
+              "hardFailures": [],
+              "clarificationSuccess": null,
+              "contradictionUpdate": null,
+              "newC1Satisfied": []
+            },
+            {
+              "roundId": "r2",
+              "outcome": "report",
+              "hardFailures": [],
+              "clarificationSuccess": null,
+              "contradictionUpdate": true,
+              "newC1Satisfied": [
+                "req-inventory-error"
+              ]
+            }
+          ],
+          "attribution": [
+            {
+              "layer": "scoring",
+              "hint": "标准为 provisional（未经独立人工复核），语义结论有限"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "eng-truncation",
+      "familyId": "eng-checkout",
+      "split": "engineering",
+      "admission": "admitted",
+      "trials": [
+        {
+          "schemaVersion": "prediagnosis-score-v2",
+          "scorerVersion": "3.3.0",
+          "suiteRunId": "d11-g-ok",
+          "caseId": "eng-truncation",
+          "familyId": "eng-checkout",
+          "trialId": "t1",
+          "split": "engineering",
+          "sourceTier": "synthetic_engineering",
+          "engine": "scripted",
+          "executionSuccess": true,
+          "traceCompletion": {
+            "numerator": 1,
+            "denominator": 1,
+            "notApplicable": 0,
+            "unscored": 0,
+            "value": 1
+          },
+          "recall": {
+            "A": {
+              "numerator": 1,
+              "denominator": 1,
+              "notApplicable": 0,
+              "unscored": 0,
+              "value": 1
+            },
+            "B": {
+              "numerator": 1,
+              "denominator": 1,
+              "notApplicable": 0,
+              "unscored": 0,
+              "value": 1
+            },
+            "C1": {
+              "numerator": 0,
+              "denominator": 1,
+              "notApplicable": 0,
+              "unscored": 0,
+              "value": 0
+            },
+            "C2": {
+              "numerator": 0,
+              "denominator": 0,
+              "notApplicable": 0,
+              "unscored": 1,
+              "value": null
+            },
+            "D": {
+              "numerator": 0,
+              "denominator": 1,
+              "notApplicable": 0,
+              "unscored": 0,
+              "value": 0
+            }
+          },
+          "citationValidity": {
+            "numerator": 19,
+            "denominator": 19,
+            "notApplicable": 0,
+            "unscored": 0,
+            "value": 1
+          },
+          "claimSupport": {
+            "numerator": 0,
+            "denominator": 0,
+            "notApplicable": 0,
+            "unscored": 4,
+            "value": null
+          },
+          "requiredFactCoverage": {
+            "numerator": 1,
+            "denominator": 1,
+            "notApplicable": 0,
+            "unscored": 0,
+            "value": 1
+          },
+          "unsupportedAssertionRate": {
+            "numerator": 0,
+            "denominator": 2,
+            "notApplicable": 0,
+            "unscored": 0,
+            "value": 0
+          },
+          "clarificationSuccess": {
+            "numerator": 0,
+            "denominator": 0,
+            "notApplicable": 0,
+            "unscored": 0,
+            "value": null
+          },
+          "contradictionUpdateSuccess": {
+            "numerator": 0,
+            "denominator": 0,
+            "notApplicable": 0,
+            "unscored": 0,
+            "value": null
+          },
+          "writebackSuccess": {
+            "numerator": 1,
+            "denominator": 1,
+            "notApplicable": 0,
+            "unscored": 0,
+            "value": 1
+          },
+          "hardFailures": [],
+          "stageFindings": [
+            {
+              "stage": "raw",
+              "hardFailures": []
+            },
+            {
+              "stage": "validated",
+              "hardFailures": []
+            }
+          ],
+          "semanticReview": {
+            "imported": false,
+            "provisional": true
+          },
+          "roundScores": [
+            {
+              "roundId": "r1",
+              "outcome": "report",
+              "hardFailures": [],
+              "clarificationSuccess": null,
+              "contradictionUpdate": null,
+              "newC1Satisfied": []
+            }
+          ],
+          "attribution": [
+            {
+              "layer": "scoring",
+              "hint": "标准为 provisional（未经独立人工复核），语义结论有限"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "eng-audit-loop",
+      "familyId": "eng-checkout",
+      "split": "engineering",
+      "admission": "admitted",
+      "trials": [
+        {
+          "schemaVersion": "prediagnosis-score-v2",
+          "scorerVersion": "3.3.0",
+          "suiteRunId": "d11-g-ok",
+          "caseId": "eng-audit-loop",
+          "familyId": "eng-checkout",
+          "trialId": "t1",
+          "split": "engineering",
+          "sourceTier": "synthetic_engineering",
+          "engine": "scripted",
+          "executionSuccess": true,
+          "traceCompletion": {
+            "numerator": 2,
+            "denominator": 2,
+            "notApplicable": 0,
+            "unscored": 0,
+            "value": 1
+          },
+          "recall": {
+            "A": {
+              "numerator": 1,
+              "denominator": 1,
+              "notApplicable": 0,
+              "unscored": 0,
+              "value": 1
+            },
+            "B": {
+              "numerator": 1,
+              "denominator": 1,
+              "notApplicable": 0,
+              "unscored": 0,
+              "value": 1
+            },
+            "C1": {
+              "numerator": 1,
+              "denominator": 1,
+              "notApplicable": 0,
+              "unscored": 0,
+              "value": 1
+            },
+            "C2": {
+              "numerator": 0,
+              "denominator": 0,
+              "notApplicable": 0,
+              "unscored": 1,
+              "value": null
+            },
+            "D": {
+              "numerator": 1,
+              "denominator": 1,
+              "notApplicable": 0,
+              "unscored": 0,
+              "value": 1
+            }
+          },
+          "citationValidity": {
+            "numerator": 7,
+            "denominator": 7,
+            "notApplicable": 0,
+            "unscored": 0,
+            "value": 1
+          },
+          "claimSupport": {
+            "numerator": 0,
+            "denominator": 0,
+            "notApplicable": 0,
+            "unscored": 8,
+            "value": null
+          },
+          "requiredFactCoverage": {
+            "numerator": 0,
+            "denominator": 1,
+            "notApplicable": 0,
+            "unscored": 0,
+            "value": 0
+          },
+          "unsupportedAssertionRate": {
+            "numerator": 0,
+            "denominator": 4,
+            "notApplicable": 0,
+            "unscored": 0,
+            "value": 0
+          },
+          "clarificationSuccess": {
+            "numerator": 0,
+            "denominator": 0,
+            "notApplicable": 0,
+            "unscored": 0,
+            "value": null
+          },
+          "contradictionUpdateSuccess": {
+            "numerator": 0,
+            "denominator": 0,
+            "notApplicable": 0,
+            "unscored": 0,
+            "value": null
+          },
+          "writebackSuccess": {
+            "numerator": 1,
+            "denominator": 2,
+            "notApplicable": 0,
+            "unscored": 0,
+            "value": 0.5
+          },
+          "hardFailures": [],
+          "stageFindings": [
+            {
+              "stage": "raw",
+              "hardFailures": []
+            },
+            {
+              "stage": "validated",
+              "hardFailures": []
+            },
+            {
+              "stage": "raw",
+              "hardFailures": []
+            },
+            {
+              "stage": "validated",
+              "hardFailures": []
+            }
+          ],
+          "semanticReview": {
+            "imported": false,
+            "provisional": true
+          },
+          "roundScores": [
+            {
+              "roundId": "r1",
+              "outcome": "report",
+              "hardFailures": [],
+              "clarificationSuccess": null,
+              "contradictionUpdate": null,
+              "newC1Satisfied": []
+            },
+            {
+              "roundId": "r2",
+              "outcome": "report",
+              "hardFailures": [],
+              "clarificationSuccess": null,
+              "contradictionUpdate": null,
+              "newC1Satisfied": [
+                "req-inventory-error"
+              ]
+            }
+          ],
+          "attribution": [
+            {
+              "layer": "scoring",
+              "hint": "标准为 provisional（未经独立人工复核），语义结论有限"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "eng-version-drift",
+      "familyId": "eng-version",
+      "split": "engineering",
+      "admission": "admitted",
+      "trials": [
+        {
+          "schemaVersion": "prediagnosis-score-v2",
+          "scorerVersion": "3.3.0",
+          "suiteRunId": "d11-g-ok",
+          "caseId": "eng-version-drift",
+          "familyId": "eng-version",
+          "trialId": "t1",
+          "split": "engineering",
+          "sourceTier": "synthetic_engineering",
+          "engine": "scripted",
+          "executionSuccess": false,
+          "traceCompletion": {
+            "numerator": 1,
+            "denominator": 1,
+            "notApplicable": 0,
+            "unscored": 0,
+            "value": 1
+          },
+          "recall": {
+            "A": {
+              "numerator": 0,
+              "denominator": 0,
+              "notApplicable": 0,
+              "unscored": 1,
+              "value": null
+            },
+            "B": {
+              "numerator": 0,
+              "denominator": 1,
+              "notApplicable": 0,
+              "unscored": 0,
+              "value": 0
+            },
+            "C1": {
+              "numerator": 0,
+              "denominator": 1,
+              "notApplicable": 0,
+              "unscored": 0,
+              "value": 0
+            },
+            "C2": {
+              "numerator": 0,
+              "denominator": 0,
+              "notApplicable": 0,
+              "unscored": 1,
+              "value": null
+            },
+            "D": {
+              "numerator": 0,
+              "denominator": 1,
+              "notApplicable": 0,
+              "unscored": 0,
+              "value": 0
+            }
+          },
+          "citationValidity": {
+            "numerator": 0,
+            "denominator": 0,
+            "notApplicable": 0,
+            "unscored": 0,
+            "value": null
+          },
+          "claimSupport": {
+            "numerator": 0,
+            "denominator": 0,
+            "notApplicable": 0,
+            "unscored": 0,
+            "value": null
+          },
+          "requiredFactCoverage": {
+            "numerator": 0,
+            "denominator": 0,
+            "notApplicable": 0,
+            "unscored": 0,
+            "value": null
+          },
+          "unsupportedAssertionRate": {
+            "numerator": 0,
+            "denominator": 0,
+            "notApplicable": 0,
+            "unscored": 0,
+            "value": null
+          },
+          "clarificationSuccess": {
+            "numerator": 0,
+            "denominator": 0,
+            "notApplicable": 0,
+            "unscored": 0,
+            "value": null
+          },
+          "contradictionUpdateSuccess": {
+            "numerator": 0,
+            "denominator": 0,
+            "notApplicable": 0,
+            "unscored": 0,
+            "value": null
+          },
+          "writebackSuccess": {
+            "numerator": 1,
+            "denominator": 1,
+            "notApplicable": 0,
+            "unscored": 0,
+            "value": 1
+          },
+          "hardFailures": [],
+          "stageFindings": [
+            {
+              "stage": "raw",
+              "hardFailures": []
+            },
+            {
+              "stage": "validated",
+              "hardFailures": []
+            }
+          ],
+          "semanticReview": {
+            "imported": false,
+            "provisional": true
+          },
+          "roundScores": [
+            {
+              "roundId": "r1",
+              "outcome": "blocked",
+              "hardFailures": [],
+              "clarificationSuccess": null,
+              "contradictionUpdate": null,
+              "newC1Satisfied": []
+            }
+          ],
+          "attribution": [
+            {
+              "layer": "scoring",
+              "hint": "标准为 provisional（未经独立人工复核），语义结论有限"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "eng-version-headfix",
+      "familyId": "eng-version",
+      "split": "engineering",
+      "admission": "admitted",
+      "trials": [
+        {
+          "schemaVersion": "prediagnosis-score-v2",
+          "scorerVersion": "3.3.0",
+          "suiteRunId": "d11-g-ok",
+          "caseId": "eng-version-headfix",
+          "familyId": "eng-version",
+          "trialId": "t1",
+          "split": "engineering",
+          "sourceTier": "synthetic_engineering",
+          "engine": "scripted",
+          "executionSuccess": false,
+          "traceCompletion": {
+            "numerator": 1,
+            "denominator": 1,
+            "notApplicable": 0,
+            "unscored": 0,
+            "value": 1
+          },
+          "recall": {
+            "A": {
+              "numerator": 0,
+              "denominator": 0,
+              "notApplicable": 0,
+              "unscored": 1,
+              "value": null
+            },
+            "B": {
+              "numerator": 0,
+              "denominator": 1,
+              "notApplicable": 0,
+              "unscored": 0,
+              "value": 0
+            },
+            "C1": {
+              "numerator": 0,
+              "denominator": 1,
+              "notApplicable": 0,
+              "unscored": 0,
+              "value": 0
+            },
+            "C2": {
+              "numerator": 0,
+              "denominator": 0,
+              "notApplicable": 0,
+              "unscored": 1,
+              "value": null
+            },
+            "D": {
+              "numerator": 0,
+              "denominator": 1,
+              "notApplicable": 0,
+              "unscored": 0,
+              "value": 0
+            }
+          },
+          "citationValidity": {
+            "numerator": 0,
+            "denominator": 0,
+            "notApplicable": 0,
+            "unscored": 0,
+            "value": null
+          },
+          "claimSupport": {
+            "numerator": 0,
+            "denominator": 0,
+            "notApplicable": 0,
+            "unscored": 0,
+            "value": null
+          },
+          "requiredFactCoverage": {
+            "numerator": 0,
+            "denominator": 0,
+            "notApplicable": 0,
+            "unscored": 0,
+            "value": null
+          },
+          "unsupportedAssertionRate": {
+            "numerator": 0,
+            "denominator": 0,
+            "notApplicable": 0,
+            "unscored": 0,
+            "value": null
+          },
+          "clarificationSuccess": {
+            "numerator": 0,
+            "denominator": 0,
+            "notApplicable": 0,
+            "unscored": 0,
+            "value": null
+          },
+          "contradictionUpdateSuccess": {
+            "numerator": 0,
+            "denominator": 0,
+            "notApplicable": 0,
+            "unscored": 0,
+            "value": null
+          },
+          "writebackSuccess": {
+            "numerator": 1,
+            "denominator": 1,
+            "notApplicable": 0,
+            "unscored": 0,
+            "value": 1
+          },
+          "hardFailures": [],
+          "stageFindings": [
+            {
+              "stage": "raw",
+              "hardFailures": []
+            },
+            {
+              "stage": "validated",
+              "hardFailures": []
+            }
+          ],
+          "semanticReview": {
+            "imported": false,
+            "provisional": true
+          },
+          "roundScores": [
+            {
+              "roundId": "r1",
+              "outcome": "blocked",
+              "hardFailures": [],
+              "clarificationSuccess": null,
+              "contradictionUpdate": null,
+              "newC1Satisfied": []
+            }
+          ],
+          "attribution": [
+            {
+              "layer": "scoring",
+              "hint": "标准为 provisional（未经独立人工复核），语义结论有限"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "aggregate": {
+    "traceCompletion": {
+      "numerator": 9,
+      "denominator": 9,
+      "notApplicable": 0,
+      "unscored": 0,
+      "value": 1
+    },
+    "citationValidity": {
+      "numerator": 51,
+      "denominator": 51,
+      "notApplicable": 0,
+      "unscored": 0,
+      "value": 1
+    },
+    "claimSupport": {
+      "numerator": 0,
+      "denominator": 0,
+      "notApplicable": 0,
+      "unscored": 26,
+      "value": null
+    },
+    "requiredFactCoverage": {
+      "numerator": 4,
+      "denominator": 5,
+      "notApplicable": 0,
+      "unscored": 0,
+      "value": 0.8
+    },
+    "unsupportedAssertionRate": {
+      "numerator": 0,
+      "denominator": 14,
+      "notApplicable": 0,
+      "unscored": 0,
+      "value": 0
+    },
+    "clarificationSuccess": {
+      "numerator": 1,
+      "denominator": 1,
+      "notApplicable": 0,
+      "unscored": 0,
+      "value": 1
+    },
+    "contradictionUpdateSuccess": {
+      "numerator": 1,
+      "denominator": 1,
+      "notApplicable": 0,
+      "unscored": 0,
+      "value": 1
+    },
+    "writebackSuccess": {
+      "numerator": 8,
+      "denominator": 9,
+      "notApplicable": 0,
+      "unscored": 0,
+      "value": 0.8888888888888888
+    },
+    "recall.A": {
+      "numerator": 4,
+      "denominator": 4,
+      "notApplicable": 0,
+      "unscored": 2,
+      "value": null
+    },
+    "recall.B": {
+      "numerator": 4,
+      "denominator": 6,
+      "notApplicable": 0,
+      "unscored": 0,
+      "value": 0.6666666666666666
+    },
+    "recall.C1": {
+      "numerator": 3,
+      "denominator": 6,
+      "notApplicable": 0,
+      "unscored": 0,
+      "value": 0.5
+    },
+    "recall.C2": {
+      "numerator": 0,
+      "denominator": 0,
+      "notApplicable": 0,
+      "unscored": 6,
+      "value": null
+    },
+    "recall.D": {
+      "numerator": 3,
+      "denominator": 6,
+      "notApplicable": 0,
+      "unscored": 0,
+      "value": 0.5
+    },
+    "executionSuccess": {
+      "numerator": 4,
+      "denominator": 6,
+      "notApplicable": 0,
+      "unscored": 0,
+      "value": 0.6666666666666666
+    },
+    "hardFailures": {
+      "numerator": 0,
+      "denominator": 6,
+      "notApplicable": 0,
+      "unscored": 0,
+      "value": null
+    }
+  },
+  "families": [
+    {
+      "familyId": "eng-checkout",
+      "trials": 4,
+      "hardFailures": 0
+    },
+    {
+      "familyId": "eng-version",
+      "trials": 2,
+      "hardFailures": 0
+    }
+  ],
+  "wall": {
+    "startedAt": 1791307695098,
+    "finishedAt": 1791307696128
+  }
+}

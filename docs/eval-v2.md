@@ -40,6 +40,28 @@ runs/<suite-id>/            # 每次运行：manifest.json + summary.json + 逐 
 >   初稿错误保留在 `rawDraft`，终稿单独评价（`report`）；trace 增加逐调用 `engine_call` 事件。
 > - manifest 冻结于运行前，结束时复核材料指纹漂移（`freezeCheck`）；`project.dirtyFiles/diffHash`
 >   归档非干净提交的修改指纹；脚本/审计脚本 hash 入账（`cases[].scriptHash/auditScriptHash`）。
+>
+> **2026-10-07 更新（交付 1.1，七项可信度补强；`SCORER_VERSION=3.3.0`）**：
+> 1. **outcome 以持久化终态为准**：run 未 `succeeded`（审计 failBlocks=true 失败、补证引擎
+>    预算耗尽、超时、提交被拒）一律记 `error` 并产生越界硬失败——不得因已有成功草稿记
+>    report 或通过门禁；`failBlocks=false` 的合法降级仍正常发布。
+> 2. **replay 按冻结身份对账**：运行前落盘 `runs/<suite>/trials.json`
+>    （`prediagnosis-trials-v1`）；缺 trial 产物、缺整个 trial、混入清单外目录都失败。
+> 3. **selected/planned/excluded 分离**：summary 记 `selected`（显式选题数）与 `planned`
+>    （可评数）；**显式选题中出现准入拒绝 → 运行即失败**（分母不得静默缩小）；全量运行的
+>    准入拒绝单独计数。门禁阈值（`--max-hard-failures`）NaN/负数在运行前拒绝（exit 2）。
+> 4. **冻结漂移阻断门禁**：`freezeCheck=false` 或 `project.gitState=unknown`（git 不可读）
+>    门禁失败；项目身份运行前冻结/运行后复核（HEAD/diff/未跟踪文件指纹 `untrackedHash`）；
+>    仓库指纹 git 不可读时回退内容指纹（`basis=content-fallback`），不再记 null。
+> 5. **review 事实约束**：轮次无实际回写记录时不得复核为回写成功（校验拒绝 + applyReview
+>    防御双层）；clarification/writeback 同轮重复或冲突记录整份拒绝。
+> 6. **rescore 版本绑定**：`score.json` 版本 ≠ 当前评分器 → 拒绝（不允许混合口径）；
+>    基础分必须可用当前代码逐字段复算；`score.reviewed.json` 携带 `reviewMeta`
+>    （outputsHash/reviewHash/reviewArtifact/baseScorerVersion）；summary/push 消费前核验
+>    绑定，失效回退程序分并告警。
+> 7. **审计可回放**：`audit_event` derived 事件导出每轮的审计决定/失败/最终应用（含真实
+>    `occurredAt`）；`artifacts.auditEngine` 记录逐 trial 实际审计器，`auditScript` 记录
+>    提供/消费/耗尽步数；**脚本审计耗尽 = 硬失败 `audit_script_exhausted`**（默认放行必须暴露）。
 
 ```bash
 npm run eval:v2 -- run --suite daily-1 --engine scripted [--repeat 3] [--cases eng-clarify]

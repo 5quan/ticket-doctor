@@ -1,0 +1,33 @@
+{
+  "schemaVersion": "prediagnosis-trials-v1",
+  "suiteRunId": "d11-g-ok",
+  "engine": "scripted",
+  "repeat": 1,
+  "createdAt": 1791307695098,
+  "identities": [
+    {
+      "caseId": "eng-clarify",
+      "trialId": "t1"
+    },
+    {
+      "caseId": "eng-counter-evidence",
+      "trialId": "t1"
+    },
+    {
+      "caseId": "eng-truncation",
+      "trialId": "t1"
+    },
+    {
+      "caseId": "eng-audit-loop",
+      "trialId": "t1"
+    },
+    {
+      "caseId": "eng-version-drift",
+      "trialId": "t1"
+    },
+    {
+      "caseId": "eng-version-headfix",
+      "trialId": "t1"
+    }
+  ]
+}

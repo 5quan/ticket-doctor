@@ -33,8 +33,8 @@ import { checkIsolation, isolationSummary } from "./isolation.ts";
 import { validatePairing } from "./schema.ts";
 import { scanResolvedTreeForIsolation } from "./isolation.ts";
 import { CaptureSender } from "./capture.ts";
-import { buildSuiteManifest, materialDrift, snapshotCaseMaterials, type ManifestCase } from "./manifest.ts";
-import { exportEvidenceEvents, exportToolEvents, exportUsageEvent, TraceRecorder } from "./trace.ts";
+import { buildSuiteManifest, materialDrift, projectIdentity, projectIdentityDrift, snapshotCaseMaterials, type ManifestCase } from "./manifest.ts";
+import { exportAuditEvents, exportEvidenceEvents, exportToolEvents, exportUsageEvent, TraceRecorder } from "./trace.ts";
 import {
   RecordingFileLogSource,
   layerBByInvestigation,
@@ -163,8 +163,9 @@ export async function runSuite(opts: RunSuiteOptions): Promise<SuiteSummaryV2> {
   }
   const entries = catalog.cases.filter((c) => !opts.caseIds || opts.caseIds.includes(c.caseId));
   if (entries.length === 0) throw new Error("catalog 中没有匹配的 case");
-  // 准入预筛（A3）：非 engineering 且未 admitted 的 case 是**准入拒绝**（独立终态），
+  // 准入预筛（A3/交付 1.1 #3）：非 engineering 且未 admitted 的 case 是**准入拒绝**（独立终态），
   // 不进评测总体、不进计划口径；工程自测拆分不受准入门槛约束（schema 同规则）。
+  // 显式选题（--cases）中出现准入拒绝 → 直接失败：固定基线案例不得因准入退化静默缩小分母。
   const admissionRejected: CatalogEntry[] = [];
   const admissible: CatalogEntry[] = [];
   for (const entry of entries) {
@@ -178,6 +179,14 @@ export async function runSuite(opts: RunSuiteOptions): Promise<SuiteSummaryV2> {
       // 读不出 case.json 的按装载错误处理（下方正常流程记录）。
     }
     admissible.push(entry);
+  }
+  if (opts.caseIds && opts.caseIds.length > 0 && admissionRejected.length > 0) {
+    throw new Error(
+      `显式选题中存在准入拒绝的 case：${admissionRejected.map((c) => c.caseId).join(", ")}——请先完成准入或改用全量运行（分母不得静默缩小）`,
+    );
+  }
+  if (admissible.length === 0) {
+    throw new Error(`可评案例为 0（selected=${entries.length}，准入拒绝=${admissionRejected.length}）——拒绝以空评测冒充通过`);
   }
   const repeat = Math.max(1, opts.repeat);
   const plannedTrials = admissible.length * repeat;
@@ -194,6 +203,17 @@ export async function runSuite(opts: RunSuiteOptions): Promise<SuiteSummaryV2> {
   const caseStatuses: CaseStatus[] = [];
   // 审计引擎口径（A1）：同一 suite 内审计器构造规则一致，取首个启用 case 的引擎名。
   let auditEngine: string | null = null;
+
+  // 冻结 case/trial 身份清单（交付 1.1 #2）：在 trial 运行**前**落盘，replay 据此对账——
+  // 缺 trial / 缺 case / 混入清单外产物都必须失败，不允许"目录里有什么就对什么账"。
+  const identities = admissible.flatMap((entry) => Array.from({ length: repeat }, (_, t) => ({ caseId: entry.caseId, trialId: `t${t + 1}` })));
+  writeFileSync(
+    join(runDir, "trials.json"),
+    JSON.stringify({ schemaVersion: "prediagnosis-trials-v1", suiteRunId: opts.suiteRunId, engine: opts.engine, repeat, createdAt: startedAt, identities }, null, 2),
+    "utf8",
+  );
+  // 项目身份运行前冻结（交付 1.1 #4）：HEAD/工作区/未跟踪实现文件指纹；结束时复核漂移。
+  const projectBefore = projectIdentity(opts.projectRoot);
 
   for (const entry of admissionRejected) {
     caseStatuses.push({ caseId: entry.caseId, phase: "admission_rejected", trials: 0, reason: "非 engineering 拆分且未 admitted（准入拒绝，不入评测总体）" });
@@ -263,7 +283,7 @@ export async function runSuite(opts: RunSuiteOptions): Promise<SuiteSummaryV2> {
     caseStatuses.push({ caseId: entry.caseId, phase: "scored", trials: trials.length });
   }
 
-  // 冻结复核（A3）：全部 trial 结束后重取快照对比；漂移不影响已产生的记录，但必须显式暴露。
+  // 冻结复核（A3/交付 1.1 #4）：全部 trial 结束后重取快照对比；漂移不影响已产生的记录，但必须显式暴露。
   const freezeDrifts: Array<{ caseId: string; details: string[] }> = [];
   for (const frozen of frozenCases) {
     const entry = catalog.cases.find((c) => c.caseId === frozen.caseId)!;
@@ -282,6 +302,10 @@ export async function runSuite(opts: RunSuiteOptions): Promise<SuiteSummaryV2> {
       freezeDrifts.push({ caseId: frozen.caseId, details: [`复核失败：${err instanceof Error ? err.message : String(err)}`] });
     }
   }
+  // 项目身份漂移（交付 1.1 #4）：HEAD/工作区/未跟踪实现文件在运行中途变化都算漂移。
+  const projectAfter = projectIdentity(opts.projectRoot);
+  const projectDrift = projectIdentityDrift(projectBefore, projectAfter);
+  if (projectDrift.length > 0) freezeDrifts.push({ caseId: "<project>", details: projectDrift });
   const freezeCheck = { checkedAt: Date.now(), ok: freezeDrifts.length === 0, drifts: freezeDrifts };
 
   const wall = { startedAt, finishedAt: Date.now() };
@@ -295,6 +319,7 @@ export async function runSuite(opts: RunSuiteOptions): Promise<SuiteSummaryV2> {
     suiteRunId: opts.suiteRunId,
     engine: opts.engine,
     repeat,
+    selected: entries.length,
     planned: { cases: admissible.length, trials: plannedTrials },
     counts: {
       scoredTrials,
@@ -315,6 +340,7 @@ export async function runSuite(opts: RunSuiteOptions): Promise<SuiteSummaryV2> {
     engineActual: caseSummaries.length > 0 ? (caseSummaries[0]?.trials[0]?.engine ?? opts.engine) : opts.engine,
     repeat,
     projectRoot: opts.projectRoot,
+    project: projectBefore,
     auditEngine,
     frozenCases,
     freezeCheck,
@@ -382,6 +408,10 @@ async function runTrial(opts: RunSuiteOptions, loaded: LoadedCase, runDir: strin
     familyId: caseDesc.familyId,
     trialId,
     engine: capture.name,
+    auditEngine,
+    ...(auditor instanceof ScriptedAuditor
+      ? { auditScript: { provided: 0, consumed: 0, exhaustedCalls: 0 } }
+      : {}),
     rounds: [],
     sourceReturned: [],
     wall: { startedAt: Date.now(), finishedAt: 0 },
@@ -582,7 +612,12 @@ async function runTrial(opts: RunSuiteOptions, loaded: LoadedCase, runDir: strin
         );
       }
       // 预期内的读取前阻断（版本/隔离预检）单独记 blocked，不与真实 error 混同。
-      const outcome = preReadBlock ? "blocked" : runError ? "error" : outcomeOf(finalCall);
+      // outcome 以**持久化运行终态 + 成功提交事实**为准（交付 1.1 #1）：run 未 succeeded
+      // （审计 failBlocks=true 失败、补证引擎失败、预算耗尽、超时、提交被拒等）一律记 error，
+      // 不得因引擎已产出草稿而记 report——否则失败轮会以"合法产出"通过门禁。
+      // failBlocks=false 的合法降级仍走 finalize 正常发布（status=succeeded → outcome 照常）。
+      const committed = runRow.status === "succeeded";
+      const outcome: RoundOutcomeKind = preReadBlock ? "blocked" : committed && !runError ? outcomeOf(finalCall) : "error";
       const reportRow = store.getReportByRun(claimed.run.id);
       const validatedReport = reportRow
         ? (JSON.parse(reportRow.content) as NonNullable<RoundArtifacts["rawDraft"]> & { scope?: unknown; corrections?: string[] })
@@ -599,6 +634,8 @@ async function runTrial(opts: RunSuiteOptions, loaded: LoadedCase, runDir: strin
       exportToolEvents(trace, db, { roundId: round.roundId, runId: claimed.run.id });
       exportEvidenceEvents(trace, db, { roundId: round.roundId, runId: claimed.run.id });
       exportUsageEvent(trace, db, { roundId: round.roundId, attemptId: claimed.attemptId });
+      // 审计决定/失败/最终应用（交付 1.1 #7）：连同真实发生时间导出，trial 结束不丢。
+      exportAuditEvents(trace, db, { roundId: round.roundId, runId: claimed.run.id });
       presentEvents.add("evidence_committed");
       presentEvents.add("usage");
       if ((finalCall?.toolCalls ?? 0) > 0) presentEvents.add("tool_returned");
@@ -774,6 +811,10 @@ async function runTrial(opts: RunSuiteOptions, loaded: LoadedCase, runDir: strin
   artifacts.wall.finishedAt = Date.now();
   const usageRow = db.prepare("SELECT COALESCE(SUM(usage_total_tokens), 0) AS t FROM attempts").get() as { t: number | bigint };
   artifacts.usage = { totalTokens: Number(usageRow.t) };
+  // 逐 trial 审计器账目（交付 1.1 #7）：脚本审计记录提供/消费/耗尽。
+  if (auditor instanceof ScriptedAuditor && artifacts.auditScript) {
+    artifacts.auditScript = { provided: auditor.stepsConsumed.length + auditor.remaining, consumed: auditor.stepsConsumed.length, exhaustedCalls: auditor.exhaustedCalls };
+  }
 
   const scorerInput: ScorerInput = {
     caseDesc,
@@ -783,6 +824,7 @@ async function runTrial(opts: RunSuiteOptions, loaded: LoadedCase, runDir: strin
     suiteRunId,
     rounds: roundInputs,
     ...(executionError ? { executionError } : {}),
+    ...(auditor instanceof ScriptedAuditor && auditor.exhausted ? { auditScriptExhausted: true } : {}),
   };
   const score = scoreTrial(scorerInput);
 

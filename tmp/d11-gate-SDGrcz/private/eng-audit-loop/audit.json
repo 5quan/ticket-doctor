@@ -1,0 +1,50 @@
+[
+  {
+    "verdicts": [
+      {
+        "hypothesisIndex": 0,
+        "verdict": "undecidable",
+        "reason": "引用证据不足以支撑结论"
+      }
+    ],
+    "missingEvidence": [
+      {
+        "hypothesisIndex": 0,
+        "what": "库存调用的直接错误日志",
+        "suggestedTool": "query_logs"
+      }
+    ],
+    "stopAdvice": {
+      "action": "continue",
+      "reason": "材料尚不足，需补证后重报"
+    }
+  },
+  {
+    "verdicts": [
+      {
+        "hypothesisIndex": 0,
+        "verdict": "supported",
+        "reason": "错误日志已取得且支撑结论"
+      }
+    ],
+    "missingEvidence": [],
+    "stopAdvice": {
+      "action": "stop",
+      "reason": "证据充分，可提交"
+    }
+  },
+  {
+    "verdicts": [
+      {
+        "hypothesisIndex": 0,
+        "verdict": "supported",
+        "reason": "结论与证据一致"
+      }
+    ],
+    "missingEvidence": [],
+    "stopAdvice": {
+      "action": "stop",
+      "reason": "证据充分，可提交"
+    }
+  }
+]

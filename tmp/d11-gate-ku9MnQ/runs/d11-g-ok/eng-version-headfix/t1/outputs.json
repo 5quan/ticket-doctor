@@ -1,0 +1,200 @@
+{
+  "artifacts": {
+    "suiteRunId": "d11-g-ok",
+    "caseId": "eng-version-headfix",
+    "familyId": "eng-version",
+    "trialId": "t1",
+    "engine": "scripted",
+    "auditEngine": null,
+    "rounds": [
+      {
+        "roundId": "r1",
+        "runId": "07615b33-5891-4055-96a3-d0c3946275df",
+        "status": "failed",
+        "errorCode": "runtime_error",
+        "errorMessage": "版本一致性阻断（模型取证前）：repo app resolved=77abb109c32508014b61a44a25a7d6a3c235384d ≠ expected b2c7de85ce9073ac22be051d9055252fa035b122（pinnedBy=head）",
+        "outcome": "blocked",
+        "engineCalls": [],
+        "writebackText": "【预检失败】本轮诊断未能完成：版本一致性阻断（模型取证前）：repo app resolved=77abb109c32508014b61a44a25a7d6a3c235384d ≠ expected b2c7de85ce9073ac22be051d9055252fa035b122（pinnedBy=head）",
+        "toolCalls": 0,
+        "allLogQueriesEmpty": false,
+        "error": "版本一致性阻断（模型取证前）：repo app resolved=77abb109c32508014b61a44a25a7d6a3c235384d ≠ expected b2c7de85ce9073ac22be051d9055252fa035b122（pinnedBy=head）"
+      }
+    ],
+    "sourceReturned": [],
+    "wall": {
+      "startedAt": 1791307695940,
+      "finishedAt": 1791307695949
+    },
+    "usage": {
+      "totalTokens": 0
+    }
+  },
+  "scorerInput": {
+    "caseDesc": {
+      "schemaVersion": "prediagnosis-case-v2",
+      "caseId": "eng-version-headfix",
+      "familyId": "eng-version",
+      "split": "engineering",
+      "sourceTier": "synthetic_engineering",
+      "publicBenchmark": false,
+      "admission": "admitted",
+      "maxRounds": 1,
+      "scriptedEngine": true,
+      "rounds": [
+        {
+          "roundId": "r1",
+          "messageRef": "r1-message.txt",
+          "receivedAt": "2026-09-06T10:30:00+08:00",
+          "occurredAt": null,
+          "materialView": "round-1",
+          "services": [
+            "version-svc"
+          ],
+          "repos": [
+            {
+              "repoId": "app",
+              "dir": "/opt/ticket-doctor/tmp/d11-gate-ku9MnQ/public/eng-version-headfix/repo",
+              "expectedSha": "b2c7de85ce9073ac22be051d9055252fa035b122"
+            }
+          ]
+        }
+      ]
+    },
+    "truth": {
+      "schemaVersion": "prediagnosis-truth-v2",
+      "caseId": "eng-version-headfix",
+      "locators": [
+        {
+          "kind": "log",
+          "locatorId": "loc-fail",
+          "keyContent": "version-svc request failed",
+          "level": "ERROR"
+        }
+      ],
+      "rounds": [
+        {
+          "roundId": "r1",
+          "allowedOutcomes": [
+            "blocked"
+          ],
+          "allowedClaimDepth": "root",
+          "requiredFacts": [],
+          "forbiddenRules": [],
+          "materialNeeds": [],
+          "evidenceRequirements": [
+            {
+              "requirementId": "req-log",
+              "depth": "direct",
+              "supportsAnyOf": [
+                {
+                  "allOf": [
+                    "loc-fail"
+                  ]
+                }
+              ]
+            }
+          ],
+          "contradictedClaims": [],
+          "writebackRequirements": []
+        }
+      ],
+      "review": {
+        "author": "eval-v2-builder",
+        "reviewer": "provisional-self",
+        "provisional": true,
+        "notes": "预期：HEAD 即修复提交，读取前阻断"
+      }
+    },
+    "engine": "scripted",
+    "trialId": "t1",
+    "suiteRunId": "d11-g-ok",
+    "rounds": [
+      {
+        "roundId": "r1",
+        "truth": {
+          "roundId": "r1",
+          "allowedOutcomes": [
+            "blocked"
+          ],
+          "allowedClaimDepth": "root",
+          "requiredFacts": [],
+          "forbiddenRules": [],
+          "materialNeeds": [],
+          "evidenceRequirements": [
+            {
+              "requirementId": "req-log",
+              "depth": "direct",
+              "supportsAnyOf": [
+                {
+                  "allOf": [
+                    "loc-fail"
+                  ]
+                }
+              ]
+            }
+          ],
+          "contradictedClaims": [],
+          "writebackRequirements": []
+        },
+        "outcome": "blocked",
+        "status": "failed",
+        "errorCode": "runtime_error",
+        "writebackText": "【预检失败】本轮诊断未能完成：版本一致性阻断（模型取证前）：repo app resolved=77abb109c32508014b61a44a25a7d6a3c235384d ≠ expected b2c7de85ce9073ac22be051d9055252fa035b122（pinnedBy=head）",
+        "citations": [],
+        "allLogQueriesEmpty": false,
+        "expectedShas": {
+          "app": "b2c7de85ce9073ac22be051d9055252fa035b122"
+        },
+        "scopeShaMismatch": [],
+        "visibility": [
+          {
+            "requirementId": "req-log",
+            "depth": "direct",
+            "applicable": true,
+            "locators": [
+              {
+                "locatorId": "loc-fail",
+                "layers": {
+                  "A": null,
+                  "B": false,
+                  "C1": false,
+                  "C2": null,
+                  "D": false,
+                  "reason": "A 层无调用记录，未观测"
+                }
+              }
+            ],
+            "satisfied": {
+              "A": null,
+              "B": false,
+              "C1": false,
+              "C2": null,
+              "D": false
+            },
+            "partial": false
+          }
+        ],
+        "requiredTraceEvents": [
+          "round_input",
+          "scope_resolved",
+          "engine_result_raw",
+          "output_persisted",
+          "usage",
+          "round_finished"
+        ],
+        "presentTraceEvents": [
+          "round_input",
+          "scope_resolved",
+          "evidence_committed",
+          "usage",
+          "engine_result_raw",
+          "output_persisted",
+          "delivery_captured",
+          "round_finished"
+        ]
+      }
+    ],
+    "executionError": "版本一致性阻断（模型取证前）：repo app resolved=77abb109c32508014b61a44a25a7d6a3c235384d ≠ expected b2c7de85ce9073ac22be051d9055252fa035b122（pinnedBy=head）"
+  }
+}

@@ -480,7 +480,8 @@ export function engineeringCaseBuilds(projectRoot: string): CaseBuild[] {
           },
         },
       ],
-      // 审计脚本按"审计调用"消费：r1 审计#1 要求补证 → r1 审计#2 通过；r2 审计脚本耗尽（默认放行）。
+      // 审计脚本按"审计调用"消费：r1 审计#1 要求补证 → r1 审计#2 通过 → r2 审计#3 通过。
+      // （步骤数必须 ≥ 审计调用数：耗尽即 audit_script_exhausted 硬失败，交付 1.1 #7。）
       audit: [
         {
           verdicts: [{ hypothesisIndex: 0, verdict: "undecidable", reason: "引用证据不足以支撑结论" }],
@@ -489,6 +490,11 @@ export function engineeringCaseBuilds(projectRoot: string): CaseBuild[] {
         },
         {
           verdicts: [{ hypothesisIndex: 0, verdict: "supported", reason: "错误日志已取得且支撑结论" }],
+          missingEvidence: [],
+          stopAdvice: { action: "stop", reason: "证据充分，可提交" },
+        },
+        {
+          verdicts: [{ hypothesisIndex: 0, verdict: "supported", reason: "结论与证据一致" }],
           missingEvidence: [],
           stopAdvice: { action: "stop", reason: "证据充分，可提交" },
         },

@@ -1,0 +1,1050 @@
+{
+  "artifacts": {
+    "suiteRunId": "d11-g-ok",
+    "caseId": "eng-audit-loop",
+    "familyId": "eng-checkout",
+    "trialId": "t1",
+    "engine": "scripted",
+    "auditEngine": null,
+    "rounds": [
+      {
+        "roundId": "r1",
+        "runId": "7fc9b9cb-d73f-405f-8a39-b05d910a45b8",
+        "status": "succeeded",
+        "errorCode": null,
+        "errorMessage": null,
+        "outcome": "report",
+        "rawDraft": {
+          "completeness": "partial",
+          "summary": "发现 Redis 连接池告警，疑似连接池问题，需要补充库存侧证据",
+          "confirmedFacts": [
+            "RedisPool 连接池使用率 92%"
+          ],
+          "hypotheses": [
+            {
+              "cause": "疑似 Redis 连接池打满导致下单失败（待补证）",
+              "confidence": "low",
+              "status": "candidate",
+              "evidenceIds": []
+            }
+          ],
+          "uncertainties": [
+            "库存服务调用是否失败"
+          ],
+          "nextSteps": [
+            "查询库存调用日志"
+          ],
+          "missingMaterial": [
+            "库存调用侧日志"
+          ]
+        },
+        "engineCalls": [
+          {
+            "index": 0,
+            "phase": "initial",
+            "kind": "report",
+            "draft": {
+              "completeness": "partial",
+              "summary": "发现 Redis 连接池告警，疑似连接池问题，需要补充库存侧证据",
+              "confirmedFacts": [
+                "RedisPool 连接池使用率 92%"
+              ],
+              "hypotheses": [
+                {
+                  "cause": "疑似 Redis 连接池打满导致下单失败（待补证）",
+                  "confidence": "low",
+                  "status": "candidate",
+                  "evidenceIds": []
+                }
+              ],
+              "uncertainties": [
+                "库存服务调用是否失败"
+              ],
+              "nextSteps": [
+                "查询库存调用日志"
+              ],
+              "missingMaterial": [
+                "库存调用侧日志"
+              ]
+            },
+            "modelTurns": 1,
+            "model": "scripted",
+            "wallTime": 1791307661278
+          }
+        ],
+        "report": {
+          "completeness": "partial",
+          "summary": "发现 Redis 连接池告警，疑似连接池问题，需要补充库存侧证据",
+          "scope": {
+            "services": [
+              "checkout-service"
+            ],
+            "reportedAt": 1788661800000,
+            "occurredAt": 1788660060000,
+            "timeWindowBasis": "occurred",
+            "timeWindow": {
+              "from": 1788638460000,
+              "to": 1788663660000
+            },
+            "repos": [
+              {
+                "repoId": "app",
+                "rev": "5048b0d6f36486a77e150dd8d8c3913784074302",
+                "sha": "5048b0d6f36486a77e150dd8d8c3913784074302",
+                "resolved": true,
+                "pinnedBy": "time"
+              }
+            ]
+          },
+          "confirmedFacts": [
+            "RedisPool 连接池使用率 92%"
+          ],
+          "hypotheses": [
+            {
+              "cause": "疑似 Redis 连接池打满导致下单失败（待补证）",
+              "confidence": "low",
+              "status": "candidate",
+              "evidenceIds": []
+            }
+          ],
+          "uncertainties": [
+            "库存服务调用是否失败"
+          ],
+          "nextSteps": [
+            "查询库存调用日志"
+          ],
+          "missingMaterial": [
+            "库存调用侧日志"
+          ],
+          "corrections": [],
+          "executionLimits": [
+            "工具调用 1/12",
+            "时间预算 180000ms"
+          ]
+        },
+        "writebackText": "【预检报告】checkout-service 服务: 2026-09-06 10:01 起下单接口大量 500，帮忙看下原因\n调查 8744d6e5-296c-46d6-bca0-681167b4e31e · 第 1 轮 · 材料不完整\n\n■ 问题摘要\n发现 Redis 连接池告警，疑似连接池问题，需要补充库存侧证据\n\n■ 已确认事实\n- RedisPool 连接池使用率 92%\n\n■ 根因假设\n1. (low/candidate) 疑似 Redis 连接池打满导致下单失败（待补证）\n\n■ 不确定点\n- 库存服务调用是否失败\n\n■ 缺失材料（导致部分结论）\n- 库存调用侧日志\n\n■ 建议验证步骤\n- 查询库存调用日志\n\n■ 材料范围\n- 服务：checkout-service\n- 环境：未指定\n- 上报时间：2026-09-06 10:30:00 +08:00\n- 发生时间：2026-09-06 10:01:00 +08:00\n- 时间窗：2026-09-06 04:01:00 +08:00 ~ 2026-09-06 11:01:00 +08:00\n- 源码：app@5048b0d6f3(按发生时间)\n\n■ 执行限制\n- 工具调用 1/12\n- 时间预算 180000ms\n\n（本报告为开发接手前的预检，根因请以开发确认为准。回复本消息可继续补充材料。）\n[TD-8cqcpvz3]",
+        "corrections": [],
+        "toolCalls": 1,
+        "allLogQueriesEmpty": false,
+        "scopeResolved": {
+          "services": [
+            "checkout-service"
+          ],
+          "reportedAt": 1788661800000,
+          "occurredAt": 1788660060000,
+          "timeWindowBasis": "occurred",
+          "timeWindow": {
+            "from": 1788638460000,
+            "to": 1788663660000
+          },
+          "repos": [
+            {
+              "repoId": "app",
+              "rev": "5048b0d6f36486a77e150dd8d8c3913784074302",
+              "sha": "5048b0d6f36486a77e150dd8d8c3913784074302",
+              "resolved": true,
+              "pinnedBy": "time"
+            }
+          ]
+        }
+      },
+      {
+        "roundId": "r2",
+        "runId": "fbcebd35-7eed-4fe6-af24-17d29c6a7e0a",
+        "status": "succeeded",
+        "errorCode": null,
+        "errorMessage": null,
+        "outcome": "report",
+        "rawDraft": {
+          "completeness": "complete",
+          "summary": "库存服务调用超时导致下单失败（InventoryClient 3000ms 超时）；Redis 告警为伴随现象",
+          "confirmedFacts": [
+            "InventoryClient 调用库存服务失败 timeout after 3000ms"
+          ],
+          "hypotheses": [
+            {
+              "cause": "库存服务调用超时（InventoryClient 3000ms 超时）导致下单失败",
+              "confidence": "high",
+              "status": "supported",
+              "evidenceIds": [
+                "E5",
+                "E6",
+                "E7",
+                "E8",
+                "E9",
+                "E10",
+                "E11"
+              ]
+            }
+          ],
+          "uncertainties": [],
+          "nextSteps": [
+            "与库存服务负责人核对超时配置与容量"
+          ],
+          "missingMaterial": []
+        },
+        "engineCalls": [
+          {
+            "index": 0,
+            "phase": "initial",
+            "kind": "report",
+            "draft": {
+              "completeness": "complete",
+              "summary": "库存服务调用超时导致下单失败（InventoryClient 3000ms 超时）；Redis 告警为伴随现象",
+              "confirmedFacts": [
+                "InventoryClient 调用库存服务失败 timeout after 3000ms"
+              ],
+              "hypotheses": [
+                {
+                  "cause": "库存服务调用超时（InventoryClient 3000ms 超时）导致下单失败",
+                  "confidence": "high",
+                  "status": "supported",
+                  "evidenceIds": [
+                    "E5",
+                    "E6",
+                    "E7",
+                    "E8",
+                    "E9",
+                    "E10",
+                    "E11"
+                  ]
+                }
+              ],
+              "uncertainties": [],
+              "nextSteps": [
+                "与库存服务负责人核对超时配置与容量"
+              ],
+              "missingMaterial": []
+            },
+            "modelTurns": 1,
+            "model": "scripted",
+            "wallTime": 1791307661310
+          }
+        ],
+        "report": {
+          "completeness": "partial",
+          "summary": "库存服务调用超时导致下单失败（InventoryClient 3000ms 超时）；Redis 告警为伴随现象",
+          "scope": {
+            "services": [
+              "checkout-service"
+            ],
+            "reportedAt": 1788662700000,
+            "timeWindowBasis": "reported",
+            "timeWindow": {
+              "from": 1788576300000,
+              "to": 1788666300000
+            },
+            "repos": [
+              {
+                "repoId": "app",
+                "rev": "5048b0d6f36486a77e150dd8d8c3913784074302",
+                "sha": "5048b0d6f36486a77e150dd8d8c3913784074302",
+                "resolved": true,
+                "pinnedBy": "head"
+              }
+            ]
+          },
+          "confirmedFacts": [
+            "InventoryClient 调用库存服务失败 timeout after 3000ms"
+          ],
+          "hypotheses": [
+            {
+              "cause": "库存服务调用超时（InventoryClient 3000ms 超时）导致下单失败",
+              "confidence": "high",
+              "status": "supported",
+              "evidenceIds": [
+                "c2fc161d-7b78-4326-86a1-8f91e3a9d2f2",
+                "13db9500-3601-41c7-b96e-8ca239ce7434",
+                "afc1772a-8552-45e4-a64f-8ec2f261ce1a",
+                "4a135910-9283-4211-9be2-cffe0dec83cf",
+                "3d334888-53fe-4ad7-9c99-f039282bd037",
+                "659b476f-3a64-4641-9473-e72c2360dc4a",
+                "2435b3fd-1642-402f-9aac-3f6cb1673a65"
+              ]
+            }
+          ],
+          "uncertainties": [],
+          "nextSteps": [
+            "与库存服务负责人核对超时配置与容量"
+          ],
+          "missingMaterial": [
+            "未从输入获取具体发生时间，已按上报时间回溯 24 小时检索（可能遗漏）"
+          ],
+          "corrections": [
+            "status=complete 与 missingMaterial 矛盾，已改判 partial"
+          ],
+          "executionLimits": [
+            "工具调用 1/12",
+            "时间预算 180000ms"
+          ]
+        },
+        "writebackText": "【预检报告】checkout-service 服务: 2026-09-06 10:01 起下单接口大量 500，帮忙看下原因\n调查 8744d6e5-296c-46d6-bca0-681167b4e31e · 第 2 轮 · 材料不完整\n\n■ 问题摘要\n库存服务调用超时导致下单失败（InventoryClient 3000ms 超时）；Redis 告警为伴随现象\n\n■ 已确认事实\n- InventoryClient 调用库存服务失败 timeout after 3000ms\n\n■ 根因假设\n1. (high/supported) 库存服务调用超时（InventoryClient 3000ms 超时）导致下单失败 [证据 E5,E6,E7,E8,E9,E10,E11]\n\n■ 缺失材料（导致部分结论）\n- 未从输入获取具体发生时间，已按上报时间回溯 24 小时检索（可能遗漏）\n\n■ 建议验证步骤\n- 与库存服务负责人核对超时配置与容量\n\n■ 材料范围\n- 服务：checkout-service\n- 环境：未指定\n- 上报时间：2026-09-06 10:45:00 +08:00\n- 发生时间：未从输入获取\n- 时间窗：2026-09-05 10:45:00 +08:00 ~ 2026-09-06 11:45:00 +08:00（按上报时间回溯，可能遗漏）\n- 源码：app@5048b0d6f3(当前HEAD)\n\n■ 执行限制\n- 工具调用 1/12\n- 时间预算 180000ms\n\n（本报告为开发接手前的预检，根因请以开发确认为准。回复本消息可继续补充材料。）\n[TD-8cqcpvz3]",
+        "corrections": [
+          "status=complete 与 missingMaterial 矛盾，已改判 partial"
+        ],
+        "toolCalls": 1,
+        "allLogQueriesEmpty": false,
+        "scopeResolved": {
+          "services": [
+            "checkout-service"
+          ],
+          "reportedAt": 1788662700000,
+          "timeWindowBasis": "reported",
+          "timeWindow": {
+            "from": 1788576300000,
+            "to": 1788666300000
+          },
+          "repos": [
+            {
+              "repoId": "app",
+              "rev": "5048b0d6f36486a77e150dd8d8c3913784074302",
+              "sha": "5048b0d6f36486a77e150dd8d8c3913784074302",
+              "resolved": true,
+              "pinnedBy": "head"
+            }
+          ]
+        }
+      }
+    ],
+    "sourceReturned": [
+      {
+        "roundId": "r1",
+        "tool": "query_logs",
+        "args": {
+          "service": "checkout-service",
+          "from": 1788660000000,
+          "to": 1788663660000,
+          "keywords": [
+            "Redis"
+          ]
+        },
+        "entries": 4,
+        "excerptHead": [
+          "RedisPool 获取连接超时(2000ms) pool=checkout-cache active=50/50 等待队列=12",
+          "RedisPool 获取连接超时(2000ms) pool=checkout-cache active=50/50 等待队列=12",
+          "RedisPool 获取连接超时(2000ms) pool=checkout-cache active=50/50 等待队列=7"
+        ]
+      },
+      {
+        "roundId": "r2",
+        "tool": "query_logs",
+        "args": {
+          "service": "checkout-service",
+          "from": 1788660000000,
+          "to": 1788666300000,
+          "keywords": []
+        },
+        "entries": 7,
+        "excerptHead": [
+          "HealthCheck /actuator/health status=UP",
+          "RedisPool 获取连接超时(2000ms) pool=checkout-cache active=50/50 等待队列=12",
+          "OrderController 下单接口返回 500 orderId=ord_88121 traceId=tr_9f2c81"
+        ]
+      }
+    ],
+    "wall": {
+      "startedAt": 1791307661247,
+      "finishedAt": 1791307661312
+    },
+    "usage": {
+      "totalTokens": 0
+    }
+  },
+  "scorerInput": {
+    "caseDesc": {
+      "schemaVersion": "prediagnosis-case-v2",
+      "caseId": "eng-audit-loop",
+      "familyId": "eng-checkout",
+      "split": "engineering",
+      "sourceTier": "synthetic_engineering",
+      "publicBenchmark": false,
+      "admission": "admitted",
+      "maxRounds": 3,
+      "scriptedEngine": true,
+      "scriptedAudit": true,
+      "rounds": [
+        {
+          "roundId": "r1",
+          "messageRef": "r1-message.txt",
+          "receivedAt": "2026-09-06T10:30:00+08:00",
+          "occurredAt": "2026-09-06T10:01:00+08:00",
+          "materialView": "round-1",
+          "services": [
+            "checkout-service"
+          ],
+          "repos": [
+            {
+              "repoId": "app",
+              "dir": "fixtures/evals/checkout-timeout/repo",
+              "expectedSha": "5048b0d6f36486a77e150dd8d8c3913784074302"
+            }
+          ]
+        },
+        {
+          "roundId": "r2",
+          "messageRef": "r2-message.txt",
+          "receivedAt": "2026-09-06T10:45:00+08:00",
+          "occurredAt": "2026-09-06T10:01:00+08:00",
+          "materialView": "round-2",
+          "services": [
+            "checkout-service"
+          ],
+          "repos": [
+            {
+              "repoId": "app",
+              "dir": "fixtures/evals/checkout-timeout/repo",
+              "expectedSha": "5048b0d6f36486a77e150dd8d8c3913784074302"
+            }
+          ]
+        }
+      ]
+    },
+    "truth": {
+      "schemaVersion": "prediagnosis-truth-v2",
+      "caseId": "eng-audit-loop",
+      "locators": [
+        {
+          "kind": "log",
+          "locatorId": "loc-inventory-error",
+          "keyContent": "InventoryClient 调用库存服务失败 timeout",
+          "level": "ERROR"
+        }
+      ],
+      "rounds": [
+        {
+          "roundId": "r1",
+          "allowedOutcomes": [
+            "report"
+          ],
+          "allowedClaimDepth": "root",
+          "requiredFacts": [
+            {
+              "factId": "root-cause-timeout",
+              "concepts": [
+                [
+                  "库存"
+                ],
+                [
+                  "超时",
+                  "timeout"
+                ]
+              ],
+              "where": [
+                "hypotheses"
+              ]
+            }
+          ],
+          "forbiddenRules": [],
+          "materialNeeds": [],
+          "evidenceRequirements": [
+            {
+              "requirementId": "req-inventory-error",
+              "depth": "root",
+              "supportsAnyOf": [
+                {
+                  "allOf": [
+                    "loc-inventory-error"
+                  ]
+                }
+              ]
+            }
+          ],
+          "contradictedClaims": [],
+          "writebackRequirements": [
+            {
+              "reqId": "wb-root-cause",
+              "concepts": [
+                [
+                  "库存"
+                ],
+                [
+                  "超时",
+                  "timeout"
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "roundId": "r2",
+          "allowedOutcomes": [
+            "report"
+          ],
+          "allowedClaimDepth": "root",
+          "requiredFacts": [],
+          "forbiddenRules": [],
+          "materialNeeds": [],
+          "evidenceRequirements": [],
+          "contradictedClaims": [],
+          "writebackRequirements": []
+        }
+      ],
+      "review": {
+        "author": "eval-v2-builder",
+        "reviewer": "provisional-self",
+        "provisional": true,
+        "notes": "A1 验收：审计补证循环的多调用归属"
+      }
+    },
+    "engine": "scripted",
+    "trialId": "t1",
+    "suiteRunId": "d11-g-ok",
+    "rounds": [
+      {
+        "roundId": "r1",
+        "truth": {
+          "roundId": "r1",
+          "allowedOutcomes": [
+            "report"
+          ],
+          "allowedClaimDepth": "root",
+          "requiredFacts": [
+            {
+              "factId": "root-cause-timeout",
+              "concepts": [
+                [
+                  "库存"
+                ],
+                [
+                  "超时",
+                  "timeout"
+                ]
+              ],
+              "where": [
+                "hypotheses"
+              ]
+            }
+          ],
+          "forbiddenRules": [],
+          "materialNeeds": [],
+          "evidenceRequirements": [
+            {
+              "requirementId": "req-inventory-error",
+              "depth": "root",
+              "supportsAnyOf": [
+                {
+                  "allOf": [
+                    "loc-inventory-error"
+                  ]
+                }
+              ]
+            }
+          ],
+          "contradictedClaims": [],
+          "writebackRequirements": [
+            {
+              "reqId": "wb-root-cause",
+              "concepts": [
+                [
+                  "库存"
+                ],
+                [
+                  "超时",
+                  "timeout"
+                ]
+              ]
+            }
+          ]
+        },
+        "outcome": "report",
+        "status": "succeeded",
+        "errorCode": null,
+        "rawDraft": {
+          "completeness": "partial",
+          "summary": "发现 Redis 连接池告警，疑似连接池问题，需要补充库存侧证据",
+          "confirmedFacts": [
+            "RedisPool 连接池使用率 92%"
+          ],
+          "hypotheses": [
+            {
+              "cause": "疑似 Redis 连接池打满导致下单失败（待补证）",
+              "confidence": "low",
+              "status": "candidate",
+              "evidenceIds": []
+            }
+          ],
+          "uncertainties": [
+            "库存服务调用是否失败"
+          ],
+          "nextSteps": [
+            "查询库存调用日志"
+          ],
+          "missingMaterial": [
+            "库存调用侧日志"
+          ]
+        },
+        "validatedReport": {
+          "completeness": "partial",
+          "summary": "发现 Redis 连接池告警，疑似连接池问题，需要补充库存侧证据",
+          "scope": {
+            "services": [
+              "checkout-service"
+            ],
+            "reportedAt": 1788661800000,
+            "occurredAt": 1788660060000,
+            "timeWindowBasis": "occurred",
+            "timeWindow": {
+              "from": 1788638460000,
+              "to": 1788663660000
+            },
+            "repos": [
+              {
+                "repoId": "app",
+                "rev": "5048b0d6f36486a77e150dd8d8c3913784074302",
+                "sha": "5048b0d6f36486a77e150dd8d8c3913784074302",
+                "resolved": true,
+                "pinnedBy": "time"
+              }
+            ]
+          },
+          "confirmedFacts": [
+            "RedisPool 连接池使用率 92%"
+          ],
+          "hypotheses": [
+            {
+              "cause": "疑似 Redis 连接池打满导致下单失败（待补证）",
+              "confidence": "low",
+              "status": "candidate",
+              "evidenceIds": []
+            }
+          ],
+          "uncertainties": [
+            "库存服务调用是否失败"
+          ],
+          "nextSteps": [
+            "查询库存调用日志"
+          ],
+          "missingMaterial": [
+            "库存调用侧日志"
+          ],
+          "corrections": [],
+          "executionLimits": [
+            "工具调用 1/12",
+            "时间预算 180000ms"
+          ]
+        },
+        "writebackText": "【预检报告】checkout-service 服务: 2026-09-06 10:01 起下单接口大量 500，帮忙看下原因\n调查 8744d6e5-296c-46d6-bca0-681167b4e31e · 第 1 轮 · 材料不完整\n\n■ 问题摘要\n发现 Redis 连接池告警，疑似连接池问题，需要补充库存侧证据\n\n■ 已确认事实\n- RedisPool 连接池使用率 92%\n\n■ 根因假设\n1. (low/candidate) 疑似 Redis 连接池打满导致下单失败（待补证）\n\n■ 不确定点\n- 库存服务调用是否失败\n\n■ 缺失材料（导致部分结论）\n- 库存调用侧日志\n\n■ 建议验证步骤\n- 查询库存调用日志\n\n■ 材料范围\n- 服务：checkout-service\n- 环境：未指定\n- 上报时间：2026-09-06 10:30:00 +08:00\n- 发生时间：2026-09-06 10:01:00 +08:00\n- 时间窗：2026-09-06 04:01:00 +08:00 ~ 2026-09-06 11:01:00 +08:00\n- 源码：app@5048b0d6f3(按发生时间)\n\n■ 执行限制\n- 工具调用 1/12\n- 时间预算 180000ms\n\n（本报告为开发接手前的预检，根因请以开发确认为准。回复本消息可继续补充材料。）\n[TD-8cqcpvz3]",
+        "citations": [],
+        "allLogQueriesEmpty": false,
+        "expectedShas": {
+          "app": "5048b0d6f36486a77e150dd8d8c3913784074302"
+        },
+        "scopeShaMismatch": [],
+        "visibility": [
+          {
+            "requirementId": "req-inventory-error",
+            "depth": "root",
+            "applicable": true,
+            "locators": [
+              {
+                "locatorId": "loc-inventory-error",
+                "layers": {
+                  "A": false,
+                  "B": false,
+                  "C1": false,
+                  "C2": null,
+                  "D": false
+                }
+              }
+            ],
+            "satisfied": {
+              "A": false,
+              "B": false,
+              "C1": false,
+              "C2": null,
+              "D": false
+            },
+            "partial": false
+          }
+        ],
+        "requiredTraceEvents": [
+          "round_input",
+          "scope_resolved",
+          "engine_result_raw",
+          "output_persisted",
+          "usage",
+          "round_finished"
+        ],
+        "presentTraceEvents": [
+          "round_input",
+          "scope_resolved",
+          "evidence_committed",
+          "usage",
+          "tool_returned",
+          "engine_result_raw",
+          "output_persisted",
+          "delivery_captured",
+          "round_finished"
+        ]
+      },
+      {
+        "roundId": "r2",
+        "truth": {
+          "roundId": "r2",
+          "allowedOutcomes": [
+            "report"
+          ],
+          "allowedClaimDepth": "root",
+          "requiredFacts": [],
+          "forbiddenRules": [],
+          "materialNeeds": [],
+          "evidenceRequirements": [],
+          "contradictedClaims": [],
+          "writebackRequirements": []
+        },
+        "outcome": "report",
+        "status": "succeeded",
+        "errorCode": null,
+        "rawDraft": {
+          "completeness": "complete",
+          "summary": "库存服务调用超时导致下单失败（InventoryClient 3000ms 超时）；Redis 告警为伴随现象",
+          "confirmedFacts": [
+            "InventoryClient 调用库存服务失败 timeout after 3000ms"
+          ],
+          "hypotheses": [
+            {
+              "cause": "库存服务调用超时（InventoryClient 3000ms 超时）导致下单失败",
+              "confidence": "high",
+              "status": "supported",
+              "evidenceIds": [
+                "E5",
+                "E6",
+                "E7",
+                "E8",
+                "E9",
+                "E10",
+                "E11"
+              ]
+            }
+          ],
+          "uncertainties": [],
+          "nextSteps": [
+            "与库存服务负责人核对超时配置与容量"
+          ],
+          "missingMaterial": []
+        },
+        "validatedReport": {
+          "completeness": "partial",
+          "summary": "库存服务调用超时导致下单失败（InventoryClient 3000ms 超时）；Redis 告警为伴随现象",
+          "scope": {
+            "services": [
+              "checkout-service"
+            ],
+            "reportedAt": 1788662700000,
+            "timeWindowBasis": "reported",
+            "timeWindow": {
+              "from": 1788576300000,
+              "to": 1788666300000
+            },
+            "repos": [
+              {
+                "repoId": "app",
+                "rev": "5048b0d6f36486a77e150dd8d8c3913784074302",
+                "sha": "5048b0d6f36486a77e150dd8d8c3913784074302",
+                "resolved": true,
+                "pinnedBy": "head"
+              }
+            ]
+          },
+          "confirmedFacts": [
+            "InventoryClient 调用库存服务失败 timeout after 3000ms"
+          ],
+          "hypotheses": [
+            {
+              "cause": "库存服务调用超时（InventoryClient 3000ms 超时）导致下单失败",
+              "confidence": "high",
+              "status": "supported",
+              "evidenceIds": [
+                "c2fc161d-7b78-4326-86a1-8f91e3a9d2f2",
+                "13db9500-3601-41c7-b96e-8ca239ce7434",
+                "afc1772a-8552-45e4-a64f-8ec2f261ce1a",
+                "4a135910-9283-4211-9be2-cffe0dec83cf",
+                "3d334888-53fe-4ad7-9c99-f039282bd037",
+                "659b476f-3a64-4641-9473-e72c2360dc4a",
+                "2435b3fd-1642-402f-9aac-3f6cb1673a65"
+              ]
+            }
+          ],
+          "uncertainties": [],
+          "nextSteps": [
+            "与库存服务负责人核对超时配置与容量"
+          ],
+          "missingMaterial": [
+            "未从输入获取具体发生时间，已按上报时间回溯 24 小时检索（可能遗漏）"
+          ],
+          "corrections": [
+            "status=complete 与 missingMaterial 矛盾，已改判 partial"
+          ],
+          "executionLimits": [
+            "工具调用 1/12",
+            "时间预算 180000ms"
+          ]
+        },
+        "writebackText": "【预检报告】checkout-service 服务: 2026-09-06 10:01 起下单接口大量 500，帮忙看下原因\n调查 8744d6e5-296c-46d6-bca0-681167b4e31e · 第 2 轮 · 材料不完整\n\n■ 问题摘要\n库存服务调用超时导致下单失败（InventoryClient 3000ms 超时）；Redis 告警为伴随现象\n\n■ 已确认事实\n- InventoryClient 调用库存服务失败 timeout after 3000ms\n\n■ 根因假设\n1. (high/supported) 库存服务调用超时（InventoryClient 3000ms 超时）导致下单失败 [证据 E5,E6,E7,E8,E9,E10,E11]\n\n■ 缺失材料（导致部分结论）\n- 未从输入获取具体发生时间，已按上报时间回溯 24 小时检索（可能遗漏）\n\n■ 建议验证步骤\n- 与库存服务负责人核对超时配置与容量\n\n■ 材料范围\n- 服务：checkout-service\n- 环境：未指定\n- 上报时间：2026-09-06 10:45:00 +08:00\n- 发生时间：未从输入获取\n- 时间窗：2026-09-05 10:45:00 +08:00 ~ 2026-09-06 11:45:00 +08:00（按上报时间回溯，可能遗漏）\n- 源码：app@5048b0d6f3(当前HEAD)\n\n■ 执行限制\n- 工具调用 1/12\n- 时间预算 180000ms\n\n（本报告为开发接手前的预检，根因请以开发确认为准。回复本消息可继续补充材料。）\n[TD-8cqcpvz3]",
+        "citations": [
+          {
+            "rawId": "E5",
+            "stage": "raw",
+            "roundId": "r2",
+            "resolved": true,
+            "evidence": {
+              "evidenceId": "E5",
+              "evidenceUid": "c2fc161d-7b78-4326-86a1-8f91e3a9d2f2",
+              "kind": "log",
+              "excerpt": "HealthCheck /actuator/health status=UP",
+              "truncated": false,
+              "level": "INFO",
+              "codeRef": null
+            }
+          },
+          {
+            "rawId": "E6",
+            "stage": "raw",
+            "roundId": "r2",
+            "resolved": true,
+            "evidence": {
+              "evidenceId": "E6",
+              "evidenceUid": "13db9500-3601-41c7-b96e-8ca239ce7434",
+              "kind": "log",
+              "excerpt": "RedisPool 获取连接超时(2000ms) pool=checkout-cache active=50/50 等待队列=12",
+              "truncated": false,
+              "level": "WARN",
+              "codeRef": null
+            }
+          },
+          {
+            "rawId": "E7",
+            "stage": "raw",
+            "roundId": "r2",
+            "resolved": true,
+            "evidence": {
+              "evidenceId": "E7",
+              "evidenceUid": "afc1772a-8552-45e4-a64f-8ec2f261ce1a",
+              "kind": "log",
+              "excerpt": "OrderController 下单接口返回 500 orderId=ord_88121 traceId=tr_9f2c81",
+              "truncated": false,
+              "level": "ERROR",
+              "codeRef": null
+            }
+          },
+          {
+            "rawId": "E8",
+            "stage": "raw",
+            "roundId": "r2",
+            "resolved": true,
+            "evidence": {
+              "evidenceId": "E8",
+              "evidenceUid": "4a135910-9283-4211-9be2-cffe0dec83cf",
+              "kind": "log",
+              "excerpt": "RedisPool 获取连接超时(2000ms) pool=checkout-cache active=50/50 等待队列=12",
+              "truncated": false,
+              "level": "WARN",
+              "codeRef": null
+            }
+          },
+          {
+            "rawId": "E9",
+            "stage": "raw",
+            "roundId": "r2",
+            "resolved": true,
+            "evidence": {
+              "evidenceId": "E9",
+              "evidenceUid": "3d334888-53fe-4ad7-9c99-f039282bd037",
+              "kind": "log",
+              "excerpt": "InventoryClient 调用库存服务失败 timeout after 3000ms traceId=tr_9f2c81",
+              "truncated": false,
+              "level": "ERROR",
+              "codeRef": null
+            }
+          },
+          {
+            "rawId": "E10",
+            "stage": "raw",
+            "roundId": "r2",
+            "resolved": true,
+            "evidence": {
+              "evidenceId": "E10",
+              "evidenceUid": "659b476f-3a64-4641-9473-e72c2360dc4a",
+              "kind": "log",
+              "excerpt": "RedisPool 获取连接超时(2000ms) pool=checkout-cache active=50/50 等待队列=7",
+              "truncated": false,
+              "level": "WARN",
+              "codeRef": null
+            }
+          },
+          {
+            "rawId": "E11",
+            "stage": "raw",
+            "roundId": "r2",
+            "resolved": true,
+            "evidence": {
+              "evidenceId": "E11",
+              "evidenceUid": "2435b3fd-1642-402f-9aac-3f6cb1673a65",
+              "kind": "log",
+              "excerpt": "RedisPool 连接池使用率 92% pool=checkout-cache active=46/50",
+              "truncated": false,
+              "level": "WARN",
+              "codeRef": null
+            }
+          },
+          {
+            "rawId": "c2fc161d-7b78-4326-86a1-8f91e3a9d2f2",
+            "stage": "validated",
+            "roundId": "r2",
+            "resolved": true,
+            "evidence": {
+              "evidenceId": "E5",
+              "evidenceUid": "c2fc161d-7b78-4326-86a1-8f91e3a9d2f2",
+              "kind": "log",
+              "excerpt": "HealthCheck /actuator/health status=UP",
+              "truncated": false,
+              "level": "INFO",
+              "codeRef": null
+            }
+          },
+          {
+            "rawId": "13db9500-3601-41c7-b96e-8ca239ce7434",
+            "stage": "validated",
+            "roundId": "r2",
+            "resolved": true,
+            "evidence": {
+              "evidenceId": "E6",
+              "evidenceUid": "13db9500-3601-41c7-b96e-8ca239ce7434",
+              "kind": "log",
+              "excerpt": "RedisPool 获取连接超时(2000ms) pool=checkout-cache active=50/50 等待队列=12",
+              "truncated": false,
+              "level": "WARN",
+              "codeRef": null
+            }
+          },
+          {
+            "rawId": "afc1772a-8552-45e4-a64f-8ec2f261ce1a",
+            "stage": "validated",
+            "roundId": "r2",
+            "resolved": true,
+            "evidence": {
+              "evidenceId": "E7",
+              "evidenceUid": "afc1772a-8552-45e4-a64f-8ec2f261ce1a",
+              "kind": "log",
+              "excerpt": "OrderController 下单接口返回 500 orderId=ord_88121 traceId=tr_9f2c81",
+              "truncated": false,
+              "level": "ERROR",
+              "codeRef": null
+            }
+          },
+          {
+            "rawId": "4a135910-9283-4211-9be2-cffe0dec83cf",
+            "stage": "validated",
+            "roundId": "r2",
+            "resolved": true,
+            "evidence": {
+              "evidenceId": "E8",
+              "evidenceUid": "4a135910-9283-4211-9be2-cffe0dec83cf",
+              "kind": "log",
+              "excerpt": "RedisPool 获取连接超时(2000ms) pool=checkout-cache active=50/50 等待队列=12",
+              "truncated": false,
+              "level": "WARN",
+              "codeRef": null
+            }
+          },
+          {
+            "rawId": "3d334888-53fe-4ad7-9c99-f039282bd037",
+            "stage": "validated",
+            "roundId": "r2",
+            "resolved": true,
+            "evidence": {
+              "evidenceId": "E9",
+              "evidenceUid": "3d334888-53fe-4ad7-9c99-f039282bd037",
+              "kind": "log",
+              "excerpt": "InventoryClient 调用库存服务失败 timeout after 3000ms traceId=tr_9f2c81",
+              "truncated": false,
+              "level": "ERROR",
+              "codeRef": null
+            }
+          },
+          {
+            "rawId": "659b476f-3a64-4641-9473-e72c2360dc4a",
+            "stage": "validated",
+            "roundId": "r2",
+            "resolved": true,
+            "evidence": {
+              "evidenceId": "E10",
+              "evidenceUid": "659b476f-3a64-4641-9473-e72c2360dc4a",
+              "kind": "log",
+              "excerpt": "RedisPool 获取连接超时(2000ms) pool=checkout-cache active=50/50 等待队列=7",
+              "truncated": false,
+              "level": "WARN",
+              "codeRef": null
+            }
+          },
+          {
+            "rawId": "2435b3fd-1642-402f-9aac-3f6cb1673a65",
+            "stage": "validated",
+            "roundId": "r2",
+            "resolved": true,
+            "evidence": {
+              "evidenceId": "E11",
+              "evidenceUid": "2435b3fd-1642-402f-9aac-3f6cb1673a65",
+              "kind": "log",
+              "excerpt": "RedisPool 连接池使用率 92% pool=checkout-cache active=46/50",
+              "truncated": false,
+              "level": "WARN",
+              "codeRef": null
+            }
+          }
+        ],
+        "allLogQueriesEmpty": false,
+        "expectedShas": {
+          "app": "5048b0d6f36486a77e150dd8d8c3913784074302"
+        },
+        "scopeShaMismatch": [],
+        "visibility": [
+          {
+            "requirementId": "req-inventory-error",
+            "depth": "root",
+            "applicable": true,
+            "locators": [
+              {
+                "locatorId": "loc-inventory-error",
+                "layers": {
+                  "A": true,
+                  "B": true,
+                  "C1": true,
+                  "C2": null,
+                  "D": true
+                }
+              }
+            ],
+            "satisfied": {
+              "A": true,
+              "B": true,
+              "C1": true,
+              "C2": null,
+              "D": true
+            },
+            "partial": false
+          }
+        ],
+        "requiredTraceEvents": [
+          "round_input",
+          "scope_resolved",
+          "engine_result_raw",
+          "output_persisted",
+          "usage",
+          "round_finished"
+        ],
+        "presentTraceEvents": [
+          "round_input",
+          "scope_resolved",
+          "evidence_committed",
+          "usage",
+          "tool_returned",
+          "engine_result_raw",
+          "output_persisted",
+          "delivery_captured",
+          "round_finished"
+        ]
+      }
+    ]
+  }
+}

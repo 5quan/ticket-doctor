@@ -164,21 +164,35 @@ const SCRIPT_AUDIT_EXHAUSTED = "脚本审计步骤耗尽";
 
 /**
  * 按 audit.json 步骤顺序消费的确定性审计器：一次审计调用消费一个 step。
- * 脚本耗尽后返回"全部支持 + 停止"（不降级、不补证），并保留显式记录供 trace 核对。
+ * 脚本耗尽后返回"全部支持 + 停止"（不降级、不补证），但 **exhausted 标志置位**——
+ * 严格工程验收（--gate）据此暴露"脚本已耗尽的自动放行"，不得静默当真实审计通过（交付 1.1 #7）。
  */
 export class ScriptedAuditor implements EvidenceAuditor {
   readonly name = "scripted-audit";
   readonly stepsConsumed: ScriptedAuditStep[] = [];
+  /** 落在"默认放行"上的审计调用次数（脚本耗尽后仍被调用）。 */
+  exhaustedCalls = 0;
   private readonly steps: ScriptedAuditStep[];
 
   constructor(steps: ScriptedAuditStep[]) {
     this.steps = [...steps];
   }
 
+  /** 审计调用次数超出提供步数 = 脚本耗尽（有调用落在了默认放行上）。 */
+  get exhausted(): boolean {
+    return this.exhaustedCalls > 0;
+  }
+
+  /** 尚未消费的步数（provided = consumed + remaining）。 */
+  get remaining(): number {
+    return this.steps.length;
+  }
+
   async audit(input: AuditInput, signal: AbortSignal, _obs?: AttemptObservationScope): Promise<AuditOutcome> {
     signal.throwIfAborted();
     const step = this.steps.shift();
     if (step) this.stepsConsumed.push(step);
+    else this.exhaustedCalls += 1;
     if (step?.failure) throw new Error(step.failure);
     const claimVerdicts =
       step?.verdicts ??

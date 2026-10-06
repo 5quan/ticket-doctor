@@ -1,0 +1,125 @@
+{
+  "schemaVersion": "prediagnosis-truth-v2",
+  "caseId": "eng-counter-evidence",
+  "locators": [
+    {
+      "kind": "log",
+      "locatorId": "loc-inventory-error",
+      "keyContent": "InventoryClient 调用库存服务失败 timeout",
+      "level": "ERROR"
+    }
+  ],
+  "rounds": [
+    {
+      "roundId": "r1",
+      "allowedOutcomes": [
+        "report",
+        "clarify"
+      ],
+      "allowedClaimDepth": "root",
+      "requiredFacts": [
+        {
+          "factId": "pool-alert",
+          "concepts": [
+            [
+              "RedisPool",
+              "连接池"
+            ]
+          ],
+          "where": [
+            "summary"
+          ]
+        }
+      ],
+      "forbiddenRules": [],
+      "materialNeeds": [],
+      "evidenceRequirements": [],
+      "contradictedClaims": [],
+      "writebackRequirements": []
+    },
+    {
+      "roundId": "r2",
+      "allowedOutcomes": [
+        "report"
+      ],
+      "allowedClaimDepth": "root",
+      "requiredFacts": [
+        {
+          "factId": "inventory-root",
+          "concepts": [
+            [
+              "库存"
+            ],
+            [
+              "超时",
+              "timeout"
+            ]
+          ],
+          "where": [
+            "hypotheses"
+          ]
+        }
+      ],
+      "forbiddenRules": [
+        {
+          "ruleId": "redis-no-longer-supported",
+          "where": [
+            "hypotheses"
+          ],
+          "assertAnyOf": [
+            [
+              "redis",
+              "redispool",
+              "连接池"
+            ]
+          ],
+          "onlyWhenStatus": "supported"
+        }
+      ],
+      "materialNeeds": [],
+      "evidenceRequirements": [
+        {
+          "requirementId": "req-inventory-error",
+          "depth": "root",
+          "supportsAnyOf": [
+            {
+              "allOf": [
+                "loc-inventory-error"
+              ]
+            }
+          ]
+        }
+      ],
+      "contradictedClaims": [
+        {
+          "claimId": "redis-cause",
+          "concepts": [
+            [
+              "redis",
+              "redispool",
+              "连接池"
+            ]
+          ],
+          "allowCandidate": true
+        }
+      ],
+      "writebackRequirements": [
+        {
+          "reqId": "wb-updated-cause",
+          "concepts": [
+            [
+              "库存",
+              "inventory"
+            ]
+          ]
+        }
+      ]
+    }
+  ],
+  "review": {
+    "author": "eval-v2-builder",
+    "reviewer": "provisional-self",
+    "provisional": true,
+    "notes": "工程自测标准，仅验证反证更新行为"
+  }
+}

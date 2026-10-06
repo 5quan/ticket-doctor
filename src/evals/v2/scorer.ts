@@ -12,6 +12,8 @@
 // 3.2.0（A2）：回写代理改组间 AND（原 flat 化 ANY 偏乐观）；claimSupport 的缺测口径从
 // requiredFacts 代理计数改为"实际可判判断清单"（validated 终稿的 summary/confirmedFacts/
 // hypotheses/nextSteps 逐条）；反证更新从按轮改为按被推翻 claim 逐条计分。
+// 3.3.0（交付 1.1）：新增硬失败 audit_script_exhausted——脚本审计步数耗尽后的"默认放行"
+// 必须暴露为硬失败，不得静默当真实审计通过；outcome 判定改由 runner 以持久化终态为准。
 import { createHash } from "node:crypto";
 import type {
   AssertionRuleV2,
@@ -25,7 +27,7 @@ import type {
   RequirementSatisfaction,
 } from "./types.ts";
 
-export const SCORER_VERSION = "3.2.0";
+export const SCORER_VERSION = "3.3.0";
 
 // ---------- 概念断言判定（否定窗口豁免，逐次出现判定） ----------
 
@@ -115,6 +117,8 @@ export interface ScorerInput {
   rounds: RoundScoreInput[];
   executionError?: string;
   semanticReviewImported?: boolean;
+  /** 脚本审计步数耗尽（默认放行被触发）：硬失败暴露，不得静默当审计通过（交付 1.1 #7）。 */
+  auditScriptExhausted?: boolean;
 }
 
 // ---------- 报告字段投影 ----------
@@ -309,6 +313,11 @@ export function scoreTrial(input: ScorerInput): CaseScoreV2 {
   if (input.executionError && !expectedBlock) {
     hardFailures.push({ code: "execution_error", message: input.executionError });
     attribution.push({ layer: "engineering", hint: `执行失败：${input.executionError.slice(0, 120)}` });
+  }
+  // 脚本审计耗尽：默认放行 ≠ 审计通过（交付 1.1 #7）。
+  if (input.auditScriptExhausted) {
+    hardFailures.push({ code: "audit_script_exhausted", message: "脚本审计步数耗尽：存在落在默认放行上的审计调用，结果未经真实审计" });
+    attribution.push({ layer: "scoring", hint: "审计脚本耗尽（工程自测配置缺陷），审计通过不可信" });
   }
 
   // ---- 逐轮检查 ----

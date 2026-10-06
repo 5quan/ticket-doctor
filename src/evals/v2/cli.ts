@@ -10,14 +10,16 @@
 // CLI 自身不设置任何 key。旧 `npm run eval` 入口保持不变，结果目录互不影响。
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { loadConfig } from "../../config/index.ts";
 import { materializeEngineeringCases } from "./engcases.ts";
+import { evaluateGate } from "./gate.ts";
 import { aggregateMetrics, runSuite } from "./runner.ts";
 import { SCORER_VERSION, scoreTrial, listJudgableClaims, type ScorerInput } from "./scorer.ts";
-import { applyReview, judgedOutputsHash, validateReview } from "./review.ts";
+import { applyReview, judgedOutputsHash, reviewedBindingValid, validateReview } from "./review.ts";
 import { createEvalLangfuse, type TrialMetric } from "./langfuse.ts";
 import type { CaseDescriptorV2, CaseScoreV2, MetricValue, SuiteSummaryV2 } from "./types.ts";
+import type { SuiteManifestV2 } from "./manifest.ts";
 
 const PROJECT_ROOT = join(import.meta.dirname ?? ".", "..", "..", "..");
 
@@ -34,6 +36,8 @@ function usage(): never {
 function sha256Text(s: string): string {
   return createHash("sha256").update(s).digest("hex");
 }
+
+const runDirOf = (evalRoot: string, suite: string): string => join(evalRoot, "runs", suite);
 
 /** 把 MetricValue 映射为 Langfuse 分数（null/unscored 跳过，不冒充 0）。 */
 function metricOf(name: string, m: MetricValue | null | undefined): TrialMetric | undefined {
@@ -80,7 +84,9 @@ function stableStringify(value: unknown): string {
 
 async function main(): Promise<void> {
   const command = process.argv[2];
-  const evalRoot = join(PROJECT_ROOT, arg("--eval-root", "data/eval-v2")!);
+  // --eval-root 支持绝对路径（测试/跨目录使用）；相对路径按项目根解析。
+  const evalRootArg = arg("--eval-root", "data/eval-v2")!;
+  const evalRoot = isAbsolute(evalRootArg) ? evalRootArg : join(PROJECT_ROOT, evalRootArg);
   const config = loadConfig({ envFile: join(PROJECT_ROOT, ".env") });
   config.projectRoot = PROJECT_ROOT;
 
@@ -98,6 +104,13 @@ async function main(): Promise<void> {
       console.error(`[eval:v2] 非法 --repeat：${arg("--repeat")}（必须 ≥1 的整数）`);
       process.exit(2);
     }
+    // 门禁阈值在运行前校验（交付 1.1 #3）：NaN/负数会让 `hard > NaN` 恒 false 静默放行。
+    const maxHardRaw = arg("--max-hard-failures", "0")!;
+    const maxHard = Number(maxHardRaw);
+    if (!Number.isInteger(maxHard) || maxHard < 0) {
+      console.error(`[eval:v2] 非法 --max-hard-failures：${maxHardRaw}（必须 ≥0 的整数）`);
+      process.exit(2);
+    }
     const caseIds = arg("--cases")?.split(",").map((s) => s.trim()).filter(Boolean);
     // 审计开关（OQ-30）：显式控制本轮口径；缺省 off（与 TD_AUDIT_ENABLED 解耦，保证可复现）。
     // audit on + scripted/fake → 确定性审计器（A1）；audit on + pi → 真实审计器（花费 API）。
@@ -113,27 +126,15 @@ async function main(): Promise<void> {
       baseConfig: config,
       ...(caseIds && caseIds.length > 0 ? { caseIds } : {}),
     });
-    // CI 门禁（M10/A3）：硬失败 + **完整性**——遗漏 case / 缺 trial 的 suite 不得以零失败通过；
-    // 预期阻断（blocked ∈ allowedOutcomes）与准入拒绝（admission_rejected）单独计数，不算失败。
+    // CI 门禁（M10/A3/交付 1.1）：硬失败 + **完整性**（遗漏 case / 缺 trial）+ **冻结完整性**
+    // （材料/项目身份漂移、git unknown）。判定逻辑在 gate.ts（纯函数，可反例测试）。
     if (arg("--gate", "off") === "on") {
-      const maxHard = Number(arg("--max-hard-failures", "0"));
-      const trials = summary.cases.flatMap((c) => c.trials);
-      const hard = trials.reduce((n, t) => n + t.hardFailures.length, 0);
-      const omissions = summary.caseStatuses.filter((s) => s.phase !== "scored" && s.phase !== "admission_rejected");
-      const accountedTrials = summary.caseStatuses.filter((s) => s.phase === "scored" || s.phase === "run_error").reduce((n, s) => n + s.trials, 0);
-      console.log(
-        `[eval:v2][gate] planned=${summary.planned.trials} trials=${accountedTrials}/${summary.planned.cases} case ` +
-          `hardFailures=${hard}（上限 ${maxHard}）blockedExpected=${summary.counts.blockedExpectedTrials} ` +
-          `admissionRejected=${summary.counts.admissionRejected} omissions=${omissions.length}`,
-      );
-      let gateError: string | null = null;
-      if (omissions.length > 0 || accountedTrials !== summary.planned.trials) {
-        gateError = `存在遗漏：${omissions.map((s) => `${s.caseId}(${s.phase})`).join(", ") || "trial 数不足"}——全部可评案例必须出分或显式预期阻断`;
-      } else if (hard > maxHard) {
-        gateError = `硬失败 ${hard} > 上限 ${maxHard}`;
-      }
-      if (gateError) {
-        console.error(`[eval:v2][gate] ${gateError}，失败退出`);
+      const manifestPath = join(runDirOf(evalRoot, suite), "manifest.json");
+      const manifest = existsSync(manifestPath) ? (JSON.parse(readFileSync(manifestPath, "utf8")) as SuiteManifestV2) : null;
+      const verdict = evaluateGate({ summary, manifest, maxHard });
+      console.log(verdict.line);
+      if (!verdict.ok) {
+        console.error(`[eval:v2][gate] ${verdict.error}，失败退出`);
         process.exit(1);
       }
     }
@@ -144,44 +145,77 @@ async function main(): Promise<void> {
   if (command === "replay") {
     const suite = arg("--suite");
     if (!suite) usage();
-    const runDir = join(evalRoot, "runs", suite);
+    const runDir = runDirOf(evalRoot, suite);
     if (!existsSync(runDir)) {
       console.error(`[eval:v2] 找不到 suite 运行目录：${runDir}`);
       process.exit(1);
     }
-    // replay 必须能对账口径（A3）：manifest 缺失 = 产物不完整，直接失败。
+    // replay 必须能对账口径（A3）：manifest/summary 缺失 = 产物不完整，直接失败。
     if (!existsSync(join(runDir, "manifest.json")) || !existsSync(join(runDir, "summary.json"))) {
       console.error(`[eval:v2] 缺少 manifest.json / summary.json（产物不完整，拒绝重放）：${runDir}`);
       process.exit(1);
     }
+    // 交付 1.1 #2：按运行前冻结的 case/trial 身份清单对账——目录里有什么就对什么账的
+    // 旧做法会让"缺 trial/缺 case/全部缺失"静默通过。
+    const trialsManifestPath = join(runDir, "trials.json");
+    if (!existsSync(trialsManifestPath)) {
+      console.error(`[eval:v2] 缺少 trials.json（冻结身份清单，交付 1.1 起的运行才有）：${trialsManifestPath}——请用当前代码重跑该 suite`);
+      process.exit(1);
+    }
+    const identities = JSON.parse(readFileSync(trialsManifestPath, "utf8")) as {
+      schemaVersion: string;
+      suiteRunId: string;
+      identities: Array<{ caseId: string; trialId: string }>;
+    };
+    if (identities.schemaVersion !== "prediagnosis-trials-v1" || !Array.isArray(identities.identities)) {
+      console.error(`[eval:v2] trials.json 格式非法：${trialsManifestPath}`);
+      process.exit(1);
+    }
+    if (identities.suiteRunId !== suite) {
+      console.error(`[eval:v2] trials.json 绑定不匹配：${identities.suiteRunId} ≠ --suite ${suite}`);
+      process.exit(1);
+    }
     const results: Array<{ trial: string; consistent: boolean; detail?: string }> = [];
+    const seen = new Set<string>();
+    for (const identity of identities.identities) {
+      const { caseId, trialId } = identity;
+      const key = `${caseId}/${trialId}`;
+      seen.add(key);
+      const trialDir = join(runDir, caseId, trialId);
+      if (!existsSync(trialDir)) {
+        results.push({ trial: key, consistent: false, detail: "冻结身份清单中的 trial 缺少产物目录" });
+        continue;
+      }
+      // 缺任何必要产物必须失败（A3）：静默跳过会让"重放全绿"掩盖产物丢失。
+      const missing = ["outputs.json", "score.json", "trace.jsonl"].filter((f) => !existsSync(join(trialDir, f)));
+      if (missing.length > 0) {
+        results.push({ trial: key, consistent: false, detail: `缺少必要产物：${missing.join(", ")}` });
+        continue;
+      }
+      const { scorerInput } = JSON.parse(readFileSync(join(trialDir, "outputs.json"), "utf8")) as { scorerInput: ScorerInput };
+      const rescored = scoreTrial(scorerInput);
+      const saved = JSON.parse(readFileSync(join(trialDir, "score.json"), "utf8")) as CaseScoreV2;
+      const same = stableStringify(rescored) === stableStringify(saved);
+      const versionNote =
+        saved.scorerVersion !== SCORER_VERSION ? `（保存 ${saved.scorerVersion} vs 当前 ${SCORER_VERSION}，口径变更须另建 suite）` : "";
+      results.push({
+        trial: key,
+        consistent: same,
+        ...(same ? {} : { detail: `离线重评分与保存结果不一致（评分器或数据被改动）${versionNote}` }),
+      });
+    }
+    // 清单外产物目录：混入的旧/未知 trial 也不得放过。
     for (const caseId of readdirSync(runDir, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name)) {
-      const caseDir = join(runDir, caseId);
-      for (const trialId of readdirSync(caseDir, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name)) {
-        const trialDir = join(caseDir, trialId);
-        // 缺任何必要产物必须失败（A3）：静默跳过会让"重放全绿"掩盖产物丢失。
-        const missing = ["outputs.json", "score.json", "trace.jsonl"].filter((f) => !existsSync(join(trialDir, f)));
-        if (missing.length > 0) {
-          results.push({ trial: `${caseId}/${trialId}`, consistent: false, detail: `缺少必要产物：${missing.join(", ")}` });
-          continue;
+      for (const trialId of readdirSync(join(runDir, caseId), { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name)) {
+        if (!seen.has(`${caseId}/${trialId}`)) {
+          results.push({ trial: `${caseId}/${trialId}`, consistent: false, detail: "产物目录不在冻结身份清单中（混入的旧运行或未知 trial）" });
         }
-        const { scorerInput } = JSON.parse(readFileSync(join(trialDir, "outputs.json"), "utf8")) as { scorerInput: ScorerInput };
-        const rescored = scoreTrial(scorerInput);
-        const saved = JSON.parse(readFileSync(join(trialDir, "score.json"), "utf8")) as CaseScoreV2;
-        const same = stableStringify(rescored) === stableStringify(saved);
-        const versionNote =
-          saved.scorerVersion !== SCORER_VERSION ? `（保存 ${saved.scorerVersion} vs 当前 ${SCORER_VERSION}，口径变更须另建 suite）` : "";
-        results.push({
-          trial: `${caseId}/${trialId}`,
-          consistent: same,
-          ...(same ? {} : { detail: `离线重评分与保存结果不一致（评分器或数据被改动）${versionNote}` }),
-        });
       }
     }
     const replayPath = join(runDir, "replay.json");
-    writeFileSync(replayPath, JSON.stringify({ suite, scorerVersion: SCORER_VERSION, results, allConsistent: results.every((r) => r.consistent) }, null, 2), "utf8");
+    writeFileSync(replayPath, JSON.stringify({ suite, scorerVersion: SCORER_VERSION, identitiesChecked: identities.identities.length, results, allConsistent: results.every((r) => r.consistent) }, null, 2), "utf8");
     for (const r of results) console.log(`${r.consistent ? "✅" : "❌"} ${r.trial}${r.detail ? `  ${r.detail}` : ""}`);
-    console.log(`[eval:v2] 重放完成：${replayPath}`);
+    console.log(`[eval:v2] 重放完成（对账 ${identities.identities.length} 个冻结身份）：${replayPath}`);
     if (!results.every((r) => r.consistent)) process.exit(1);
     return;
   }
@@ -201,12 +235,23 @@ async function main(): Promise<void> {
     }
     const { scorerInput } = JSON.parse(readFileSync(outputsPath, "utf8")) as { scorerInput: ScorerInput };
     const saved = JSON.parse(readFileSync(scorePath, "utf8")) as import("./types.ts").CaseScoreV2;
+    // 交付 1.1 #6：拒绝混合评分版本——基础分必须出自当前评分器，且可用当前代码逐字段复算。
+    if (saved.scorerVersion !== SCORER_VERSION) {
+      console.error(`[eval:v2] score.json 版本 ${saved.scorerVersion} ≠ 当前评分器 ${SCORER_VERSION}：拒绝混合口径重评分。请用当前代码重跑 suite（口径变更须另建结果目录）。`);
+      process.exit(1);
+    }
+    const recomputed = scoreTrial(scorerInput);
+    if (stableStringify(recomputed) !== stableStringify(saved)) {
+      console.error("[eval:v2] 基础评分无法用当前评分器逐字段复算（评分器或数据被改动）：拒绝在其上叠加复核分。");
+      process.exit(1);
+    }
     const reviewRaw = JSON.parse(readFileSync(reviewPath, "utf8")) as unknown;
-    // A2 绑定：suite / case / trial / 输出内容指纹 / 实际判断清单（claimId 基准）。
+    // A2 绑定：suite / case / trial / 输出内容指纹 / 实际判断清单（claimId 基准）/ 回写事实。
     const bind = {
       suiteRunId: suite,
       outputsHash: judgedOutputsHash(scorerInput),
       claims: listJudgableClaims(scorerInput.rounds),
+      writebackPresentByRound: Object.fromEntries(scorerInput.rounds.map((r) => [r.roundId, !!r.writebackText])),
     };
     const checked = validateReview(reviewRaw, scorerInput.caseDesc, scorerInput.truth, bind);
     if (!checked.ok) {
@@ -229,6 +274,14 @@ async function main(): Promise<void> {
     }
     writeFileSync(artifactPath, JSON.stringify(checked.value, null, 2), "utf8");
     const reviewed = applyReview(scorerInput, saved, checked.value);
+    // 交付 1.1 #6：复核分携带绑定元数据（outputsHash/reviewHash/评分版本），消费前可核验。
+    reviewed.reviewMeta = {
+      outputsHash: bind.outputsHash,
+      reviewHash,
+      reviewArtifact: artifactPath,
+      baseScorerVersion: saved.scorerVersion,
+      rescoredAt: Date.now(),
+    };
     const outPath = join(trialDir, "score.reviewed.json");
     writeFileSync(outPath, JSON.stringify(reviewed, null, 2), "utf8");
     console.log(`[eval:v2] 重评分完成：${outPath}（review 归档：${artifactPath}）`);
@@ -270,12 +323,22 @@ async function main(): Promise<void> {
         const scorePath = join(dir, "score.json");
         const outputsPath = join(dir, "outputs.json");
         if (!existsSync(scorePath) || !existsSync(outputsPath)) continue;
-        // A2：复核后的有效评分优先于基础程序分进入推送；来源显式入 metadata。
-        const reviewedPath = join(dir, "score.reviewed.json");
-        const usingReviewed = existsSync(reviewedPath);
-        const scorePathUsed = usingReviewed ? reviewedPath : scorePath;
-        const score = JSON.parse(readFileSync(scorePathUsed, "utf8")) as CaseScoreV2;
         const { scorerInput } = JSON.parse(readFileSync(outputsPath, "utf8")) as { scorerInput: ScorerInput };
+        // A2/#6：复核分优先于基础程序分进入推送，但必须通过绑定核验（outputsHash 一致）；
+        // 失效则回退程序分并告警。来源显式入 metadata。
+        const reviewedPath = join(dir, "score.reviewed.json");
+        let score: CaseScoreV2 | null = null;
+        let scoreSource = "program";
+        if (existsSync(reviewedPath)) {
+          const reviewed = JSON.parse(readFileSync(reviewedPath, "utf8")) as CaseScoreV2;
+          if (reviewedBindingValid(reviewed, scorerInput)) {
+            score = reviewed;
+            scoreSource = `review:${reviewed.semanticReview.reviewerType ?? "unknown"}/${reviewed.semanticReview.reviewer ?? "unknown"}`;
+          } else {
+            console.warn(`[eval:v2] ${caseId}/${trialId} 复核分绑定失效（outputsHash 不符），回退程序分`);
+          }
+        }
+        if (!score) score = JSON.parse(readFileSync(scorePath, "utf8")) as CaseScoreV2;
         const metrics = buildMetrics(score);
         const traceId = await lf.pushTrial({
           suite,
@@ -291,14 +354,12 @@ async function main(): Promise<void> {
             sourceTier: score.sourceTier,
             executionSuccess: score.executionSuccess,
             hardFailures: score.hardFailures.length,
-            scoreSource: usingReviewed
-              ? `review:${score.semanticReview.reviewerType ?? "unknown"}/${score.semanticReview.reviewer ?? "unknown"}`
-              : "program",
+            scoreSource,
           },
           metrics,
         });
         if (traceId) pushed[`${caseId}/${trialId}`] = traceId;
-        console.log(`  ${caseId}/${trialId} → trace ${traceId?.slice(0, 12) ?? "?"}（${metrics.length} 分，${usingReviewed ? "复核分" : "程序分"}）`);
+        console.log(`  ${caseId}/${trialId} → trace ${traceId?.slice(0, 12) ?? "?"}（${metrics.length} 分，${scoreSource === "program" ? "程序分" : "复核分"}）`);
       }
     }
     writeFileSync(join(runDir, "langfuse.json"), JSON.stringify(pushed, null, 2), "utf8");
@@ -317,15 +378,24 @@ async function main(): Promise<void> {
       process.exit(1);
     }
     const summary = JSON.parse(readFileSync(summaryPath, "utf8")) as SuiteSummaryV2;
-    // A2：复核结果进入汇总——score.reviewed.json 存在的 trial 以复核分重算聚合。
+    // A2/#6：复核结果进入汇总——score.reviewed.json 存在**且绑定核验通过**时以复核分重算聚合；
+    // 绑定失效（trial 重跑、outputsHash 不符）回退程序分并告警。
     let anyReviewed = false;
     const reviewedCases = summary.cases.map((c) => ({
       ...c,
       trials: c.trials.map((t) => {
         const p = join(runDir, c.caseId, t.trialId, "score.reviewed.json");
         if (!existsSync(p)) return t;
+        const reviewed = JSON.parse(readFileSync(p, "utf8")) as CaseScoreV2;
+        const outputsPath = join(runDir, c.caseId, t.trialId, "outputs.json");
+        if (!existsSync(outputsPath)) return t;
+        const { scorerInput } = JSON.parse(readFileSync(outputsPath, "utf8")) as { scorerInput: ScorerInput };
+        if (!reviewedBindingValid(reviewed, scorerInput)) {
+          console.warn(`[eval:v2] ${c.caseId}/${t.trialId} 复核分绑定失效（outputsHash 与当前输出不符），回退程序分`);
+          return t;
+        }
         anyReviewed = true;
-        return JSON.parse(readFileSync(p, "utf8")) as CaseScoreV2;
+        return reviewed;
       }),
     }));
     printSummary(summary);

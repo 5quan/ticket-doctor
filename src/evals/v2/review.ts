@@ -70,12 +70,22 @@ function sha256Text(s: string): string {
   return createHash("sha256").update(s).digest("hex");
 }
 
+/**
+ * 复核分绑定核验（交付 1.1 #6）：消费方（summary/push）在采用 score.reviewed.json 前
+ * 必须验证 reviewMeta 存在且 outputsHash 与当前输出一致——trial 重跑/口径混用时回退程序分。
+ */
+export function reviewedBindingValid(reviewed: CaseScoreV2, scorerInput: ScorerInput): boolean {
+  const meta = reviewed.reviewMeta;
+  if (!meta || typeof meta.outputsHash !== "string" || !meta.outputsHash) return false;
+  return meta.outputsHash === judgedOutputsHash(scorerInput);
+}
+
 /** 工件校验：绑定（suite/case/trial/输出内容）、身份、逐槽位 claimId、重复与跨阶段；任何问题整份拒绝。 */
 export function validateReview(
   raw: unknown,
   caseDesc: CaseDescriptorV2,
   truth: TruthFileV2,
-  bind: { suiteRunId: string; outputsHash: string; claims: ClaimSlot[] },
+  bind: { suiteRunId: string; outputsHash: string; claims: ClaimSlot[]; /** 每轮是否实际存在回写记录（交付 1.1 #5：无回写不得复核为成功）。 */ writebackPresentByRound: Record<string, boolean> },
 ): { ok: true; value: ReviewFileV2 } | { ok: false; errors: ReviewIssue[] } {
   const errors: ReviewIssue[] = [];
   const r = raw as ReviewFileV2;
@@ -155,13 +165,28 @@ export function validateReview(
     if (seenContradiction.has(key)) errors.push({ path: `${p}`, message: "重复的复核记录" });
     seenContradiction.add(key);
   });
+  const seenClarification = new Set<string>();
   (r.clarifications ?? []).forEach((c, i) => {
-    checkRound(`clarifications[${i}].roundId`, c.roundId ?? "");
-    if (!SIMPLE_VERDICTS.includes(c.verdict)) errors.push({ path: `clarifications[${i}].verdict`, message: `非法 verdict：${String(c.verdict)}` });
+    const p = `clarifications[${i}]`;
+    checkRound(`${p}.roundId`, c.roundId ?? "");
+    if (!SIMPLE_VERDICTS.includes(c.verdict)) errors.push({ path: `${p}.verdict`, message: `非法 verdict：${String(c.verdict)}` });
+    // 同轮重复/冲突记录整份拒绝（交付 1.1 #5）：一轮补问只能有一个裁决。
+    const key = `${c.roundId ?? ""}`;
+    if (seenClarification.has(key)) errors.push({ path: `${p}`, message: "重复的复核记录（同轮多条 clarification，互相冲突或重复计分）" });
+    seenClarification.add(key);
   });
+  const seenWriteback = new Set<string>();
   (r.writeback ?? []).forEach((c, i) => {
-    checkRound(`writeback[${i}].roundId`, c.roundId ?? "");
-    if (!SIMPLE_VERDICTS.includes(c.verdict)) errors.push({ path: `writeback[${i}].verdict`, message: `非法 verdict：${String(c.verdict)}` });
+    const p = `writeback[${i}]`;
+    checkRound(`${p}.roundId`, c.roundId ?? "");
+    if (!SIMPLE_VERDICTS.includes(c.verdict)) errors.push({ path: `${p}.verdict`, message: `非法 verdict：${String(c.verdict)}` });
+    const key = `${c.roundId ?? ""}`;
+    if (seenWriteback.has(key)) errors.push({ path: `${p}`, message: "重复的复核记录（同轮多条 writeback，互相冲突或重复计分）" });
+    seenWriteback.add(key);
+    // 交付 1.1 #5：该轮没有实际回写记录时，不得复核为回写成功。
+    if (c.verdict === "ok" && !(bind.writebackPresentByRound ?? {})[c.roundId ?? ""]) {
+      errors.push({ path: `${p}.verdict`, message: `round ${c.roundId} 无实际回写记录，不得复核为回写成功（ok）` });
+    }
   });
   return errors.length === 0 ? { ok: true, value: r } : { ok: false, errors };
 }
@@ -249,6 +274,7 @@ export function applyReview(input: ScorerInput, score: CaseScoreV2, review: Revi
     if (!perClaim || perClaim.length === 0) continue;
     rs.contradictionUpdate = perClaim.some((v) => v === null) ? null : perClaim.every((v) => v === true);
   }  // writeback：review 逐轮覆盖；未覆盖轮回落到确定性判定（与 scoreTrial 同一函数，口径不漂移）。
+  // 防御（交付 1.1 #5）：即使工件绕过校验直接传入，无实际回写记录的轮也不得改判成功。
   const writebackOk: boolean[] = input.rounds.map((r) => {
     const reviewed = review.writeback?.find((c) => c.roundId === r.roundId);
     if (!reviewed) return deterministicWritebackOk(r);
@@ -256,6 +282,7 @@ export function applyReview(input: ScorerInput, score: CaseScoreV2, review: Revi
       s.writebackSuccess = { ...s.writebackSuccess, unscored: s.writebackSuccess.unscored + 1 };
       return false;
     }
+    if (reviewed.verdict === "ok" && !r.writebackText) return false;
     return reviewed.verdict === "ok";
   });
   const wbNum = writebackOk.filter(Boolean).length;

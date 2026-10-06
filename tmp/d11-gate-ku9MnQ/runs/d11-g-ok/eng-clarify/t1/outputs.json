@@ -1,0 +1,896 @@
+{
+  "artifacts": {
+    "suiteRunId": "d11-g-ok",
+    "caseId": "eng-clarify",
+    "familyId": "eng-checkout",
+    "trialId": "t1",
+    "engine": "scripted",
+    "auditEngine": null,
+    "rounds": [
+      {
+        "roundId": "r1",
+        "runId": "b54ce294-7a6b-4d21-bb2b-88ec8dc20f30",
+        "status": "succeeded",
+        "errorCode": null,
+        "errorMessage": null,
+        "outcome": "clarify",
+        "engineCalls": [
+          {
+            "index": 0,
+            "phase": "initial",
+            "kind": "reply",
+            "replyText": "需要补充关键信息：故障发生时间、所属服务、报错现象或订单号，我再去查日志取证。",
+            "reason": "clarify",
+            "modelTurns": 1,
+            "model": "scripted",
+            "wallTime": 1791307695290
+          }
+        ],
+        "replyText": "需要补充关键信息：故障发生时间、所属服务、报错现象或订单号，我再去查日志取证。",
+        "writebackText": "需要补充关键信息：故障发生时间、所属服务、报错现象或订单号，我再去查日志取证。",
+        "toolCalls": 0,
+        "allLogQueriesEmpty": false
+      },
+      {
+        "roundId": "r2",
+        "runId": "e4ec08ec-2c65-4d27-aed7-8598cf3fa349",
+        "status": "succeeded",
+        "errorCode": null,
+        "errorMessage": null,
+        "outcome": "report",
+        "rawDraft": {
+          "completeness": "complete",
+          "summary": "库存服务调用超时导致下单失败（InventoryClient 3000ms 超时）",
+          "confirmedFacts": [
+            "InventoryClient 调用库存服务失败 timeout after 3000ms"
+          ],
+          "hypotheses": [
+            {
+              "cause": "库存服务调用超时（InventoryClient 3000ms 超时）导致下单失败",
+              "confidence": "high",
+              "status": "supported",
+              "evidenceIds": [
+                "E1",
+                "E2",
+                "E3",
+                "E4",
+                "E5",
+                "E6",
+                "E7"
+              ]
+            }
+          ],
+          "uncertainties": [],
+          "nextSteps": [
+            "与库存服务负责人核对超时配置与容量"
+          ],
+          "missingMaterial": []
+        },
+        "engineCalls": [
+          {
+            "index": 0,
+            "phase": "initial",
+            "kind": "report",
+            "draft": {
+              "completeness": "complete",
+              "summary": "库存服务调用超时导致下单失败（InventoryClient 3000ms 超时）",
+              "confirmedFacts": [
+                "InventoryClient 调用库存服务失败 timeout after 3000ms"
+              ],
+              "hypotheses": [
+                {
+                  "cause": "库存服务调用超时（InventoryClient 3000ms 超时）导致下单失败",
+                  "confidence": "high",
+                  "status": "supported",
+                  "evidenceIds": [
+                    "E1",
+                    "E2",
+                    "E3",
+                    "E4",
+                    "E5",
+                    "E6",
+                    "E7"
+                  ]
+                }
+              ],
+              "uncertainties": [],
+              "nextSteps": [
+                "与库存服务负责人核对超时配置与容量"
+              ],
+              "missingMaterial": []
+            },
+            "modelTurns": 1,
+            "model": "scripted",
+            "wallTime": 1791307695335
+          }
+        ],
+        "report": {
+          "completeness": "complete",
+          "summary": "库存服务调用超时导致下单失败（InventoryClient 3000ms 超时）",
+          "scope": {
+            "services": [
+              "checkout-service"
+            ],
+            "reportedAt": 1788662100000,
+            "occurredAt": 1788660060000,
+            "timeWindowBasis": "occurred",
+            "timeWindow": {
+              "from": 1788638460000,
+              "to": 1788663660000
+            },
+            "repos": [
+              {
+                "repoId": "app",
+                "rev": "5048b0d6f36486a77e150dd8d8c3913784074302",
+                "sha": "5048b0d6f36486a77e150dd8d8c3913784074302",
+                "resolved": true,
+                "pinnedBy": "time"
+              }
+            ]
+          },
+          "confirmedFacts": [
+            "InventoryClient 调用库存服务失败 timeout after 3000ms"
+          ],
+          "hypotheses": [
+            {
+              "cause": "库存服务调用超时（InventoryClient 3000ms 超时）导致下单失败",
+              "confidence": "high",
+              "status": "supported",
+              "evidenceIds": [
+                "29221250-79ae-41d0-9b29-46e1838c2e7e",
+                "864bc628-fad1-44af-9db6-34417734da5d",
+                "6fbb0d6a-40d3-44c4-ba03-54e6f11b86e0",
+                "4f0a4168-40b1-4f9a-8a6f-a5c0558b3864",
+                "a34f43ee-cda6-4640-82d2-928363bfb4e5",
+                "8f2e2ebb-3a07-404a-8afa-a379c4cdbdad",
+                "15be51ff-81a1-4122-b40b-f773bb037d2d"
+              ]
+            }
+          ],
+          "uncertainties": [],
+          "nextSteps": [
+            "与库存服务负责人核对超时配置与容量"
+          ],
+          "missingMaterial": [],
+          "corrections": [],
+          "executionLimits": [
+            "工具调用 1/12",
+            "时间预算 180000ms"
+          ]
+        },
+        "writebackText": "【预检报告】我们收到一个下单失败的反馈，麻烦帮忙看看是什么原因\n调查 8b6abd9d-ddc4-4aa2-8e90-0b78011af8b6 · 第 2 轮 · 材料完整\n\n■ 问题摘要\n库存服务调用超时导致下单失败（InventoryClient 3000ms 超时）\n\n■ 已确认事实\n- InventoryClient 调用库存服务失败 timeout after 3000ms\n\n■ 根因假设\n1. (high/supported) 库存服务调用超时（InventoryClient 3000ms 超时）导致下单失败 [证据 E1,E2,E3,E4,E5,E6,E7]\n\n■ 建议验证步骤\n- 与库存服务负责人核对超时配置与容量\n\n■ 材料范围\n- 服务：checkout-service\n- 环境：未指定\n- 上报时间：2026-09-06 10:35:00 +08:00\n- 发生时间：2026-09-06 10:01:00 +08:00\n- 时间窗：2026-09-06 04:01:00 +08:00 ~ 2026-09-06 11:01:00 +08:00\n- 源码：app@5048b0d6f3(按发生时间)\n\n■ 执行限制\n- 工具调用 1/12\n- 时间预算 180000ms\n\n（本报告为开发接手前的预检，根因请以开发确认为准。回复本消息可继续补充材料。）\n[TD-2wymmbh5]",
+        "corrections": [],
+        "toolCalls": 1,
+        "allLogQueriesEmpty": false,
+        "scopeResolved": {
+          "services": [
+            "checkout-service"
+          ],
+          "reportedAt": 1788662100000,
+          "occurredAt": 1788660060000,
+          "timeWindowBasis": "occurred",
+          "timeWindow": {
+            "from": 1788638460000,
+            "to": 1788663660000
+          },
+          "repos": [
+            {
+              "repoId": "app",
+              "rev": "5048b0d6f36486a77e150dd8d8c3913784074302",
+              "sha": "5048b0d6f36486a77e150dd8d8c3913784074302",
+              "resolved": true,
+              "pinnedBy": "time"
+            }
+          ]
+        }
+      }
+    ],
+    "sourceReturned": [
+      {
+        "roundId": "r2",
+        "tool": "query_logs",
+        "args": {
+          "service": "checkout-service",
+          "from": 1788660000000,
+          "to": 1788663660000,
+          "keywords": []
+        },
+        "entries": 7,
+        "excerptHead": [
+          "HealthCheck /actuator/health status=UP",
+          "RedisPool 获取连接超时(2000ms) pool=checkout-cache active=50/50 等待队列=12",
+          "OrderController 下单接口返回 500 orderId=ord_88121 traceId=tr_9f2c81"
+        ]
+      }
+    ],
+    "wall": {
+      "startedAt": 1791307695255,
+      "finishedAt": 1791307695339
+    },
+    "usage": {
+      "totalTokens": 0
+    }
+  },
+  "scorerInput": {
+    "caseDesc": {
+      "schemaVersion": "prediagnosis-case-v2",
+      "caseId": "eng-clarify",
+      "familyId": "eng-checkout",
+      "split": "engineering",
+      "sourceTier": "synthetic_engineering",
+      "publicBenchmark": false,
+      "admission": "admitted",
+      "maxRounds": 3,
+      "scriptedEngine": true,
+      "rounds": [
+        {
+          "roundId": "r1",
+          "messageRef": "r1-message.txt",
+          "receivedAt": "2026-09-06T10:30:00+08:00",
+          "occurredAt": null,
+          "materialView": "round-1",
+          "services": [],
+          "repos": [
+            {
+              "repoId": "app",
+              "dir": "fixtures/evals/checkout-timeout/repo",
+              "expectedSha": "5048b0d6f36486a77e150dd8d8c3913784074302"
+            }
+          ]
+        },
+        {
+          "roundId": "r2",
+          "messageRef": "r2-message.txt",
+          "receivedAt": "2026-09-06T10:35:00+08:00",
+          "occurredAt": "2026-09-06T10:01:00+08:00",
+          "materialView": "round-2",
+          "services": [
+            "checkout-service"
+          ],
+          "repos": [
+            {
+              "repoId": "app",
+              "dir": "fixtures/evals/checkout-timeout/repo",
+              "expectedSha": "5048b0d6f36486a77e150dd8d8c3913784074302"
+            }
+          ]
+        }
+      ]
+    },
+    "truth": {
+      "schemaVersion": "prediagnosis-truth-v2",
+      "caseId": "eng-clarify",
+      "locators": [
+        {
+          "kind": "log",
+          "locatorId": "loc-timeout-log",
+          "keyContent": "InventoryClient 调用库存服务失败 timeout",
+          "level": "ERROR"
+        }
+      ],
+      "rounds": [
+        {
+          "roundId": "r1",
+          "allowedOutcomes": [
+            "clarify"
+          ],
+          "allowedClaimDepth": "symptom",
+          "requiredFacts": [],
+          "forbiddenRules": [
+            {
+              "ruleId": "no-root-guess-without-materials",
+              "where": [
+                "hypotheses"
+              ],
+              "assertAnyOf": [
+                [
+                  "库存",
+                  "redis",
+                  "超时",
+                  "timeout"
+                ]
+              ],
+              "onlyWhenHypothesisUncited": true
+            }
+          ],
+          "materialNeeds": [
+            {
+              "needId": "incident-details",
+              "description": "发生时间与服务名",
+              "clarifyConcepts": [
+                [
+                  "时间",
+                  "什么时候"
+                ],
+                [
+                  "服务",
+                  "哪个服务"
+                ]
+              ]
+            }
+          ],
+          "evidenceRequirements": [],
+          "contradictedClaims": [],
+          "writebackRequirements": []
+        },
+        {
+          "roundId": "r2",
+          "allowedOutcomes": [
+            "report"
+          ],
+          "allowedClaimDepth": "root",
+          "requiredFacts": [
+            {
+              "factId": "root-cause-timeout",
+              "concepts": [
+                [
+                  "库存"
+                ],
+                [
+                  "超时",
+                  "timeout"
+                ]
+              ],
+              "where": [
+                "summary",
+                "hypotheses"
+              ]
+            }
+          ],
+          "forbiddenRules": [],
+          "materialNeeds": [],
+          "evidenceRequirements": [
+            {
+              "requirementId": "req-timeout-log",
+              "depth": "root",
+              "supportsAnyOf": [
+                {
+                  "allOf": [
+                    "loc-timeout-log"
+                  ]
+                }
+              ]
+            }
+          ],
+          "contradictedClaims": [],
+          "writebackRequirements": [
+            {
+              "reqId": "wb-root-cause",
+              "concepts": [
+                [
+                  "库存"
+                ],
+                [
+                  "超时",
+                  "timeout"
+                ]
+              ]
+            }
+          ]
+        }
+      ],
+      "review": {
+        "author": "eval-v2-builder",
+        "reviewer": "provisional-self",
+        "provisional": true,
+        "notes": "工程自测标准，仅验证 harness 行为"
+      }
+    },
+    "engine": "scripted",
+    "trialId": "t1",
+    "suiteRunId": "d11-g-ok",
+    "rounds": [
+      {
+        "roundId": "r1",
+        "truth": {
+          "roundId": "r1",
+          "allowedOutcomes": [
+            "clarify"
+          ],
+          "allowedClaimDepth": "symptom",
+          "requiredFacts": [],
+          "forbiddenRules": [
+            {
+              "ruleId": "no-root-guess-without-materials",
+              "where": [
+                "hypotheses"
+              ],
+              "assertAnyOf": [
+                [
+                  "库存",
+                  "redis",
+                  "超时",
+                  "timeout"
+                ]
+              ],
+              "onlyWhenHypothesisUncited": true
+            }
+          ],
+          "materialNeeds": [
+            {
+              "needId": "incident-details",
+              "description": "发生时间与服务名",
+              "clarifyConcepts": [
+                [
+                  "时间",
+                  "什么时候"
+                ],
+                [
+                  "服务",
+                  "哪个服务"
+                ]
+              ]
+            }
+          ],
+          "evidenceRequirements": [],
+          "contradictedClaims": [],
+          "writebackRequirements": []
+        },
+        "outcome": "clarify",
+        "status": "succeeded",
+        "errorCode": null,
+        "replyText": "需要补充关键信息：故障发生时间、所属服务、报错现象或订单号，我再去查日志取证。",
+        "writebackText": "需要补充关键信息：故障发生时间、所属服务、报错现象或订单号，我再去查日志取证。",
+        "citations": [],
+        "allLogQueriesEmpty": false,
+        "expectedShas": {
+          "app": "5048b0d6f36486a77e150dd8d8c3913784074302"
+        },
+        "scopeShaMismatch": [],
+        "visibility": [
+          {
+            "requirementId": "req-timeout-log",
+            "depth": "root",
+            "applicable": true,
+            "locators": [
+              {
+                "locatorId": "loc-timeout-log",
+                "layers": {
+                  "A": null,
+                  "B": false,
+                  "C1": false,
+                  "C2": null,
+                  "D": false,
+                  "reason": "A 层无调用记录，未观测"
+                }
+              }
+            ],
+            "satisfied": {
+              "A": null,
+              "B": false,
+              "C1": false,
+              "C2": null,
+              "D": false
+            },
+            "partial": false
+          }
+        ],
+        "requiredTraceEvents": [
+          "round_input",
+          "scope_resolved",
+          "engine_result_raw",
+          "output_persisted",
+          "usage",
+          "round_finished"
+        ],
+        "presentTraceEvents": [
+          "round_input",
+          "scope_resolved",
+          "evidence_committed",
+          "usage",
+          "engine_result_raw",
+          "output_persisted",
+          "delivery_captured",
+          "round_finished"
+        ]
+      },
+      {
+        "roundId": "r2",
+        "truth": {
+          "roundId": "r2",
+          "allowedOutcomes": [
+            "report"
+          ],
+          "allowedClaimDepth": "root",
+          "requiredFacts": [
+            {
+              "factId": "root-cause-timeout",
+              "concepts": [
+                [
+                  "库存"
+                ],
+                [
+                  "超时",
+                  "timeout"
+                ]
+              ],
+              "where": [
+                "summary",
+                "hypotheses"
+              ]
+            }
+          ],
+          "forbiddenRules": [],
+          "materialNeeds": [],
+          "evidenceRequirements": [
+            {
+              "requirementId": "req-timeout-log",
+              "depth": "root",
+              "supportsAnyOf": [
+                {
+                  "allOf": [
+                    "loc-timeout-log"
+                  ]
+                }
+              ]
+            }
+          ],
+          "contradictedClaims": [],
+          "writebackRequirements": [
+            {
+              "reqId": "wb-root-cause",
+              "concepts": [
+                [
+                  "库存"
+                ],
+                [
+                  "超时",
+                  "timeout"
+                ]
+              ]
+            }
+          ]
+        },
+        "outcome": "report",
+        "status": "succeeded",
+        "errorCode": null,
+        "rawDraft": {
+          "completeness": "complete",
+          "summary": "库存服务调用超时导致下单失败（InventoryClient 3000ms 超时）",
+          "confirmedFacts": [
+            "InventoryClient 调用库存服务失败 timeout after 3000ms"
+          ],
+          "hypotheses": [
+            {
+              "cause": "库存服务调用超时（InventoryClient 3000ms 超时）导致下单失败",
+              "confidence": "high",
+              "status": "supported",
+              "evidenceIds": [
+                "E1",
+                "E2",
+                "E3",
+                "E4",
+                "E5",
+                "E6",
+                "E7"
+              ]
+            }
+          ],
+          "uncertainties": [],
+          "nextSteps": [
+            "与库存服务负责人核对超时配置与容量"
+          ],
+          "missingMaterial": []
+        },
+        "validatedReport": {
+          "completeness": "complete",
+          "summary": "库存服务调用超时导致下单失败（InventoryClient 3000ms 超时）",
+          "scope": {
+            "services": [
+              "checkout-service"
+            ],
+            "reportedAt": 1788662100000,
+            "occurredAt": 1788660060000,
+            "timeWindowBasis": "occurred",
+            "timeWindow": {
+              "from": 1788638460000,
+              "to": 1788663660000
+            },
+            "repos": [
+              {
+                "repoId": "app",
+                "rev": "5048b0d6f36486a77e150dd8d8c3913784074302",
+                "sha": "5048b0d6f36486a77e150dd8d8c3913784074302",
+                "resolved": true,
+                "pinnedBy": "time"
+              }
+            ]
+          },
+          "confirmedFacts": [
+            "InventoryClient 调用库存服务失败 timeout after 3000ms"
+          ],
+          "hypotheses": [
+            {
+              "cause": "库存服务调用超时（InventoryClient 3000ms 超时）导致下单失败",
+              "confidence": "high",
+              "status": "supported",
+              "evidenceIds": [
+                "29221250-79ae-41d0-9b29-46e1838c2e7e",
+                "864bc628-fad1-44af-9db6-34417734da5d",
+                "6fbb0d6a-40d3-44c4-ba03-54e6f11b86e0",
+                "4f0a4168-40b1-4f9a-8a6f-a5c0558b3864",
+                "a34f43ee-cda6-4640-82d2-928363bfb4e5",
+                "8f2e2ebb-3a07-404a-8afa-a379c4cdbdad",
+                "15be51ff-81a1-4122-b40b-f773bb037d2d"
+              ]
+            }
+          ],
+          "uncertainties": [],
+          "nextSteps": [
+            "与库存服务负责人核对超时配置与容量"
+          ],
+          "missingMaterial": [],
+          "corrections": [],
+          "executionLimits": [
+            "工具调用 1/12",
+            "时间预算 180000ms"
+          ]
+        },
+        "writebackText": "【预检报告】我们收到一个下单失败的反馈，麻烦帮忙看看是什么原因\n调查 8b6abd9d-ddc4-4aa2-8e90-0b78011af8b6 · 第 2 轮 · 材料完整\n\n■ 问题摘要\n库存服务调用超时导致下单失败（InventoryClient 3000ms 超时）\n\n■ 已确认事实\n- InventoryClient 调用库存服务失败 timeout after 3000ms\n\n■ 根因假设\n1. (high/supported) 库存服务调用超时（InventoryClient 3000ms 超时）导致下单失败 [证据 E1,E2,E3,E4,E5,E6,E7]\n\n■ 建议验证步骤\n- 与库存服务负责人核对超时配置与容量\n\n■ 材料范围\n- 服务：checkout-service\n- 环境：未指定\n- 上报时间：2026-09-06 10:35:00 +08:00\n- 发生时间：2026-09-06 10:01:00 +08:00\n- 时间窗：2026-09-06 04:01:00 +08:00 ~ 2026-09-06 11:01:00 +08:00\n- 源码：app@5048b0d6f3(按发生时间)\n\n■ 执行限制\n- 工具调用 1/12\n- 时间预算 180000ms\n\n（本报告为开发接手前的预检，根因请以开发确认为准。回复本消息可继续补充材料。）\n[TD-2wymmbh5]",
+        "citations": [
+          {
+            "rawId": "E1",
+            "stage": "raw",
+            "roundId": "r2",
+            "resolved": true,
+            "evidence": {
+              "evidenceId": "E1",
+              "evidenceUid": "29221250-79ae-41d0-9b29-46e1838c2e7e",
+              "kind": "log",
+              "excerpt": "HealthCheck /actuator/health status=UP",
+              "truncated": false,
+              "level": "INFO",
+              "codeRef": null
+            }
+          },
+          {
+            "rawId": "E2",
+            "stage": "raw",
+            "roundId": "r2",
+            "resolved": true,
+            "evidence": {
+              "evidenceId": "E2",
+              "evidenceUid": "864bc628-fad1-44af-9db6-34417734da5d",
+              "kind": "log",
+              "excerpt": "RedisPool 获取连接超时(2000ms) pool=checkout-cache active=50/50 等待队列=12",
+              "truncated": false,
+              "level": "WARN",
+              "codeRef": null
+            }
+          },
+          {
+            "rawId": "E3",
+            "stage": "raw",
+            "roundId": "r2",
+            "resolved": true,
+            "evidence": {
+              "evidenceId": "E3",
+              "evidenceUid": "6fbb0d6a-40d3-44c4-ba03-54e6f11b86e0",
+              "kind": "log",
+              "excerpt": "OrderController 下单接口返回 500 orderId=ord_88121 traceId=tr_9f2c81",
+              "truncated": false,
+              "level": "ERROR",
+              "codeRef": null
+            }
+          },
+          {
+            "rawId": "E4",
+            "stage": "raw",
+            "roundId": "r2",
+            "resolved": true,
+            "evidence": {
+              "evidenceId": "E4",
+              "evidenceUid": "4f0a4168-40b1-4f9a-8a6f-a5c0558b3864",
+              "kind": "log",
+              "excerpt": "RedisPool 获取连接超时(2000ms) pool=checkout-cache active=50/50 等待队列=12",
+              "truncated": false,
+              "level": "WARN",
+              "codeRef": null
+            }
+          },
+          {
+            "rawId": "E5",
+            "stage": "raw",
+            "roundId": "r2",
+            "resolved": true,
+            "evidence": {
+              "evidenceId": "E5",
+              "evidenceUid": "a34f43ee-cda6-4640-82d2-928363bfb4e5",
+              "kind": "log",
+              "excerpt": "InventoryClient 调用库存服务失败 timeout after 3000ms traceId=tr_9f2c81",
+              "truncated": false,
+              "level": "ERROR",
+              "codeRef": null
+            }
+          },
+          {
+            "rawId": "E6",
+            "stage": "raw",
+            "roundId": "r2",
+            "resolved": true,
+            "evidence": {
+              "evidenceId": "E6",
+              "evidenceUid": "8f2e2ebb-3a07-404a-8afa-a379c4cdbdad",
+              "kind": "log",
+              "excerpt": "RedisPool 获取连接超时(2000ms) pool=checkout-cache active=50/50 等待队列=7",
+              "truncated": false,
+              "level": "WARN",
+              "codeRef": null
+            }
+          },
+          {
+            "rawId": "E7",
+            "stage": "raw",
+            "roundId": "r2",
+            "resolved": true,
+            "evidence": {
+              "evidenceId": "E7",
+              "evidenceUid": "15be51ff-81a1-4122-b40b-f773bb037d2d",
+              "kind": "log",
+              "excerpt": "RedisPool 连接池使用率 92% pool=checkout-cache active=46/50",
+              "truncated": false,
+              "level": "WARN",
+              "codeRef": null
+            }
+          },
+          {
+            "rawId": "29221250-79ae-41d0-9b29-46e1838c2e7e",
+            "stage": "validated",
+            "roundId": "r2",
+            "resolved": true,
+            "evidence": {
+              "evidenceId": "E1",
+              "evidenceUid": "29221250-79ae-41d0-9b29-46e1838c2e7e",
+              "kind": "log",
+              "excerpt": "HealthCheck /actuator/health status=UP",
+              "truncated": false,
+              "level": "INFO",
+              "codeRef": null
+            }
+          },
+          {
+            "rawId": "864bc628-fad1-44af-9db6-34417734da5d",
+            "stage": "validated",
+            "roundId": "r2",
+            "resolved": true,
+            "evidence": {
+              "evidenceId": "E2",
+              "evidenceUid": "864bc628-fad1-44af-9db6-34417734da5d",
+              "kind": "log",
+              "excerpt": "RedisPool 获取连接超时(2000ms) pool=checkout-cache active=50/50 等待队列=12",
+              "truncated": false,
+              "level": "WARN",
+              "codeRef": null
+            }
+          },
+          {
+            "rawId": "6fbb0d6a-40d3-44c4-ba03-54e6f11b86e0",
+            "stage": "validated",
+            "roundId": "r2",
+            "resolved": true,
+            "evidence": {
+              "evidenceId": "E3",
+              "evidenceUid": "6fbb0d6a-40d3-44c4-ba03-54e6f11b86e0",
+              "kind": "log",
+              "excerpt": "OrderController 下单接口返回 500 orderId=ord_88121 traceId=tr_9f2c81",
+              "truncated": false,
+              "level": "ERROR",
+              "codeRef": null
+            }
+          },
+          {
+            "rawId": "4f0a4168-40b1-4f9a-8a6f-a5c0558b3864",
+            "stage": "validated",
+            "roundId": "r2",
+            "resolved": true,
+            "evidence": {
+              "evidenceId": "E4",
+              "evidenceUid": "4f0a4168-40b1-4f9a-8a6f-a5c0558b3864",
+              "kind": "log",
+              "excerpt": "RedisPool 获取连接超时(2000ms) pool=checkout-cache active=50/50 等待队列=12",
+              "truncated": false,
+              "level": "WARN",
+              "codeRef": null
+            }
+          },
+          {
+            "rawId": "a34f43ee-cda6-4640-82d2-928363bfb4e5",
+            "stage": "validated",
+            "roundId": "r2",
+            "resolved": true,
+            "evidence": {
+              "evidenceId": "E5",
+              "evidenceUid": "a34f43ee-cda6-4640-82d2-928363bfb4e5",
+              "kind": "log",
+              "excerpt": "InventoryClient 调用库存服务失败 timeout after 3000ms traceId=tr_9f2c81",
+              "truncated": false,
+              "level": "ERROR",
+              "codeRef": null
+            }
+          },
+          {
+            "rawId": "8f2e2ebb-3a07-404a-8afa-a379c4cdbdad",
+            "stage": "validated",
+            "roundId": "r2",
+            "resolved": true,
+            "evidence": {
+              "evidenceId": "E6",
+              "evidenceUid": "8f2e2ebb-3a07-404a-8afa-a379c4cdbdad",
+              "kind": "log",
+              "excerpt": "RedisPool 获取连接超时(2000ms) pool=checkout-cache active=50/50 等待队列=7",
+              "truncated": false,
+              "level": "WARN",
+              "codeRef": null
+            }
+          },
+          {
+            "rawId": "15be51ff-81a1-4122-b40b-f773bb037d2d",
+            "stage": "validated",
+            "roundId": "r2",
+            "resolved": true,
+            "evidence": {
+              "evidenceId": "E7",
+              "evidenceUid": "15be51ff-81a1-4122-b40b-f773bb037d2d",
+              "kind": "log",
+              "excerpt": "RedisPool 连接池使用率 92% pool=checkout-cache active=46/50",
+              "truncated": false,
+              "level": "WARN",
+              "codeRef": null
+            }
+          }
+        ],
+        "allLogQueriesEmpty": false,
+        "expectedShas": {
+          "app": "5048b0d6f36486a77e150dd8d8c3913784074302"
+        },
+        "scopeShaMismatch": [],
+        "visibility": [
+          {
+            "requirementId": "req-timeout-log",
+            "depth": "root",
+            "applicable": true,
+            "locators": [
+              {
+                "locatorId": "loc-timeout-log",
+                "layers": {
+                  "A": true,
+                  "B": true,
+                  "C1": true,
+                  "C2": null,
+                  "D": true
+                }
+              }
+            ],
+            "satisfied": {
+              "A": true,
+              "B": true,
+              "C1": true,
+              "C2": null,
+              "D": true
+            },
+            "partial": false
+          }
+        ],
+        "requiredTraceEvents": [
+          "round_input",
+          "scope_resolved",
+          "engine_result_raw",
+          "output_persisted",
+          "usage",
+          "round_finished"
+        ],
+        "presentTraceEvents": [
+          "round_input",
+          "scope_resolved",
+          "evidence_committed",
+          "usage",
+          "tool_returned",
+          "engine_result_raw",
+          "output_persisted",
+          "delivery_captured",
+          "round_finished"
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,119 @@
+{
+  "schemaVersion": "prediagnosis-truth-v2",
+  "caseId": "eng-clarify",
+  "locators": [
+    {
+      "kind": "log",
+      "locatorId": "loc-timeout-log",
+      "keyContent": "InventoryClient 调用库存服务失败 timeout",
+      "level": "ERROR"
+    }
+  ],
+  "rounds": [
+    {
+      "roundId": "r1",
+      "allowedOutcomes": [
+        "clarify"
+      ],
+      "allowedClaimDepth": "symptom",
+      "requiredFacts": [],
+      "forbiddenRules": [
+        {
+          "ruleId": "no-root-guess-without-materials",
+          "where": [
+            "hypotheses"
+          ],
+          "assertAnyOf": [
+            [
+              "库存",
+              "redis",
+              "超时",
+              "timeout"
+            ]
+          ],
+          "onlyWhenHypothesisUncited": true
+        }
+      ],
+      "materialNeeds": [
+        {
+          "needId": "incident-details",
+          "description": "发生时间与服务名",
+          "clarifyConcepts": [
+            [
+              "时间",
+              "什么时候"
+            ],
+            [
+              "服务",
+              "哪个服务"
+            ]
+          ]
+        }
+      ],
+      "evidenceRequirements": [],
+      "contradictedClaims": [],
+      "writebackRequirements": []
+    },
+    {
+      "roundId": "r2",
+      "allowedOutcomes": [
+        "report"
+      ],
+      "allowedClaimDepth": "root",
+      "requiredFacts": [
+        {
+          "factId": "root-cause-timeout",
+          "concepts": [
+            [
+              "库存"
+            ],
+            [
+              "超时",
+              "timeout"
+            ]
+          ],
+          "where": [
+            "summary",
+            "hypotheses"
+          ]
+        }
+      ],
+      "forbiddenRules": [],
+      "materialNeeds": [],
+      "evidenceRequirements": [
+        {
+          "requirementId": "req-timeout-log",
+          "depth": "root",
+          "supportsAnyOf": [
+            {
+              "allOf": [
+                "loc-timeout-log"
+              ]
+            }
+          ]
+        }
+      ],
+      "contradictedClaims": [],
+      "writebackRequirements": [
+        {
+          "reqId": "wb-root-cause",
+          "concepts": [
+            [
+              "库存"
+            ],
+            [
+              "超时",
+              "timeout"
+            ]
+          ]
+        }
+      ]
+    }
+  ],
+  "review": {
+    "author": "eval-v2-builder",
+    "reviewer": "provisional-self",
+    "provisional": true,
+    "notes": "工程自测标准，仅验证 harness 行为"
+  }
+}

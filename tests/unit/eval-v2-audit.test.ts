@@ -162,7 +162,12 @@ function scorerInputFor(): ScorerInput {
 }
 
 function bindFor(input: ScorerInput) {
-  return { suiteRunId: input.suiteRunId, outputsHash: judgedOutputsHash(input), claims: listJudgableClaims(input.rounds) };
+  return {
+    suiteRunId: input.suiteRunId,
+    outputsHash: judgedOutputsHash(input),
+    claims: listJudgableClaims(input.rounds),
+    writebackPresentByRound: Object.fromEntries(input.rounds.map((r) => [r.roundId, !!r.writebackText])),
+  };
 }
 
 function validReview(input: ScorerInput, verdict: "supported" | "unsupported" = "supported") {
@@ -260,6 +265,39 @@ test("review：绑定错误/未知槽位/重复记录/跨阶段/模型裁判身�
     false,
     "v2 旧工件必须整体拒绝",
   );
+});
+
+test("review（交付 1.1 #5）：无实际回写不得复核成功；clarification/writeback 同轮重复整份拒绝", () => {
+  const scorerInput = scorerInputFor(); // r1 无 writebackText
+  const bind = bindFor(scorerInput);
+  assert.equal(bind.writebackPresentByRound["r1"], false, "前置事实：该轮无回写记录");
+  const base = { schemaVersion: "prediagnosis-review-v3" as const, suiteRunId: "s1", caseId: "t-case", trialId: "t1", outputsHash: bind.outputsHash, review: { author: "a", reviewer: "b", reviewerType: "human" as const } };
+  const v = (raw: unknown) => validateReview(raw, caseDesc, truth, bind);
+
+  assert.equal(
+    v({ ...base, writeback: [{ roundId: "r1", verdict: "ok", rationale: "回写完整" }] }).ok,
+    false,
+    "无实际回写记录 → ok 判定必须整份拒绝",
+  );
+  assert.equal(
+    v({ ...base, writeback: [{ roundId: "r1", verdict: "fail", rationale: "回写缺失" }] }).ok,
+    true,
+    "无回写记录允许判 fail（如实反映缺失）",
+  );
+  assert.equal(
+    v({ ...base, clarifications: [{ roundId: "r1", verdict: "ok" }, { roundId: "r1", verdict: "fail" }] }).ok,
+    false,
+    "同轮两条 clarification（含冲突）必须整份拒绝",
+  );
+  assert.equal(
+    v({ ...base, writeback: [{ roundId: "r1", verdict: "fail" }, { roundId: "r1", verdict: "ok" }] }).ok,
+    false,
+    "同轮两条 writeback 必须整份拒绝",
+  );
+  // 防御层：绕过校验直接 applyReview，ok 也不得在无回写事实时改判成功。
+  const full = validReview(scorerInput);
+  const guarded = applyReview(scorerInput, makeScore([]), { ...full, writeback: [{ roundId: "r1", verdict: "ok", rationale: "越权改判" }] });
+  assert.notEqual(guarded.writebackSuccess.value, 1, "防御：ok 在无回写事实时不得产出 100%");
 });
 
 // ---------- 5. 回写分母与反证缺测（审计配套项） ----------

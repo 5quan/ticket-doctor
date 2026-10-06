@@ -1,0 +1,457 @@
+{
+  "schemaVersion": "prediagnosis-manifest-v2",
+  "suiteRunId": "d11-g-ok",
+  "engine": "scripted",
+  "engineActual": "scripted",
+  "repeat": 1,
+  "project": {
+    "head": "a3ebbf306c503a978e01f53ad2e14e9ba5246272",
+    "dirty": true,
+    "dirtyFiles": [
+      " M src/evals/v2/cli.ts",
+      " M src/evals/v2/engcases.ts",
+      " M src/evals/v2/hash.ts",
+      " M src/evals/v2/manifest.ts",
+      " M src/evals/v2/review.ts",
+      " M src/evals/v2/runner.ts",
+      " M src/evals/v2/scorer.ts",
+      " M src/evals/v2/scripted-engine.ts",
+      " M src/evals/v2/trace.ts",
+      " M src/evals/v2/types.ts",
+      " M tests/unit/eval-v2-audit.test.ts",
+      "?? src/evals/v2/gate.ts",
+      "?? tests/integration/eval-v2-deliverable11.test.ts",
+      "?? tmp/"
+    ],
+    "diffHash": "58700ce4cfcb3a0849e486ca6488ec3daa413b70a7d3c592b0d9a85d88ee8562",
+    "untrackedHash": "d5afce2cd0f2a24c0bae15cded5d79a3889ac88b8d3f58e664a3daac0564a211",
+    "gitState": "ok"
+  },
+  "diagnosis": {
+    "engineConfig": "scripted",
+    "provider": "deepseek",
+    "modelId": "deepseek-v4-flash",
+    "promptHash": "33c2e56febdcf65cd289e8c1825b8f5b3099e457860063174c80aadffe9f4f5c",
+    "maxToolCalls": 12,
+    "timeoutMs": 180000,
+    "maxModelTurns": 10,
+    "maxToolResultChars": 8000,
+    "maxResultChars": 4000,
+    "defaultTimeWindowMs": 21600000,
+    "fallbackTimeWindowMs": 86400000,
+    "enforced": [
+      "maxToolCalls",
+      "timeoutMs",
+      "maxRounds"
+    ],
+    "audit": {
+      "policyVersion": "1.0.0",
+      "enabled": false,
+      "maxRounds": 1,
+      "failBlocks": false,
+      "engine": null,
+      "promptHash": null
+    },
+    "coverage": {
+      "searchPageSize": 50,
+      "readPageLines": 200,
+      "listFilesLimit": 200,
+      "logPageSize": 20
+    }
+  },
+  "scorerVersion": "3.3.0",
+  "wall": {
+    "startedAt": 1791307660489,
+    "finishedAt": 1791307661603
+  },
+  "freezeCheck": {
+    "checkedAt": 1791307661603,
+    "ok": false,
+    "drifts": [
+      {
+        "caseId": "<project>",
+        "details": [
+          "未跟踪文件指纹变更"
+        ]
+      }
+    ]
+  },
+  "cases": [
+    {
+      "caseId": "eng-clarify",
+      "familyId": "eng-checkout",
+      "split": "engineering",
+      "admission": "admitted",
+      "caseHash": "bf9d3f27806568e6a87bc0f67316d099f8ca12a0b4d5de2b75fcb331b651df0b",
+      "truthHash": "3957fa4a8e69be210ca4a21118c225da931c75cd61ec15b21623a4e570c2a3f2",
+      "scriptHash": "cb2d42e4b157a599b42297edc25c17a9c07ea9ddee68dab35be967e008b04a7e",
+      "auditScriptHash": null,
+      "isolation": {
+        "ok": true,
+        "counts": {}
+      },
+      "rounds": [
+        {
+          "roundId": "r1",
+          "receivedAt": "2026-09-06T10:30:00+08:00",
+          "occurredAt": null,
+          "messageHash": "5a01526659e5141325f980522dd1360a88c5bc0f88bdad637def4fc8db2ffde8",
+          "viewRealPath": "/opt/ticket-doctor/tmp/d11-gate-SDGrcz/public/eng-clarify/round-1",
+          "authorizedServices": [],
+          "material": {
+            "materialView": "round-1",
+            "files": [],
+            "totalBytes": 0,
+            "viewHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          "repos": [
+            {
+              "repoId": "app",
+              "expectedSha": "5048b0d6f36486a77e150dd8d8c3913784074302",
+              "head": "5048b0d6f36486a77e150dd8d8c3913784074302",
+              "treeHash": "40d96169bf0893fb7d78c9c0b84f3fe5d48305380ea0b319a542427b73b36663",
+              "dirty": false,
+              "basis": "git-tree"
+            }
+          ]
+        },
+        {
+          "roundId": "r2",
+          "receivedAt": "2026-09-06T10:35:00+08:00",
+          "occurredAt": "2026-09-06T10:01:00+08:00",
+          "messageHash": "cadfa2800bfcafa923b77d0da8f9d7ee50a8334d0090f0d7f020d1973d2b3f58",
+          "viewRealPath": "/opt/ticket-doctor/tmp/d11-gate-SDGrcz/public/eng-clarify/round-2",
+          "authorizedServices": [
+            "checkout-service"
+          ],
+          "material": {
+            "materialView": "round-2",
+            "files": [
+              {
+                "path": "checkout-service.log",
+                "sha256": "11e0e34deeb8f421409a8751da8f90c7609131eb7879f0e9d5a79015158dfc8d",
+                "bytes": 865
+              }
+            ],
+            "totalBytes": 865,
+            "viewHash": "d6b5e70b5cd9956ec56b016feefd46ce434b8d6117b7bf3a7df4e1d088723b4b"
+          },
+          "repos": [
+            {
+              "repoId": "app",
+              "expectedSha": "5048b0d6f36486a77e150dd8d8c3913784074302",
+              "head": "5048b0d6f36486a77e150dd8d8c3913784074302",
+              "treeHash": "40d96169bf0893fb7d78c9c0b84f3fe5d48305380ea0b319a542427b73b36663",
+              "dirty": false,
+              "basis": "git-tree"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "eng-counter-evidence",
+      "familyId": "eng-checkout",
+      "split": "engineering",
+      "admission": "admitted",
+      "caseHash": "e80edd26c8253ee9e7f0586783c382033b1c274f6f29a7a54b725d21c4ec9149",
+      "truthHash": "992f0bcca9fe8a2fe4da33244910fb9969a7fc4f3a1c779b48526c21444415b0",
+      "scriptHash": "43df9bf747a0df91184188f8b15e06eaa01ffa563260db87d73c652ad9868abd",
+      "auditScriptHash": null,
+      "isolation": {
+        "ok": true,
+        "counts": {}
+      },
+      "rounds": [
+        {
+          "roundId": "r1",
+          "receivedAt": "2026-09-06T10:20:00+08:00",
+          "occurredAt": "2026-09-06T10:01:00+08:00",
+          "messageHash": "cb9136db49dc7f6cba9b87f2ef81f7c24e08346a6499f5e47d91e64206d1604e",
+          "viewRealPath": "/opt/ticket-doctor/tmp/d11-gate-SDGrcz/public/eng-counter-evidence/round-1",
+          "authorizedServices": [
+            "checkout-service"
+          ],
+          "material": {
+            "materialView": "round-1",
+            "files": [
+              {
+                "path": "checkout-service.log",
+                "sha256": "52fde203ae89eb50f489f50e467d61cc6fee45fd8421b5319232b7c6a7426f61",
+                "bytes": 517
+              }
+            ],
+            "totalBytes": 517,
+            "viewHash": "c4ebb20f00535bbdeb2cc874f11378f75ac252b6f770dbf221e13d2fb41cb198"
+          },
+          "repos": [
+            {
+              "repoId": "app",
+              "expectedSha": "5048b0d6f36486a77e150dd8d8c3913784074302",
+              "head": "5048b0d6f36486a77e150dd8d8c3913784074302",
+              "treeHash": "40d96169bf0893fb7d78c9c0b84f3fe5d48305380ea0b319a542427b73b36663",
+              "dirty": false,
+              "basis": "git-tree"
+            }
+          ]
+        },
+        {
+          "roundId": "r2",
+          "receivedAt": "2026-09-06T10:40:00+08:00",
+          "occurredAt": "2026-09-06T10:01:00+08:00",
+          "messageHash": "c235e394dbf7e9373c437e4f7da6f5e044a54ee28ce199734ff325b38b1e939b",
+          "viewRealPath": "/opt/ticket-doctor/tmp/d11-gate-SDGrcz/public/eng-counter-evidence/round-2",
+          "authorizedServices": [
+            "checkout-service"
+          ],
+          "material": {
+            "materialView": "round-2",
+            "files": [
+              {
+                "path": "checkout-service.log",
+                "sha256": "11e0e34deeb8f421409a8751da8f90c7609131eb7879f0e9d5a79015158dfc8d",
+                "bytes": 865
+              }
+            ],
+            "totalBytes": 865,
+            "viewHash": "d6b5e70b5cd9956ec56b016feefd46ce434b8d6117b7bf3a7df4e1d088723b4b"
+          },
+          "repos": [
+            {
+              "repoId": "app",
+              "expectedSha": "5048b0d6f36486a77e150dd8d8c3913784074302",
+              "head": "5048b0d6f36486a77e150dd8d8c3913784074302",
+              "treeHash": "40d96169bf0893fb7d78c9c0b84f3fe5d48305380ea0b319a542427b73b36663",
+              "dirty": false,
+              "basis": "git-tree"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "eng-truncation",
+      "familyId": "eng-checkout",
+      "split": "engineering",
+      "admission": "admitted",
+      "caseHash": "96fc90c21c5dda506c70d6a6688743a7b50e08eea0f1a21834249731bdabb174",
+      "truthHash": "7b23fd8a861479d3b38f06f375912384aa1e621d0ebacd5c09867b64d73d6893",
+      "scriptHash": "a0ee5352f2049273055c388909b0ce474a6e5a9dadc09c2db27c75ad248baec8",
+      "auditScriptHash": null,
+      "isolation": {
+        "ok": true,
+        "counts": {}
+      },
+      "rounds": [
+        {
+          "roundId": "r1",
+          "receivedAt": "2026-09-06T10:30:00+08:00",
+          "occurredAt": "2026-09-06T10:00:00+08:00",
+          "messageHash": "fbb1ca6ec4c62df199a2ad4c7ffc66d0cecd01a9efc6fd97a689511150569d9c",
+          "viewRealPath": "/opt/ticket-doctor/tmp/d11-gate-SDGrcz/public/eng-truncation/round-1",
+          "authorizedServices": [
+            "big-service"
+          ],
+          "material": {
+            "materialView": "round-1",
+            "files": [
+              {
+                "path": "big-service.log",
+                "sha256": "9312811743e0fc7bcf9c7b8129fc8f3eb69961b9f7cc887a3ac04e1cb23e5e7a",
+                "bytes": 8772
+              }
+            ],
+            "totalBytes": 8772,
+            "viewHash": "dc288fe75d62d4a4fff54df2760f533d8c72638e5975f44267fa67bf42b4a41a"
+          },
+          "repos": [
+            {
+              "repoId": "app",
+              "expectedSha": "5048b0d6f36486a77e150dd8d8c3913784074302",
+              "head": "5048b0d6f36486a77e150dd8d8c3913784074302",
+              "treeHash": "40d96169bf0893fb7d78c9c0b84f3fe5d48305380ea0b319a542427b73b36663",
+              "dirty": false,
+              "basis": "git-tree"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "eng-audit-loop",
+      "familyId": "eng-checkout",
+      "split": "engineering",
+      "admission": "admitted",
+      "caseHash": "58b6de8d147e65e2339d92ca6789c038281497c20ece4ebc8787ec9ee09e8fd5",
+      "truthHash": "ab8d5cb6c1809ec2556cbb831c52edb8473bfe4cf2731fc4a8129e914e909530",
+      "scriptHash": "d56c83623ddc051bad62194110aca7af6bee14fea2bd3a1577fa6ef038ae6da6",
+      "auditScriptHash": "e2f818b2588661b2d9bd6559739e157091eb5810406f3b97ed1e036106d0f00c",
+      "isolation": {
+        "ok": true,
+        "counts": {}
+      },
+      "rounds": [
+        {
+          "roundId": "r1",
+          "receivedAt": "2026-09-06T10:30:00+08:00",
+          "occurredAt": "2026-09-06T10:01:00+08:00",
+          "messageHash": "19bcdda6f80fc6c08f2ab67465ba99a6eac5408ce71dd4391d1f7d3379ecf194",
+          "viewRealPath": "/opt/ticket-doctor/tmp/d11-gate-SDGrcz/public/eng-audit-loop/round-1",
+          "authorizedServices": [
+            "checkout-service"
+          ],
+          "material": {
+            "materialView": "round-1",
+            "files": [
+              {
+                "path": "checkout-service.log",
+                "sha256": "11e0e34deeb8f421409a8751da8f90c7609131eb7879f0e9d5a79015158dfc8d",
+                "bytes": 865
+              }
+            ],
+            "totalBytes": 865,
+            "viewHash": "d6b5e70b5cd9956ec56b016feefd46ce434b8d6117b7bf3a7df4e1d088723b4b"
+          },
+          "repos": [
+            {
+              "repoId": "app",
+              "expectedSha": "5048b0d6f36486a77e150dd8d8c3913784074302",
+              "head": "5048b0d6f36486a77e150dd8d8c3913784074302",
+              "treeHash": "40d96169bf0893fb7d78c9c0b84f3fe5d48305380ea0b319a542427b73b36663",
+              "dirty": false,
+              "basis": "git-tree"
+            }
+          ]
+        },
+        {
+          "roundId": "r2",
+          "receivedAt": "2026-09-06T10:45:00+08:00",
+          "occurredAt": "2026-09-06T10:01:00+08:00",
+          "messageHash": "2ca942e14049cf422312707fbf3a306ab27946c85a1c0581941c107895a3c34f",
+          "viewRealPath": "/opt/ticket-doctor/tmp/d11-gate-SDGrcz/public/eng-audit-loop/round-2",
+          "authorizedServices": [
+            "checkout-service"
+          ],
+          "material": {
+            "materialView": "round-2",
+            "files": [
+              {
+                "path": "checkout-service.log",
+                "sha256": "11e0e34deeb8f421409a8751da8f90c7609131eb7879f0e9d5a79015158dfc8d",
+                "bytes": 865
+              }
+            ],
+            "totalBytes": 865,
+            "viewHash": "d6b5e70b5cd9956ec56b016feefd46ce434b8d6117b7bf3a7df4e1d088723b4b"
+          },
+          "repos": [
+            {
+              "repoId": "app",
+              "expectedSha": "5048b0d6f36486a77e150dd8d8c3913784074302",
+              "head": "5048b0d6f36486a77e150dd8d8c3913784074302",
+              "treeHash": "40d96169bf0893fb7d78c9c0b84f3fe5d48305380ea0b319a542427b73b36663",
+              "dirty": false,
+              "basis": "git-tree"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "eng-version-drift",
+      "familyId": "eng-version",
+      "split": "engineering",
+      "admission": "admitted",
+      "caseHash": "6a794827287e7fa32c5204f726146cb6df07c0fff6550484f98143f5d5dc6458",
+      "truthHash": "c2f7fbb8a605e72b0b19ff1312f44fb3dfc3b80ef9382fe5a9070a77fac5ada4",
+      "scriptHash": "def5d960e5d2f9e56ecc86ed6e24a5708e685799a3a63e903203182776f1af38",
+      "auditScriptHash": null,
+      "isolation": {
+        "ok": true,
+        "counts": {}
+      },
+      "rounds": [
+        {
+          "roundId": "r1",
+          "receivedAt": "2026-09-06T10:30:00+08:00",
+          "occurredAt": "2026-09-06T10:01:00+08:00",
+          "messageHash": "cc1c220ad11512c98c6bb84bc14adb752fa2141d8115ea916bac6ff496f7f653",
+          "viewRealPath": "/opt/ticket-doctor/tmp/d11-gate-SDGrcz/public/eng-version-drift/round-1",
+          "authorizedServices": [
+            "version-svc"
+          ],
+          "material": {
+            "materialView": "round-1",
+            "files": [
+              {
+                "path": "version-svc.log",
+                "sha256": "f3202155250a18c5cc25171de7ca139d4ef5d8e0e4048056cb1b4c559720c9cf",
+                "bytes": 63
+              }
+            ],
+            "totalBytes": 63,
+            "viewHash": "83b70765f999d8f07582855118ad87958ef3b94a5cbbd0e8e29c71088613c439"
+          },
+          "repos": [
+            {
+              "repoId": "app",
+              "expectedSha": "b2c7de85ce9073ac22be051d9055252fa035b122",
+              "head": "77abb109c32508014b61a44a25a7d6a3c235384d",
+              "treeHash": "d1ba4b515ecdace288401e1d128ad3f39127bfb399672ccd0088f4d215ee44aa",
+              "dirty": false,
+              "basis": "git-tree"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "eng-version-headfix",
+      "familyId": "eng-version",
+      "split": "engineering",
+      "admission": "admitted",
+      "caseHash": "71d800522a2ef7af64c08ffddc23cb7e08236a6e800822f0fceb6492140bd187",
+      "truthHash": "75faf762729dd21865fc1df6961d20bd75126ac60c3c025af3f25ebb8cbe63fb",
+      "scriptHash": "def5d960e5d2f9e56ecc86ed6e24a5708e685799a3a63e903203182776f1af38",
+      "auditScriptHash": null,
+      "isolation": {
+        "ok": true,
+        "counts": {}
+      },
+      "rounds": [
+        {
+          "roundId": "r1",
+          "receivedAt": "2026-09-06T10:30:00+08:00",
+          "occurredAt": null,
+          "messageHash": "1f271c6bacee9b1bc239f36c99b9a3206751bba7bf1f6dbd5a9320c04e31c241",
+          "viewRealPath": "/opt/ticket-doctor/tmp/d11-gate-SDGrcz/public/eng-version-headfix/round-1",
+          "authorizedServices": [
+            "version-svc"
+          ],
+          "material": {
+            "materialView": "round-1",
+            "files": [
+              {
+                "path": "version-svc.log",
+                "sha256": "f3202155250a18c5cc25171de7ca139d4ef5d8e0e4048056cb1b4c559720c9cf",
+                "bytes": 63
+              }
+            ],
+            "totalBytes": 63,
+            "viewHash": "83b70765f999d8f07582855118ad87958ef3b94a5cbbd0e8e29c71088613c439"
+          },
+          "repos": [
+            {
+              "repoId": "app",
+              "expectedSha": "b2c7de85ce9073ac22be051d9055252fa035b122",
+              "head": "77abb109c32508014b61a44a25a7d6a3c235384d",
+              "treeHash": "d1ba4b515ecdace288401e1d128ad3f39127bfb399672ccd0088f4d215ee44aa",
+              "dirty": false,
+              "basis": "git-tree"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,108 @@
+[
+  {
+    "kind": "report",
+    "tools": [
+      {
+        "tool": "queryLogs",
+        "args": {
+          "service": "checkout-service",
+          "from": 1788660000000,
+          "to": 1788667200000,
+          "keywords": [
+            "Redis"
+          ]
+        }
+      }
+    ],
+    "draft": {
+      "completeness": "partial",
+      "summary": "发现 Redis 连接池告警，疑似连接池问题，需要补充库存侧证据",
+      "confirmedFacts": [
+        "RedisPool 连接池使用率 92%"
+      ],
+      "hypotheses": [
+        {
+          "cause": "疑似 Redis 连接池打满导致下单失败（待补证）",
+          "confidence": "low",
+          "status": "candidate",
+          "evidenceIds": []
+        }
+      ],
+      "uncertainties": [
+        "库存服务调用是否失败"
+      ],
+      "nextSteps": [
+        "查询库存调用日志"
+      ],
+      "missingMaterial": [
+        "库存调用侧日志"
+      ]
+    }
+  },
+  {
+    "kind": "report",
+    "tools": [
+      {
+        "tool": "queryLogs",
+        "args": {
+          "service": "checkout-service",
+          "from": 1788660000000,
+          "to": 1788667200000,
+          "keywords": []
+        }
+      }
+    ],
+    "draft": {
+      "completeness": "complete",
+      "summary": "库存服务调用超时导致下单失败（InventoryClient 3000ms 超时）；Redis 告警为伴随现象",
+      "confirmedFacts": [
+        "InventoryClient 调用库存服务失败 timeout after 3000ms"
+      ],
+      "hypotheses": [
+        {
+          "cause": "库存服务调用超时（InventoryClient 3000ms 超时）导致下单失败",
+          "confidence": "high",
+          "status": "supported"
+        }
+      ],
+      "uncertainties": [],
+      "nextSteps": [
+        "与库存服务负责人核对超时配置与容量"
+      ],
+      "missingMaterial": []
+    }
+  },
+  {
+    "kind": "report",
+    "tools": [
+      {
+        "tool": "queryLogs",
+        "args": {
+          "service": "checkout-service",
+          "from": 1788660000000,
+          "to": 1788667200000,
+          "keywords": []
+        }
+      }
+    ],
+    "draft": {
+      "completeness": "complete",
+      "summary": "结论不变：库存服务调用超时导致下单失败，建议核对超时配置",
+      "confirmedFacts": [
+        "InventoryClient 调用库存服务失败 timeout after 3000ms"
+      ],
+      "hypotheses": [
+        {
+          "cause": "库存服务调用超时导致下单失败",
+          "confidence": "high",
+          "status": "supported"
+        }
+      ],
+      "uncertainties": [],
+      "nextSteps": [
+        "与库存服务负责人核对超时配置与容量"
+      ],
+      "missingMaterial": []
+    }
+  }
+]
