@@ -1,182 +1,164 @@
-# 离线评测实施方案（MVP → 基线 → 优化）
+# 评测实现方案与设计（v2 迁移路线）
 
-> 面向执行者（zcode）：**一次只做一项**，做完跑 `npm run typecheck && npm test && npm run docs:check`，
-> 更新本文件状态与 `docs/status.json`，再 commit/push。本文是唯一事实源；`docs/eval-design.md` 为历史设计，仅作参考。
-> 版本铁律：`EVAL_SCORER_VERSION`（`src/eval/benchmark.ts`）与 `AUDIT_POLICY_VERSION` 改动即递增；
-> **不同 scorerVersion / 材料指纹 / 场景禁止同表比较。**
-
----
-
-## 0. 目标与非目标
-
-**目标**：建立**可比较、可复现**的离线质量基线——用固定案例、固定材料、固定配置跑正式诊断链路，
-度量「证据是否支持结论 / 材料不足是否合理追问 / 反证出现是否修正 / 耗时与成本」，再按失败类型单项优化。
-
-**非目标 / 禁区**：
-- 评测**不改生产编排**；只复用 `prepareDiagnosis → runDiagnosisLoop → validateDraft → applyAudit`，替换材料来源。
-- **禁止自查自证**：优化期间 `benchmark.json`、`scorer.ts`、`src/eval/` 的判定口径是**禁区**，唯一迭代对象是 `rules.md`（或提示词）。
-- **禁止把"命中 gold"冒充"诊断正确"**：语义正确性未人工复核即 `unscored`。
-- **禁止笼统宣称覆盖完整生产链路**：内存运行器只测诊断核心（工具/证据/引擎/审计/校验）；
-  持久化、调查隔离、正式回写/投递/代次守卫须**另行验证**（用集成测试或真实环境）。
+> 面向执行者（zcode）：**一次只做一项**；做完跑 `npm run typecheck && npm test && npm run docs:check`，更新本文件与
+> `docs/status.json`，再 commit/push。本文是评测的**唯一实施方案与设计说明**。
+> 历史：`docs/eval-design.md`（v1 历史，已作废）；`docs/eval-v2.md`（v2 使用说明，随 v2 资产一并保留）。
+> 版本铁律：每项指标**一个明确定义 + 一个版本**；改口径必须递增对应版本（`SCORER_VERSION` / `AUDIT_POLICY_VERSION`），
+> **不同版本禁止同表比较**。
 
 ---
+
+## 0. 最高层：目标
+
+把"这个诊断 Agent 行不行、改动后变好还是变坏"从**主观**变成**可量化、可回归、可优化**。
+
+达成后被回答的问题：材料范围对不对、结论有没有证据支持、缺料会不会追问、反证出现会不会修正、回写可不可核验，
+以及成本/时延。**工程验收标准是"评测能正确揭示失败"，不是"诊断分数高"。**
 
 ## 0.1 三条线与职责分工（Langfuse 的位置）
 
-| 线 | 是什么 | 数据去向 | 用途 |
-|---|---|---|---|
-| 生产主链路 | Host → Runner → 诊断会话 + 审计会话 → 报告 | SQLite + 投递 | 真跑调查 |
-| 观测（Langfuse） | 主链路每次 attempt 的 trace | Langfuse | 排障/监控 |
-| 评测 | 固定案例批量跑主链路并评分 | 本地 JSONL（首期）→ Langfuse（接入后） | 基线/回归/优化对比 |
-
-**纠正一个常见误判**：Langfuse **能做评测**（datasets + experiments + scores + annotation queue + experiment 对比），
-把它仅当“观测后端”是不准确的。它不能替我们做的是：定义 gold/判定标准、冻结材料与代码版本、领域特定的评分语义。
-
-**职责分工（目标形态）**：
-
-| 工作 | 谁负责 |
-|---|---|
-| 准备可信案例、绑定故障代码版本、定义判定标准 | 我们（仓库内 `fixtures/evals/` + evaluator） |
-| 调用主链路执行、确定性评分、本地冻结快照 | 我们的评测运行器（`src/eval/`） |
-| 实验管理、trace 关联、对比、人工复核 | Langfuse |
-
-**权威源契约（唯一）**：接入后 **Langfuse 为实验账本 + 人工标注的权威源**；本地 JSONL 为**不可变冻结快照**
-（append-only，供 CI 离线重算确定性分），只读镜像、**不回写 Langfuse 的语义分**。同步**可选**：平台不可用时评测照跑，恢复后补同步。
-
-**首期选择**：先本地执行+评分+冻结快照（离线、可进 CI、不依赖凭据）；这是**缩小范围**，不是“Langfuse 不能评测”。
-
----
-
-## 1. 当前 MVP 状态（E0，已完成）
-
-| 能力 | 文件 | 说明 |
+| 线 | 是什么 | 数据去向 |
 |---|---|---|
-| 数据集契约 + 加载 | `src/eval/benchmark.ts` | `benchmark.json`：`scenario/engine/rulesFile/logsDir/repoDir/repoRev/repoId/cases[]`；gold 用**源级定位**（log=level+substring，code=path+行区间+可选 sha） |
-| 版本指纹 | `src/eval/fingerprint.ts` | gitRev(+dirty)、engine/model、systemPromptHash、rulesHash、materialHash(+repoHead)、budget、scorerVersion、audit 策略 |
-| 运行器 | `src/eval/runner.ts` | 复用正式链路；内存 session（含 usage 统计）；产出**模型原输出 draft / 程序校验 validated / 审计后 report** 三层 + `audit` + `validationIssues` |
-| 打分器 | `src/eval/scorer.ts` | 材料命中（recall/precision，干扰项计分母）+ 引用有效性；语义 `unscored`（`reviews.json` 才 graded） |
-| 结果记录 | `src/eval/report.ts` | JSONL：每次运行一段 header 指纹 + 逐 case 记录；`summarize`、`readJsonl`、`loadReviews` |
-| 对比 | `src/eval/compare.ts` | 按 `engine/model/rules/scorer/audit` 分组汇总（审计关/开、rules 前后） |
-| CLI | `scripts/eval.ts`、`scripts/eval-compare.ts` | `npm run eval -- --scenario X [--runs N] [--engine fake\|pi] [--audit on\|off]`；`npm run eval:compare -- --scenario X` |
-| 首个 fixture | `fixtures/evals/demo-checkout/` | 复用 `fixtures/samples` + `fixtures/demo-repo`；1 case |
-| 单测 | `tests/unit/eval-scorer.test.ts` | locator 匹配 / recall+precision / unscored / 无效引用 / 加载 |
+| 生产主链路 | Host → Runner → 诊断会话 + 审计会话 → 报告 | SQLite + 投递 |
+| 观测 | 每次 attempt 的 trace | Langfuse |
+| 评测 | 固定案例批量跑主链路并评分 | 本地冻结快照 + Langfuse 实验 |
 
-**已验证命令**（离线、零模型成本）：
-```bash
-npm run eval -- --scenario demo-checkout --runs 3
-npm run eval -- --scenario demo-checkout --runs 3 --audit on
-npm run eval:compare -- --scenario demo-checkout
-```
-输出：`data/evals/<scenario>.jsonl`（`data/` 已 gitignore）。
+**纠偏**：Langfuse **能做评测**（datasets / experiments / scores / code evaluators / annotation / 对比 / 调度），
+不是"只是观测后端、只是门面"。它承担：**数据集版本、实验调度、评分执行、结果对比、人工复核**。
 
----
+**它唯二不做**：① 真正执行 Agent（那是我们的主链路/`runCase`）；② 知道业务标准答案（那是我们定的 gold）。
 
-## 2. 验收口径（评审修正，必须遵守）
+**职责分工**：
 
-1. **不是"三次稳定"，是"三次完整保留"**：脚本自测（fake + 离线重评分）应可复现；真实模型如实记录波动，不要求答案相同。
-2. **材料命中 ≠ 诊断正确**：`evidenceRecall/Precision` 只表示材料/引用；语义正确性第一版**人工复核**，未复核 `unscored`。
-3. **假反证只用于工程自测**（E2），不得进质量成绩；正确响应可能是修改/撤回/降级，不一定变 `refuted`。
-4. **内存运行器范围有限**：不代表生产持久化/投递已验证（见 §0）。
-5. **"禁止比较"指口径，不是指优化前后**：固定案例/评分/其他条件，记录本次改变的变量；指纹须含材料、提示词、规则、模型参数、预算。
+| 环节 | Langfuse 承担 | 我们负责 |
+|---|---|---|
+| 案例与标准 | Dataset 存输入/参考答案/标签/版本 | 制作可信案例、定义业务标准、准备脱敏日志与代码材料 |
+| 批量运行 | Experiment SDK 遍历、并发、关联实验 | 提供"如何跑一条 case"的 `runCase`（多轮、材料发布、会话状态、工具、生产编排） |
+| 程序评分 | 执行 Code Evaluator，或接收外部评分 | 编写并验证规则（首期在项目端，便于查 Git/SQLite/跨轮证据/隔离），准备好评分数据 |
+| 内容质量评分 | 模型裁判、人工标注 | 定义标准、校准裁判、处理争议 |
+| 查看/比较 | 轨迹、分数、实验差异、人工复核 | 据结果做改进决策 |
 
----
+**执行位置**：SDK 实验的 task 与评分函数**在我们的进程运行**（可访问项目/SQLite/材料，调用真实生产链路），
+不受自托管 Code Evaluator 沙箱（标准库/无网络/~2s）限制——**dispatcher 只影响平台内 Code Evaluator，不阻碍 SDK 接入**。
 
-## 3. 工作项（按依赖排序，一次一项）
+## 0.2 评分单元 / 触发时机 / 分母（决定指标含义）
 
-### E1 案例准入与真实数据集（P0，阻塞基线）
-> **进度（2026-10-04）**：已建 3 个**合成占位** scenario 用于工程验证——`demo-checkout`（log+code）、
-> `order-validation`（log+code，复用 demo 仓库）、`payment-timeout`（log-only，无仓库）。
-> **真实可信案例仍待准入**（阻塞 E5 基线）；合成 case 不得用于质量结论。
+| 层 | 对象 | 是否评分单元 |
+|---|---|---|
+| 调查（会话） | `investigation` | ❌ 多轮、可能长期不关闭 |
+| **轮次运行** | `run`（终态那次） | ✅ **评分单元**；触发点 = Host `finalizeEngineResult` |
+| 执行尝试 | `attempt`（重试） | ⚠️ 只有终态算质量；重试次数进可靠性 |
+| 工具/证据 | `tool_execution`/`evidence` | ❌ 只用于**定位问题**与作为评分输入 |
 
-**目标/验收**：准入 ≥1 个**可信故障**跑通；再扩到 3 个独立故障族、6–10 条轨迹。
-**案例目录**（沿用历史约定）：
-```text
-fixtures/evals/<scenario>/
-├─ benchmark.json      # cases + gold + distractors + labels
-├─ logs/<service>.log  # 已脱敏（评测案例先脱敏，即使生产 S1 暂缓）
-├─ repo/               # 固定版本的 fixture 仓库（含 gold + 干扰代码 + 历史）
-├─ rules.md            # 可选：场景规则（唯一迭代对象）
-└─ reviews.json        # 人工复核：{ "<caseId>": { "correct": true, "note": "..." } }
-```
-**准入清单（缺一不可）**：① 有原始现象（用户描述/工单文本）；② 有可脱敏日志且能复现现象；③ 能绑定到**具体代码版本**（记录 SHA）；④ 人工确认的 gold 根因；⑤ 至少 1 条 gold 证据可用源级定位命中；⑥ `distractors` 与 gold **同时间窗/同仓库**（表面相关、实际无关）。
-**技术方案**：无需改运行器；新增目录 + `benchmark.json`；`logOnly: true` 的案例在报告与打分里标注"不评代码根因"。
-**交付**：新 scenario 目录 + 一条 `docs/status.json#eval_mvp.cases` 计数；cases 至少 1 个通过 `npm run eval -- --scenario <新>`。
-**风险**：无真实数据 → 阻塞；替代方案：先用脱敏公开历史 Bug（按准入清单）。
+- 质量分母 = 被评的 **report run 数**（不是 tool call / 消息 / 所有 run）；
+- `reply`（闲聊/追问）run 单独一类分母；
+- 失败/取消/超时不进质量分母，走可靠性指标。
 
-### E2 反证工程自测（P1）
-**目标/验收**：端到端验证"审计判 `contradicted` → 报告 `refuted`"的降级链路；与质量成绩隔离。
-**技术方案**：审计器工厂支持注入"脚本化审计器"（`--audit-mode supported|contradicted|undecidable`，仅 `--engine fake` 或显式 `--self-test`）；
-写入 `fingerprint.auditMode`；`compare` 分组键加入 `auditMode`，避免与真实质量混淆。
-**涉及**：`src/agent/fake-auditor.ts`（或新 `src/eval/scripted-auditor.ts`）、`src/eval/fingerprint.ts`、`scripts/eval.ts`、`tests/`。
-**验收**：`npm run eval -- --scenario demo-checkout --self-test --audit on` 产出记录中 `report.hypotheses[0].status === "refuted"` 且 `completeness === "partial"`。
+## 0.3 两栏：评测（考试） vs 线上监控
 
-### E3 多轮 / 追问用例（P1）
-**目标/验收**：测「材料不足是否合理追问」与「补材料后是否修正」。
-**技术方案**：`benchmark.json` 的 case 增 `turns: [{ text, service? }]`（默认单轮）；
-运行器用**同一调查**跑多条轮次（`MemorySessionSink.appendUserMessage` 已就绪），每轮记录 draft/validated/report；
-打分增 `clarifyReasonableness`（`request_info` 的追问是否命中 `gold.missing` 定义的缺项）与多轮状态。
-**涉及**：`src/eval/benchmark.ts`、`runner.ts`、`scorer.ts`、`scripts/eval.ts`。
-**依赖**：E1（需要多轮真实案例）。
-**风险**：轮次语义与生产 `runs.round` 一致性——只复用会话语义，不引入 DB。
+| | 评测（考试） | 线上监控 |
+|---|---|---|
+| 对谁 | 固定考卷 | 每条真实工单跑完 |
+| 有标准答案吗 | **有** → 能算对错 | **没有** → 只能算代理分（引用/成本/审计结果） |
+| 触发 | 手动/CI | 每次 run finalize 自动 |
+| 用途 | 比好坏、防退化、调优 | 监控、找异常、**攒候选案例** |
 
-### E4 人工复核工作流（P0，基线的必要条件）
-**目标/验收**：`reviews.json` 落地；未复核 `unscored`，复核后 `calibrated=true` 且汇总给 `reviewedCorrect`。
-**技术方案**：新增 `scripts/eval-review.ts`：读 JSONL，逐 case 打印 draft/report/证据，写回 `reviews.json`（`--case <id> --correct/--wrong --note`）。
-**涉及**：`scripts/eval-review.ts`、`src/eval/report.ts`、`docs`。
-**验收**：同一 scenario 复核后 `npm run eval:compare` 显示 `reviewedCorrect`。
-
-### E5 冻结第一版质量基线（P0）
-**目标/验收**：固定案例/材料/配置跑真实模型（`--engine pi`），保存全部结果 + 人工复核；写入 `docs/status.json#eval_mvp`。
-**技术方案**：不加代码（用 E1–E4 的产物）；基线文件记 `gitRev/scorerVersion/materialHash/model/budget` 与逐 case 结果；明确标注 `unscored` 部分。
-**验收**：`docs/status.json#eval_mvp` 有 baseline 块；文档声明"旧 v1/v2 基线不可复现、不可同表"。
-**风险**：真实模型波动 → 记录多次与分布，不做稳定性断言。
-
-### E6 单项优化循环（P1）
-**目标/验收**：每次只改一个变量（rules / 提示词 / 审计开关），同一批 case 比较收益、成本、退化。
-**技术方案**：`rules.md` 条目化（对齐 backlog A3），经 `buildSystemPrompt` 注入（已支持 `rulesFile`）；
-`npm run eval -- --scenario <s> [--rules <file>]`；用 `eval:compare` 比较 `rules=` 分组。
-**禁区**：不改 `benchmark.json`/`scorer.ts`。
-**验收**：一次优化前后各一份 JSONL，compare 输出差异；结论写 `docs/evolve-protocol.md`（历史）或本文件附录。
-
-### E7 CI 门禁（P2）
-**目标/验收**：PR 跑 smoke scenario，工程级失败（run failed / 无报告 / 无效引用超阈值）即 fail；**不用未复核的语义正确率卡门禁**。
-**技术方案**：`--threshold recall=.. --max-failed=..` → 非零退出码；`npm run eval:accept`。
-**涉及**：`scripts/eval.ts`、CI 配置、roadmap。
-
-### E8 Langfuse 实验/评审集成（P1，基线跑通后接入）
-**目标**：用 Langfuse 管理评测实验与人工复核，而不是只导出 dataset。
-**技术方案**（对齐 Langfuse 官方评测能力）：
-1. **Dataset**：把 `benchmark.json` 的 case 同步为 Langfuse dataset（item input=问题+材料引用，expected=gold），dataset 版本随材料指纹。
-2. **Experiment**：用 `experiment.run` 把本地 `runCase` 作为 task、把 `scoreCase` 作为 evaluator，一次运行产出一个 experiment run（含 trace）。
-3. **Scores**：确定性分（recall/precision/引用有效性/citationInvalid）与人工分（semanticCorrect）都作为 score 落库；
-   evaluator 放仓库（版本随 `EVAL_SCORER_VERSION`），不在 UI 里改判定逻辑。
-4. **Annotation**：人工复核走 Langfuse annotation queue；语义分以平台为准。
-5. **同步与权威源**：见 §0.1；同步开关 `TD_EVAL_LANGFUSE_SYNC`（默认关），失败只告警、不阻断本地评测；
-   本地 JSONL 保持 append-only，不回写平台语义分。
-**依赖**：观测配置（`TD_OBSERVABILITY_*`）与自托管 Langfuse（已有，`deploy/langfuse/`）；不阻塞本地基线，只在 E5 之后接入。
-**验收**：同一 dataset 跑出两次 experiment run 并能在平台对比；人工标注的语义分与本地 `reviews.json` 不冲突（单一权威源）。
-
-### E9 评测口径守卫（P1）
-**目标**：防止优化过程刷分；防止跨口径比较。
-**技术方案**：`compare` 已带版本；新增测试：`scorerVersion` 常量、字段语义、`benchmark.json` 校验；`docs:check` 增加"评测基线数字必须标 scorerVersion"的检查（可选）。
-**涉及**：`tests/unit/eval-*.test.ts`、`scripts/check-docs.mjs`（可选）。
+线上代理分**不能替代**评测，但**喂养**评测（低分 run → 人工标 gold → 新考题）。
 
 ---
 
-## 4. 执行规程（zcode 每次会话）
+## 1. 设计思路（为什么这么做）
 
-1. 先 `npm run typecheck && npm test && npm run docs:check`，全绿再动。
-2. 认领一个工作项（E1…E9），在本文把状态改为「进行中」。
-3. 实现 → `typecheck` → `test` → `npm run eval -- --scenario demo-checkout --runs 3`（离线自测）→ 更新本文状态/`status.json`/`session-handover.md`。
-4. `commit`（信息写清"改了什么/为什么/口径版本"）+ `push`。
-5. 新迁移从 `007_` 起（本方案预期**无迁移**）；改判定口径必须递增 `EVAL_SCORER_VERSION` 并在提交信息注明。
+1. **复用生产主链路**：评测**不改编排**，调用 `prepareDiagnosis → runDiagnosisLoop → validateDraft → applyAudit`
+   （多轮时经 `executeRun`）；证据、审计、校验都是生产同一份代码，避免"评测测的不是线上行为"。
+2. **标准答案留评分端**：Agent 只答问题；gold/*标准* 不进 Agent 上下文，防止照抄答案（隔离预检保证）。
+3. **分层评分**：
+   - **程序规则层**（确定性，自动）：引用可解析/版本一致、无证据却 supported、完整度矛盾、是否追问、覆盖使用、成本/时延、审计 verdict。
+   - **语义层**（需 gold）：根因正确、证据语义支持结论、是否漏反证、追问是否命中。首期人工复核（Langfuse Annotation），后期模型裁判校准。
+4. **可见性四层**：A 源返回 / B 入库 / C1 工具返回文本 / C2 请求上下文 / D 报告引用。把"入库≠模型可见"（预览上限、渲染预算）变成可测指标。
+5. **隔离 / 冻结 / 重放**：路径闭包、未来消息泄漏、答案文件名、git tree 检查；manifest 固化 HEAD/材料/标准/提示词/预算 hash；评分可离线重放且逐字段一致。
+6. **指标定义唯一**：每项指标一个明确定义 + 版本。同一**内容指标**可同时有人工分与模型分（用于校准裁判），各自记录**来源/评估器版本/理由**；**自动分不得覆盖正式人工裁决**。
+7. **权威源**：接入 Langfuse 后，**人工裁决以 Langfuse 为准**；本地冻结快照只读，**镜像不得覆盖人工裁决**；模型评分可作为**独立来源**写入。
+8. **硬失败单列**：引用不可解析、版本错配、越界断言、反证后固执、空日志推健康等，不进均值。
 
 ---
 
-## 5. 已知限制（不要越界宣称）
+## 2. 现状盘点
 
-- 内存运行器**不覆盖**：SQLite 持久化、调查隔离、Host finalize/投递/代次守卫、多进程恢复。
-- `MemoryEvidenceSink` 明确是**测试/评测过渡**用途（见其文件头），不做去重、不落库。
-- fake 引擎 token=0；真实模型 token 依赖会话条目 usage，需 E5 实测确认非零。
-- 语义正确性在 E4 完成前一律 `unscored`；未复核数据不得用于"质量提升"结论。
-- 日志证据无独立 traceId 字段，gold 用唯一子串定位；若后续 `LogQueryIntent` 加 `requestId`（backlog M2），gold 格式同步升级。
+- **薄 MVP（`src/eval/`）**：已建 benchmark 契约/指纹/内存 runner/scorer/JSONL/compare/review。用途：**验证思路 + 过渡**；
+  能力远小于 eval2。迁移完成后**退役或并入**（见 M9）。
+- **eval2 较晚版**：存在于 **`66d5425`**（`fc8ccba` 合并时被删除）。资产：`src/evals/v2/`（runner 31.9k、scorer 20.6k/`3.1.0`、
+  isolation 19.6k、review、visibility、manifest/hash、schema/types、capture/trace、engcases/scripted-engine、cli）+
+  6 个测试 + `docs/eval-v2.md`。**参考较晚版，不用初版 `6040850`（3.0.0）。**
+- **当前 main 新增、v2 没有的**：独立审计 + 有界补证循环、工具覆盖信息（cursor/total/truncated）、协议 v4、证据 UID（v2 已有）。
+  → **迁移必须适配**；静态检查不能证明兼容。
+
+---
+
+## 3. 迁移方案（按职责，不是整包照搬）
+
+| v2 资产（`66d5425`） | 迁移 | 适配当前 main |
+|---|---|---|
+| `runner.ts` 多轮执行/材料发布/调查隔离（复用 `executeRun`） | ✅ 重点 | 现执行 `runDiagnosisLoop`；新增**审计/补证阶段**；调用次数/输出阶段/观测接口 |
+| `visibility.ts` 四层可见性 | ✅ | 覆盖信息（cursor/total/truncated）纳入 C1/C2 |
+| `isolation.ts` 隔离预检 | ✅ 安全前提 | 材料路径与当前 `sources` 对齐 |
+| `manifest.ts`+`hash.ts` 指纹/冻结/重放 | ✅ | 纳入 `AUDIT_POLICY_VERSION` 与覆盖口径 |
+| `review.ts` 人工复核导入 | ✅ | 与 Langfuse Annotation 对齐；权威源契约 |
+| `scorer.ts` 3.1.0 逐轮标准 | ✅ 按当前口径重验 | 证据 UID v4、审计判定、覆盖命中 |
+| `schema.ts`/`types.ts`/`load.ts` | ✅ | 扩展 audit/coverage 字段 |
+| `capture.ts`/`trace.ts` 发送端捕获/trace | ⚠️ 部分 | 查看/对比可交 Langfuse；本地保留冻结快照 |
+| `engcases.ts`/`scripted-engine.ts` 工程自测生成器 | ✅ | 加审计/补证/截断续查反例 |
+| `cli.ts`（`npm run eval:v2`） | ✅ | 批量遍历可选交 SDK；保留本地离线 |
+| `data/eval-v2/handoff/*.tar.gz` | ❌ | 历史交接包，不迁移 |
+| `docs/eval-v2.md`/`session-handover-eval-v2.md` | ✅ | 更新到当前口径 |
+
+**不迁移的通用外壳**：批量遍历、实验记录、分数对比 → **交 Langfuse SDK**。
+
+---
+
+## 4. 路线与工作单
+
+**路线（4 步，1 与 2 可并行）**：
+1. 盘点并迁移 `66d5425` 的必要领域能力，用**工程案例**验证运行与评分正确。
+2. **并行**：准入真实案例 + 定 gold 与评分标准；接通 Langfuse 实验 + 人工复核。
+3. **真实 Agent 跑完评测并经内容复核后**，冻结**正式质量基线**（此前只有工程/程序指标基线）。
+4. 再扩线上自动评分、案例回流、CI 门禁。
+
+| # | 任务 | 验收 | 状态 |
+|---|---|---|---|
+| M0 | 建分支 + 恢复 `66d5425` 的 v2 资产（`src/evals/v2`、6 测试、`docs/eval-v2.md`、`eval:v2` 入口） | 资产在分支上；列出 typecheck/test 断层清单 | 进行中 |
+| M1 | runner 适配当前主链路（`runDiagnosisLoop`：审计/补证、协议 v4、证据 UID） | 工程案例多轮跑通，审计阶段可见 | 待办 |
+| M2 | 可见性四层 + 覆盖信息 | 四层指标可产出；截断续查有对应指标 | 待办 |
+| M3 | scorer 3.1.0 按当前口径重验（UID/审计/覆盖） | 正反例测试全绿；旧口径作废声明 | 待办 |
+| M4 | manifest/hash 纳入 audit policy + 覆盖口径；重放逐字段一致 | `replay` 与 `score.json` 一致 | 待办 |
+| M5 | 隔离预检适配当前 sources | 违规 case `blocked`，不进口径 | 待办 |
+| M6 | review 与 Langfuse Annotation 对齐（权威源契约） | 人工裁决不被镜像覆盖 | 待办 |
+| M7 | Langfuse 接入（dataset 同步 + SDK 调 `runCase` + 程序分写回 + annotation） | 一个带 Langfuse 复核的小闭环跑通 | 待办 |
+| M8 | 真实案例准入 + gold/评分标准（**并行**） | ≥1 可信案例（可先用 FastAPI 7 材料） | 待办 |
+| M9 | 冻结正式质量基线（含复核）；薄 MVP 退役/并入 | `status.json#eval_mvp` 落基线块 | 待办 |
+| M10 | 线上代理分 + 案例回流 + CI 门禁 | 低分 run 可回填为候选案例 | 待办 |
+
+---
+
+## 5. 非目标 / 禁区
+
+- **不改生产编排语义**：评测只调用，不修改诊断/审计/工具的判定逻辑。
+- **禁止自查自证**：优化期间案例、`scorer`、评分口径是**禁区**；唯一迭代对象是 `rules.md`/提示词。
+- **禁止把"命中 gold"当"诊断正确"**：语义未复核 = `unscored`。
+- **禁止自动分覆盖人工裁决**（权威源契约）。
+- **禁止笼统宣称覆盖生产链路**：内存/多轮运行器覆盖诊断核心；持久化、投递、代次守卫另测。
+
+## 6. 执行规程
+
+1. 先绿：`npm run typecheck && npm test && npm run docs:check`。
+2. 认领一个 M 项，本文件改「进行中」。
+3. 实现 → 测试 → 工程自测（`npm run eval:v2 -- run --engine scripted`）→ 更新本文件/`status.json`/`session-handover.md`。
+4. `commit` + `push`；改口径必须 bump 版本并在提交信息注明。
+5. 新迁移从 `007_` 起（本方案预期无迁移）。
+
+## 7. 已知限制
+
+- 语义正确性在人工复核前一律 `unscored`；未复核结果只能作**工程/程序指标**。
+- 线上无 gold，代理分不等于质量分。
+- 平台内 Code Evaluator 受沙箱限制，主要用于**纯记录内、轻量**规则；查 Git/SQLite 的规则留在项目端。
+- `data/` 不入版本库；冻结快照需单独归档策略。
