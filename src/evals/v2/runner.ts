@@ -198,6 +198,11 @@ export async function runSuite(opts: RunSuiteOptions): Promise<SuiteSummaryV2> {
       maxResultChars: opts.baseConfig.diagnosis.maxResultChars,
       defaultTimeWindowMs: opts.baseConfig.diagnosis.defaultTimeWindowMs,
       fallbackTimeWindowMs: opts.baseConfig.diagnosis.fallbackTimeWindowMs,
+      audit: {
+        enabled: opts.baseConfig.diagnosis.audit.enabled,
+        maxRounds: opts.baseConfig.diagnosis.audit.maxRounds,
+        failBlocks: opts.baseConfig.diagnosis.audit.failBlocks,
+      },
     },
     scorerVersion: SCORER_VERSION,
     wall,

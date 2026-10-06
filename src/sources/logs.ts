@@ -25,6 +25,9 @@ export interface LogSource {
 
 export class LogAccessError extends Error {}
 
+/** query_logs 单页条目上限默认值（覆盖口径；manifest 记录）。 */
+export const LOG_PAGE_SIZE_DEFAULT = 20;
+
 export interface FileLogSourceOptions {
   dir: string;
   maxEntries?: number;
@@ -67,7 +70,7 @@ export class FileLogSource implements LogSource {
 
   constructor(opts: FileLogSourceOptions) {
     this.dir = opts.dir;
-    this.maxEntries = opts.maxEntries ?? 20;
+    this.maxEntries = opts.maxEntries ?? LOG_PAGE_SIZE_DEFAULT;
     if (opts.allowedServices === undefined) {
       this.allowed = undefined;
       this.denyAll = false;

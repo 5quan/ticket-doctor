@@ -43,6 +43,9 @@ async function main(): Promise<void> {
     const engine = (arg("--engine", "scripted") ?? "scripted") as "fake" | "scripted" | "pi";
     const repeat = Number(arg("--repeat", "1"));
     const caseIds = arg("--cases")?.split(",").map((s) => s.trim()).filter(Boolean);
+    // 审计开关（OQ-30）：显式控制本轮口径；缺省 off（与 TD_AUDIT_ENABLED 解耦，保证可复现）。
+    const auditOn = arg("--audit", "off") === "on";
+    config.diagnosis.audit.enabled = auditOn;
     materializeEngineeringCases(PROJECT_ROOT, evalRoot);
     const summary = await runSuite({
       projectRoot: PROJECT_ROOT,

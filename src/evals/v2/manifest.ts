@@ -6,6 +6,9 @@ import { execFileSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { buildMaterialManifest, repoFingerprint, sha256File } from "./hash.ts";
 import { materialRealPaths } from "./isolation.ts";
+import { AUDIT_POLICY_VERSION } from "../../agent/audit-types.ts";
+import { LIST_FILES_LIMIT, READ_PAGE_LINES, SEARCH_PAGE_SIZE } from "../../sources/code.ts";
+import { LOG_PAGE_SIZE_DEFAULT } from "../../sources/logs.ts";
 import type { CaseDescriptorV2, MaterialManifestV2, TruthFileV2 } from "./types.ts";
 
 export interface SuiteManifestV2 {
@@ -31,6 +34,10 @@ export interface SuiteManifestV2 {
     defaultTimeWindowMs: number;
     fallbackTimeWindowMs: number;
     enforced: string[];
+    /** 独立审计口径（OQ-30）：策略版本 + 开关/轮次，决定 audit#n 与补证循环。 */
+    audit: { policyVersion: string; enabled: boolean; maxRounds: number; failBlocks: boolean };
+    /** 覆盖口径（T7）：源侧分页上限，直接决定 B\C1 差距。 */
+    coverage: { searchPageSize: number; readPageLines: number; listFilesLimit: number; logPageSize: number };
   };
   scorerVersion: string;
   wall: { startedAt: number; finishedAt: number };
@@ -71,7 +78,7 @@ export function buildSuiteManifest(args: {
   caseDirOf: (caseId: string) => string;
   privateDirOf: (caseId: string) => string;
   cases: Array<{ caseDesc: CaseDescriptorV2; truth: TruthFileV2 | null; isolation: { ok: boolean; counts: Record<string, number> } }>;
-  diagnosis: { provider: string; modelId: string; promptHash: string; maxToolCalls: number; timeoutMs: number; maxModelTurns: number; maxToolResultChars: number; maxResultChars: number; defaultTimeWindowMs: number; fallbackTimeWindowMs: number };
+  diagnosis: { provider: string; modelId: string; promptHash: string; maxToolCalls: number; timeoutMs: number; maxModelTurns: number; maxToolResultChars: number; maxResultChars: number; defaultTimeWindowMs: number; fallbackTimeWindowMs: number; audit: { enabled: boolean; maxRounds: number; failBlocks: boolean } };
   scorerVersion: string;
   wall: { startedAt: number; finishedAt: number };
 }): SuiteManifestV2 {
@@ -104,6 +111,18 @@ export function buildSuiteManifest(args: {
       fallbackTimeWindowMs: args.diagnosis.fallbackTimeWindowMs,
       // 首版强制执行的是工具数与时间预算；token 硬限制在运行接口支持前记观测（§7.4）。
       enforced: ["maxToolCalls", "timeoutMs", "maxRounds"],
+      audit: {
+        policyVersion: AUDIT_POLICY_VERSION,
+        enabled: args.diagnosis.audit.enabled,
+        maxRounds: args.diagnosis.audit.maxRounds,
+        failBlocks: args.diagnosis.audit.failBlocks,
+      },
+      coverage: {
+        searchPageSize: SEARCH_PAGE_SIZE,
+        readPageLines: READ_PAGE_LINES,
+        listFilesLimit: LIST_FILES_LIMIT,
+        logPageSize: LOG_PAGE_SIZE_DEFAULT,
+      },
     },
     scorerVersion: args.scorerVersion,
     wall: args.wall,

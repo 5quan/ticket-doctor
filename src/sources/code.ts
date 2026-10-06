@@ -15,10 +15,13 @@ const execFileP = promisify(execFile);
 const MAX_SNIPPET_CHARS = 2_000;
 const MAX_PATTERN = 200;
 const MAX_PATH = 512;
+// 覆盖口径常量（导出）：manifest 记录它们，口径变化即影响 B\C1 与可比性。
 /** 单次 search_code 返回的命中上限（分页页大小）。 */
-const SEARCH_PAGE_SIZE = 50;
+export const SEARCH_PAGE_SIZE = 50;
 /** 单次 read_code 返回的行数上限（分页页大小）。 */
-const READ_PAGE_LINES = 200;
+export const READ_PAGE_LINES = 200;
+/** list_files 默认返回的路径上限。 */
+export const LIST_FILES_LIMIT = 200;
 
 export interface CodeSearchIntent {
   pattern: string;
@@ -209,7 +212,7 @@ export class GitCodeSource implements CodeSource {
     const all = stdout.split(/\r?\n/).filter(Boolean);
     const glob = intent.glob?.trim();
     const filtered = glob ? all.filter((p) => p.includes(glob)) : all;
-    return paginate(filtered, { offset: parseCursor(intent.cursor), limit: intent.limit ?? 200 });
+    return paginate(filtered, { offset: parseCursor(intent.cursor), limit: intent.limit ?? LIST_FILES_LIMIT });
   }
 
   async read(intent: CodeReadIntent, signal: AbortSignal): Promise<SourcePage<CodeSnippet>> {

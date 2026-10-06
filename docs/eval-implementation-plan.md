@@ -130,8 +130,8 @@
 | M1 | runner/脚本引擎适配当前主链路（`runDiagnosisLoop`：审计/补证、协议 v4、证据 UID） | 工程案例多轮跑通，审计阶段可见 | ✅ 完成：根因是 `extractService` 把日期当服务名（OQ-45，已修）；`eng-clarify`/`eng-counter-evidence`/`eng-truncation` 全通；version 用例为**预期阻断**，`eval-v2-version` 集成测试通过 |
 | M2 | 可见性四层 + 覆盖信息 | 四层指标可产出；截断续查有对应指标 | ✅ 完成：`eval-v2-run` 可见性反例（B 命中、C1 不命中）集成测试通过 |
 | M3 | scorer 3.1.0 按当前口径重验（UID/审计/覆盖） | 正反例测试全绿；旧口径作废声明 | 待办 |
-| M4 | manifest/hash 纳入 audit policy + 覆盖口径；重放逐字段一致 | `replay` 与 `score.json` 一致 | 待办 |
-| M5 | 隔离预检适配当前 sources | 违规 case `blocked`，不进口径 | 待办 |
+| M4 | manifest/hash 纳入 audit policy + 覆盖口径；重放逐字段一致 | `replay` 与 `score.json` 一致 | ✅ 完成：manifest 新增 `diagnosis.audit`（policyVersion/enabled/maxRounds/failBlocks）与 `diagnosis.coverage`（search 50/read 200/list 200/log 20）；`replay` 5/5 逐字段一致 |
+| M5 | 隔离预检适配当前 sources | 违规 case `blocked`，不进口径 | ✅ 完成：隔离/链接单测无失败；预检已适配 T7 `SourcePage` |
 | M6 | review 与 Langfuse Annotation 对齐（权威源契约） | 人工裁决不被镜像覆盖 | 待办 |
 | M7 | Langfuse 接入（dataset 同步 + SDK 调 `runCase` + 程序分写回 + annotation） | 一个带 Langfuse 复核的小闭环跑通 | 待办 |
 | M8 | 真实案例准入 + gold/评分标准（**并行**） | ≥1 可信案例（可先用 FastAPI 7 材料） | 待办 |
@@ -162,3 +162,4 @@
 - 线上无 gold，代理分不等于质量分。
 - 平台内 Code Evaluator 受沙箱限制，主要用于**纯记录内、轻量**规则；查 Git/SQLite 的规则留在项目端。
 - `data/` 不入版本库；冻结快照需单独归档策略。
+- **scripted 引擎未适配补证循环**：`--audit on` 时若审计建议 continue，补证轮会耗尽脚本步骤（报告被“脚本已耗尽”覆盖）。工程自测的审计开关需脚本引擎支持补证步，或对 engineering case 固定 `audit off`（真实效果由真实 case + `--engine pi` 比）。
