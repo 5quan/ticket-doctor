@@ -14,7 +14,8 @@ export type CaseSplit = "development" | "holdout" | "engineering";
 export type SourceTier = "synthetic_engineering" | "reproduced_history" | "verified_snapshot" | "from_issue_only";
 export type Admission = "candidate" | "qualified" | "admitted" | "deferred";
 export type ClaimDepth = "symptom" | "direct" | "root";
-export type RoundOutcomeKind = "report" | "clarify" | "chat" | "error";
+// blocked：预期内的“读取前阻断”（版本/隔离预检），与真实 error 区分（M3，2026-10-05）。
+export type RoundOutcomeKind = "report" | "clarify" | "chat" | "error" | "blocked";
 /** 三阶段输出（方案 §9.1.6）：模型原始草稿 / 程序校验后报告 / 实际回写文本。 */
 export type OutputStage = "raw" | "validated" | "writeback";
 /** 可见性观测等级（方案 §8）：A 只对日志源记录；C2 无请求观测时恒 null。 */
@@ -133,7 +134,7 @@ export interface MaterialNeedV2 {
 export interface RoundTruthV2 {
   roundId: string;
   /** 本轮允许的产出类型；不在列表内的产出按越界处理。 */
-  allowedOutcomes: Array<"report" | "clarify">;
+  allowedOutcomes: Array<"report" | "clarify" | "blocked">;
   /** 本轮允许判断到什么粒度。 */
   allowedClaimDepth: ClaimDepth;
   requiredFacts: Array<{

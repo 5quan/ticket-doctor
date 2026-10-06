@@ -77,7 +77,7 @@ export interface CitationRecord {
 export interface RoundScoreInput {
   roundId: string;
   truth: RoundTruthV2;
-  outcome: "report" | "clarify" | "chat" | "error";
+  outcome: "report" | "clarify" | "chat" | "error" | "blocked";
   status: string;
   errorCode?: string | null;
   rawDraft?: { completeness?: string; summary: string; confirmedFacts: string[]; hypotheses: Array<{ cause: string; status?: string; evidenceIds?: string[] }>; nextSteps: string[]; corrections?: string[]; missingMaterial?: string[] };
@@ -259,7 +259,9 @@ export function scoreTrial(input: ScorerInput): CaseScoreV2 {
     !input.executionError &&
     input.rounds.length > 0 &&
     input.rounds.every((r) => r.status === "succeeded" && (r.outcome === "report" || r.outcome === "clarify"));
-  if (input.executionError) {
+  // 预期内的读取前阻断（blocked ∈ allowedOutcomes）不算硬失败；真实 error 仍算。
+  const expectedBlock = input.rounds.some((r) => r.outcome === "blocked" && r.truth.allowedOutcomes.includes("blocked"));
+  if (input.executionError && !expectedBlock) {
     hardFailures.push({ code: "execution_error", message: input.executionError });
     attribution.push({ layer: "engineering", hint: `执行失败：${input.executionError.slice(0, 120)}` });
   }
@@ -274,7 +276,10 @@ export function scoreTrial(input: ScorerInput): CaseScoreV2 {
     const truth = round.truth;
 
     // 1. 产出类型策略（该问不问 / 该报不报；error/chat 视为越界——chat 不满足诊断工单，§7.2.3）。
-    const outcomeOk = round.outcome === "report" || round.outcome === "clarify" ? truth.allowedOutcomes.includes(round.outcome) : false;
+    const outcomeOk =
+      round.outcome === "report" || round.outcome === "clarify" || round.outcome === "blocked"
+        ? truth.allowedOutcomes.includes(round.outcome)
+        : false;
     if (!outcomeOk) {
       hardFailures.push({
         code: "outcome_out_of_policy",

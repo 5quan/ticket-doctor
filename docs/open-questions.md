@@ -209,3 +209,4 @@ Agent 是角色/上下文/权限，Runner 是执行进程：不新增 Worker/队
 | # | 问题 | 结论 | 状态 |
 |---|---|---|---|
 | OQ-45 | `extractService` 会把日期当服务名，污染材料范围 | **已修复**（评测 v2 迁移 M1 时发现）：标注捕获 `服务: xxx` 不要求含字母，`"checkout-service 服务: 2026-09-06 10:01 ..."` 会把 `2026-09-06` 提取为服务名写入 `investigation.service`，使 `MaterialScope.services` 错误。T1（OQ-44）范围约束生效后，`query_logs` 会因 `service ∉ scope.services` 被拒（真实故障会因此查不到日志）。修复：标注捕获必须含字母，否则回退 `xxx-service` 命名匹配；新增 `tests/unit/intake-service-extract.test.ts`。 | 已完成 |
+| OQ-46 | 预期内的"读取前阻断"（版本/隔离预检）应算失败还是合法产出？ | **已结论（M3，2026-10-05）**：提升为一等结果 `blocked`——与真实 `error` 区分；当 `"blocked" ∈ round.allowedOutcomes` 时不产生硬失败、`executionSuccess` 仍为 false（未产报告）。否则预期阻断与真实失败分不开，CI 门禁会误伤（对应 M10）。实现：`RoundOutcomeKind`+`allowedOutcomes` 加 `blocked`、runner 按 `preReadBlock` 记 blocked、scorer 跳过预期阻断的 `execution_error`/`outcome_out_of_policy`、engcases 版本用例改 `["blocked"]`。 | 已完成 |

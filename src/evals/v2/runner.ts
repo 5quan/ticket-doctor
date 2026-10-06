@@ -416,7 +416,8 @@ async function runTrial(opts: RunSuiteOptions, loaded: LoadedCase, runDir: strin
       // capture.captured.at(r) 会在失败轮后错位（审计配套项）。
       const raw = capture.captured[capturePtr];
       if (raw) capturePtr += 1;
-      const outcome = runError ? "error" : outcomeOf(raw);
+      // 预期内的读取前阻断（版本/隔离预检）单独记 blocked，不与真实 error 混同。
+      const outcome = preReadBlock ? "blocked" : runError ? "error" : outcomeOf(raw);
       const reportRow = store.getReportByRun(claimed.run.id);
       const validatedReport = reportRow
         ? (JSON.parse(reportRow.content) as NonNullable<RoundArtifacts["rawDraft"]> & { scope?: unknown; corrections?: string[] })

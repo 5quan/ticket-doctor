@@ -177,8 +177,8 @@ export function validateTruth(
       else seen.add(r.roundId);
       if (!Array.isArray(r.allowedOutcomes) || r.allowedOutcomes.length === 0) {
         errors.push({ path: `rounds[${i}].allowedOutcomes`, message: "至少一种允许产出" });
-      } else if (r.allowedOutcomes.some((o) => o !== "report" && o !== "clarify")) {
-        errors.push({ path: `rounds[${i}].allowedOutcomes`, message: "只允许 report/clarify" });
+      } else if (r.allowedOutcomes.some((o) => o !== "report" && o !== "clarify" && o !== "blocked")) {
+        errors.push({ path: `rounds[${i}].allowedOutcomes`, message: "只允许 report/clarify/blocked" });
       }
       if (!["symptom", "direct", "root"].includes(r.allowedClaimDepth)) {
         errors.push({ path: `rounds[${i}].allowedClaimDepth`, message: `非法粒度：${String(r.allowedClaimDepth)}` });

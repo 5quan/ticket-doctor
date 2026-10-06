@@ -26,6 +26,11 @@ runs/<suite-id>/            # 每次运行：manifest.json + summary.json + 逐 
 
 ## 2. 运行
 
+> **2026-10-05 更新（迁移分支）**：新增 `--audit on|off`（默认 off，与 `TD_AUDIT_ENABLED` 解耦）、
+> `--gate on [--max-hard-failures N]`（CI 门禁，只卡硬失败；预期阻断 `blocked` 不计）、
+> `push`（把 trial trace+分数推 Langfuse，v4 下轨迹走 OTLP、分数走 ingestion）、
+> 以及 `sourceTier=reproduced_history` 的 log-only 案例（`repos` 可空，见 RCAEval 导入）。
+
 ```bash
 npm run eval:v2 -- run --suite daily-1 --engine scripted [--repeat 3] [--cases eng-clarify]
 ```

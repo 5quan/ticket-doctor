@@ -96,6 +96,17 @@ async function main(): Promise<void> {
       baseConfig: config,
       ...(caseIds && caseIds.length > 0 ? { caseIds } : {}),
     });
+    // CI 门禁（M10）：只卡**硬失败**（blocked 一等后不再计入）；不用未复核的语义分卡门禁。
+    if (arg("--gate", "off") === "on") {
+      const maxHard = Number(arg("--max-hard-failures", "0"));
+      const trials = summary.cases.flatMap((c) => c.trials);
+      const hard = trials.reduce((n, t) => n + t.hardFailures.length, 0);
+      console.log(`[eval:v2][gate] trials=${trials.length} hardFailures=${hard}（上限 ${maxHard}）`);
+      if (hard > maxHard) {
+        console.error(`[eval:v2][gate] 硬失败 ${hard} > 上限 ${maxHard}，失败退出`);
+        process.exit(1);
+      }
+    }
     printSummary(summary);
     return;
   }

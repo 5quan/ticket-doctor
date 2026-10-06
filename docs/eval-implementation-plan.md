@@ -129,14 +129,14 @@
 | M0 | 建分支 + 恢复 `66d5425` 的 v2 资产（`src/evals/v2`、6 测试、`docs/eval-v2.md`、`eval:v2` 入口、`fixtures/evals/checkout-timeout` + `scripts/init-eval-fixture.mjs`） | 资产在分支上；typecheck 绿；脚本套件可跑 | ✅ 完成（`eval/v2-migrate`）：T7 `SourcePage` 适配 + 恢复 `onPrepared` 钩子；脚本套件 `eng-clarify` 已过 |
 | M1 | runner/脚本引擎适配当前主链路（`runDiagnosisLoop`：审计/补证、协议 v4、证据 UID） | 工程案例多轮跑通，审计阶段可见 | ✅ 完成：根因是 `extractService` 把日期当服务名（OQ-45，已修）；`eng-clarify`/`eng-counter-evidence`/`eng-truncation` 全通；version 用例为**预期阻断**，`eval-v2-version` 集成测试通过 |
 | M2 | 可见性四层 + 覆盖信息 | 四层指标可产出；截断续查有对应指标 | ✅ 完成：`eval-v2-run` 可见性反例（B 命中、C1 不命中）集成测试通过 |
-| M3 | scorer 3.1.0 按当前口径重验（UID/审计/覆盖） | 正反例测试全绿；旧口径作废声明 | 待办 |
+| M3 | scorer 3.1.0 按当前口径重验（UID/审计/覆盖） | 正反例测试全绿；旧口径作废声明 | 🟡 **blocked 一等已做**（OQ-46）：runner 记 `blocked`、scorer 区分预期阻断与真实 error、schema 允许 `allowedOutcomes` 含 blocked、engcases 版本用例改 `["blocked"]`；**审计口径（verdict/降级纳入评分）与旧口径作废声明待做** |
 | M4 | manifest/hash 纳入 audit policy + 覆盖口径；重放逐字段一致 | `replay` 与 `score.json` 一致 | ✅ 完成：manifest 新增 `diagnosis.audit`（policyVersion/enabled/maxRounds/failBlocks）与 `diagnosis.coverage`（search 50/read 200/list 200/log 20）；`replay` 5/5 逐字段一致 |
 | M5 | 隔离预检适配当前 sources | 违规 case `blocked`，不进口径 | ✅ 完成：隔离/链接单测无失败；预检已适配 T7 `SourcePage` |
 | M6 | review 与 Langfuse Annotation 对齐（权威源契约） | 人工裁决不被镜像覆盖 | 待办 |
 | M7 | Langfuse 接入 | 一个带 Langfuse 复核的小闭环跑通 | 🟡 部分：**trace+score 推送已实现**（`src/evals/v2/langfuse.ts`，`npm run eval:v2 -- push`）——v4（4.50.0, `events_only`）下轨迹走 OTLP `/api/public/otel/v1/traces`、分数走 ingestion，均已 2xx；**dataset/experiment/annotation 待做**（v4 需 `@langfuse/*` 的 dataset/annotation API）。注意：v4 已下架 `/api/public/traces|observations|scores`（改用 `/api/public/v3/scores`），程序化验证需查 UI http://127.0.0.1:3001 |
 | M8 | 真实案例准入 + gold/评分标准（**并行**） | ≥1 可信案例 | 🟡 **M8a 完成**：`scripts/import-rcaeval.mjs`（RCAEval→v2 布局，log-only）；schema 放宽 log-only（`sourceTier=reproduced_history` 允许 `repos: []`）；RE3-OB 一例经 **pi 实测**（C1=100%、D=0%、引用有效 19/19）。详情见 `docs/eval-open-source-datasets.md` §6。待办 **M8b**（多例 + 人工复核）/ **M8c**（代码级 gold，需带故障/修复双提交的 fixture 仓库） |
 | M9 | 冻结正式质量基线（含复核）；薄 MVP 退役/并入 | `status.json#eval_mvp` 落基线块 | 待办 |
-| M10 | 线上代理分 + 案例回流 + CI 门禁 | 低分 run 可回填为候选案例 | 待办 |
+| M10 | 线上代理分 + 案例回流 + CI 门禁 | 低分 run 可回填为候选案例 | 🟡 **CI 门禁已做**：`npm run eval:v2 -- run --gate on [--max-hard-failures N]`（只卡硬失败，blocked 不计）；**线上代理分 + 案例回流待做** |
 
 ---
 

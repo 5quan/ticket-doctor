@@ -398,7 +398,7 @@ export function engineeringCaseBuilds(projectRoot: string): CaseBuild[] {
         caseId: "eng-version-drift",
         locators: [{ kind: "log", locatorId: "loc-fail", keyContent: "version-svc request failed", level: "ERROR" }],
         rounds: [
-          { roundId: "r1", allowedOutcomes: ["report"], allowedClaimDepth: "root", requiredFacts: [], forbiddenRules: [],
+          { roundId: "r1", allowedOutcomes: ["blocked"], allowedClaimDepth: "root", requiredFacts: [], forbiddenRules: [],
             materialNeeds: [], evidenceRequirements: [{ requirementId: "req-log", depth: "direct", supportsAnyOf: [{ allOf: ["loc-fail"] }] }],
             contradictedClaims: [], writebackRequirements: [] },
         ],
@@ -445,7 +445,7 @@ export function engineeringCaseBuilds(projectRoot: string): CaseBuild[] {
         caseId: "eng-version-headfix",
         locators: [{ kind: "log", locatorId: "loc-fail", keyContent: "version-svc request failed", level: "ERROR" }],
         rounds: [
-          { roundId: "r1", allowedOutcomes: ["report"], allowedClaimDepth: "root", requiredFacts: [], forbiddenRules: [],
+          { roundId: "r1", allowedOutcomes: ["blocked"], allowedClaimDepth: "root", requiredFacts: [], forbiddenRules: [],
             materialNeeds: [], evidenceRequirements: [{ requirementId: "req-log", depth: "direct", supportsAnyOf: [{ allOf: ["loc-fail"] }] }],
             contradictedClaims: [], writebackRequirements: [] },
         ],

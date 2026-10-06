@@ -34,7 +34,9 @@ test("版本漂移：正文时间把源码钉到修复版 → scope_resolved 后
     });
     const trial = summary.cases[0].trials[0];
     assert.equal(trial.executionSuccess, false, "版本错配 trial 必须失败");
-    assert.equal(trial.roundScores[0].outcome, "error");
+    // M3：预期内的读取前阻断记 blocked（与真实 error 区分），且不产生硬失败。
+    assert.equal(trial.roundScores[0].outcome, "blocked");
+    assert.deepEqual(trial.hardFailures, [], "预期阻断不算硬失败");
     assert.equal(trial.recall.C1!.value, 0, "需求未取得任何可见证据");
 
     const events = readTrace(root, "ver-drift", "eng-version-drift");
