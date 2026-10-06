@@ -1,0 +1,5 @@
+2026-09-06T11:20:00.000+08:00	INFO	OrderController 接收下单请求 orderId=ord_90001 userId=u_55
+2026-09-06T11:20:00.100+08:00	ERROR	OrderService 参数校验失败 IllegalArgumentException: sku is required traceId=val_3c01
+2026-09-06T11:20:00.150+08:00	ERROR	OrderController 下单接口返回 400 orderId=ord_90001 traceId=val_3c01
+2026-09-06T11:25:00.000+08:00	INFO	HealthCheck /actuator/health status=UP
+2026-09-06T11:26:00.000+08:00	WARN	RedisPool 连接池使用率 88% pool=checkout-cache active=44/50

@@ -1,0 +1,27 @@
+{
+  "scenario": "payment-timeout",
+  "engine": "fake",
+  "logOnly": true,
+  "cases": [
+    {
+      "id": "pay-001",
+      "question": "payment-service 支付接口报 504，10:00 左右开始，请定位根因",
+      "occurredAt": "2026-09-06T10:00:30+08:00",
+      "service": "payment-service",
+      "environment": "test",
+      "logOnly": true,
+      "gold": {
+        "answer": "调用支付网关超时（PaymentGateway timeout after 5000ms），导致支付接口 504",
+        "evidence": [
+          { "kind": "log", "level": "ERROR", "substring": "PaymentGateway 调用支付网关失败 timeout" },
+          { "kind": "log", "level": "ERROR", "substring": "支付接口返回 504" }
+        ]
+      },
+      "distractors": [
+        { "kind": "log", "level": "WARN", "substring": "Deadlock found" },
+        { "kind": "log", "level": "INFO", "substring": "HealthCheck" }
+      ],
+      "labels": ["timeout", "log-only"]
+    }
+  ]
+}

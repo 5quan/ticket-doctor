@@ -115,10 +115,11 @@ export function summarize(records: EvalRecord[]): EvalSummary {
     meanRecall: recalls.length === ok.length && recalls.length > 0 ? mean(recalls) : null,
     meanPrecision: precisions.length === ok.length && precisions.length > 0 ? mean(precisions) : null,
     reviewedCorrect: reviewed.length > 0 ? reviewed.filter((r) => r.score.semanticCorrect === true).length / reviewed.length : null,
-    meanToolCalls: mean(ok.map((r) => r.metrics.toolCalls)) ?? 0,
-    meanModelTurns: mean(ok.map((r) => r.metrics.modelTurns)) ?? 0,
-    meanDurationMs: mean(ok.map((r) => r.metrics.durationMs)) ?? 0,
-    meanTotalTokens: mean(ok.map((r) => r.metrics.totalTokens)) ?? 0,
+    // 防御历史/异构记录缺失字段。
+    meanToolCalls: mean(ok.map((r) => r.metrics.toolCalls ?? 0)) ?? 0,
+    meanModelTurns: mean(ok.map((r) => r.metrics.modelTurns ?? 0)) ?? 0,
+    meanDurationMs: mean(ok.map((r) => r.metrics.durationMs ?? 0)) ?? 0,
+    meanTotalTokens: mean(ok.map((r) => r.metrics.totalTokens ?? 0)) ?? 0,
   };
 }
 
@@ -136,7 +137,10 @@ export function readJsonl(path: string): EvalRecord[] {
     try {
       const parsed = JSON.parse(line) as EvalRecord | { kind?: string };
       if ((parsed as { kind?: string }).kind === "header") continue;
-      out.push(parsed as EvalRecord);
+      // 容错：跳过异构/旧格式记录（缺 fingerprint/caseId），不因历史文件崩溃。
+      const rec = parsed as EvalRecord;
+      if (!rec.fingerprint || !rec.caseId) continue;
+      out.push(rec);
     } catch {
       // 忽略坏行
     }

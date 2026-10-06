@@ -21,6 +21,32 @@
 
 ---
 
+## 0.1 三条线与职责分工（Langfuse 的位置）
+
+| 线 | 是什么 | 数据去向 | 用途 |
+|---|---|---|---|
+| 生产主链路 | Host → Runner → 诊断会话 + 审计会话 → 报告 | SQLite + 投递 | 真跑调查 |
+| 观测（Langfuse） | 主链路每次 attempt 的 trace | Langfuse | 排障/监控 |
+| 评测 | 固定案例批量跑主链路并评分 | 本地 JSONL（首期）→ Langfuse（接入后） | 基线/回归/优化对比 |
+
+**纠正一个常见误判**：Langfuse **能做评测**（datasets + experiments + scores + annotation queue + experiment 对比），
+把它仅当“观测后端”是不准确的。它不能替我们做的是：定义 gold/判定标准、冻结材料与代码版本、领域特定的评分语义。
+
+**职责分工（目标形态）**：
+
+| 工作 | 谁负责 |
+|---|---|
+| 准备可信案例、绑定故障代码版本、定义判定标准 | 我们（仓库内 `fixtures/evals/` + evaluator） |
+| 调用主链路执行、确定性评分、本地冻结快照 | 我们的评测运行器（`src/eval/`） |
+| 实验管理、trace 关联、对比、人工复核 | Langfuse |
+
+**权威源契约（唯一）**：接入后 **Langfuse 为实验账本 + 人工标注的权威源**；本地 JSONL 为**不可变冻结快照**
+（append-only，供 CI 离线重算确定性分），只读镜像、**不回写 Langfuse 的语义分**。同步**可选**：平台不可用时评测照跑，恢复后补同步。
+
+**首期选择**：先本地执行+评分+冻结快照（离线、可进 CI、不依赖凭据）；这是**缩小范围**，不是“Langfuse 不能评测”。
+
+---
+
 ## 1. 当前 MVP 状态（E0，已完成）
 
 | 能力 | 文件 | 说明 |
@@ -58,6 +84,10 @@ npm run eval:compare -- --scenario demo-checkout
 ## 3. 工作项（按依赖排序，一次一项）
 
 ### E1 案例准入与真实数据集（P0，阻塞基线）
+> **进度（2026-10-04）**：已建 3 个**合成占位** scenario 用于工程验证——`demo-checkout`（log+code）、
+> `order-validation`（log+code，复用 demo 仓库）、`payment-timeout`（log-only，无仓库）。
+> **真实可信案例仍待准入**（阻塞 E5 基线）；合成 case 不得用于质量结论。
+
 **目标/验收**：准入 ≥1 个**可信故障**跑通；再扩到 3 个独立故障族、6–10 条轨迹。
 **案例目录**（沿用历史约定）：
 ```text
@@ -113,9 +143,18 @@ fixtures/evals/<scenario>/
 **技术方案**：`--threshold recall=.. --max-failed=..` → 非零退出码；`npm run eval:accept`。
 **涉及**：`scripts/eval.ts`、CI 配置、roadmap。
 
-### E8 Langfuse 数据集/评审集成（P2，可选）
-**目标**：把 eval records 导出为 Langfuse dataset 供 UI 复核；本地 `reviews.json` 仍是真相源。
-**依赖**：观测配置（`TD_OBSERVABILITY_*`）；不阻塞基线。
+### E8 Langfuse 实验/评审集成（P1，基线跑通后接入）
+**目标**：用 Langfuse 管理评测实验与人工复核，而不是只导出 dataset。
+**技术方案**（对齐 Langfuse 官方评测能力）：
+1. **Dataset**：把 `benchmark.json` 的 case 同步为 Langfuse dataset（item input=问题+材料引用，expected=gold），dataset 版本随材料指纹。
+2. **Experiment**：用 `experiment.run` 把本地 `runCase` 作为 task、把 `scoreCase` 作为 evaluator，一次运行产出一个 experiment run（含 trace）。
+3. **Scores**：确定性分（recall/precision/引用有效性/citationInvalid）与人工分（semanticCorrect）都作为 score 落库；
+   evaluator 放仓库（版本随 `EVAL_SCORER_VERSION`），不在 UI 里改判定逻辑。
+4. **Annotation**：人工复核走 Langfuse annotation queue；语义分以平台为准。
+5. **同步与权威源**：见 §0.1；同步开关 `TD_EVAL_LANGFUSE_SYNC`（默认关），失败只告警、不阻断本地评测；
+   本地 JSONL 保持 append-only，不回写平台语义分。
+**依赖**：观测配置（`TD_OBSERVABILITY_*`）与自托管 Langfuse（已有，`deploy/langfuse/`）；不阻塞本地基线，只在 E5 之后接入。
+**验收**：同一 dataset 跑出两次 experiment run 并能在平台对比；人工标注的语义分与本地 `reviews.json` 不冲突（单一权威源）。
 
 ### E9 评测口径守卫（P1）
 **目标**：防止优化过程刷分；防止跨口径比较。

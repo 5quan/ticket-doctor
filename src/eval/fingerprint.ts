@@ -4,7 +4,7 @@
 // 代码、材料、提示词、规则、模型与预算，而不只是 gitRev。打分器/审计策略版本单独记录。
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { AppConfig } from "../config/index.ts";
 import { AUDIT_POLICY_VERSION } from "../agent/audit-types.ts";
@@ -39,6 +39,8 @@ export function hashText(text: string): string {
 }
 
 function walkFiles(dir: string): string[] {
+  // logOnly / 无仓库场景：目录可能不存在，视为空材料（不是错误）。
+  if (!existsSync(dir) || !statSync(dir).isDirectory()) return [];
   const out: string[] = [];
   for (const name of readdirSync(dir).sort()) {
     const full = join(dir, name);

@@ -36,8 +36,10 @@
 > **2026-10-04 更新（离线评测 MVP，E0）**：新增 `src/eval/` + `npm run eval`（复用 `prepareDiagnosis → diagnosis-loop → validate → applyAudit`，
 > 内存 session，产出 draft/validated/report 三层 + 指纹 JSONL）、`npm run eval:compare`（按变量分组比审计关/开、rules 前后）、
 > `npm run eval:review`（人工复核写 `reviews.json`）。scorer=`mvp-0.1.0`：**只评材料/引用，语义未复核=unscored**。
-> 首个 fixture `fixtures/evals/demo-checkout/`（复用 demo 材料）。范围仅诊断核心，不含持久化/投递。
-> 后续 E1–E9 工作单见 `docs/eval-implementation-plan.md`。
+> fixtures：`demo-checkout`（log+code）、`order-validation`（log+code，复用 demo 仓库）、`payment-timeout`（log-only）三个**合成占位** case。
+> 范围仅诊断核心，不含持久化/投递。**Langfuse 能做评测/实验/人工标注**：首期本地执行+评分是缩小范围，
+> 接入形态（本地执行 + Langfuse 实验账本/复核，权威源二选一）见 `docs/eval-implementation-plan.md` §0.1 与 E8。
+> 后续 E1–E9 工作单同文件；**真实案例准入前不发布质量结论**。
 
 ---
 
@@ -46,7 +48,7 @@
 | 项 | 值 |
 |---|---|
 | 版本 / 分支 | `0.3.1` / `main` |
-| 测试 | TS 191（`npm test`，数字以 docs/status.json 为准）+ Go adapter（`npm run test:go`）+ `typecheck` 全绿 |
+| 测试 | TS 193（`npm test`，数字以 docs/status.json 为准）+ Go adapter（`npm run test:go`）+ `typecheck` 全绿 |
 | 迁移 | `001` … `006_evidence_uid.sql` |
 | 运行 | `npm run host`（生产，systemd `ticket-doctor-host`）/ `npm run demo`（离线；可开观测做验证） |
 | 部署 | `docker-compose.yml` + `Dockerfile` + `adapters/go/Dockerfile`（已构建并冒烟） |

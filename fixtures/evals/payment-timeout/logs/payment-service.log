@@ -1,0 +1,6 @@
+2026-09-06T10:00:00.000+08:00	INFO	PaymentController 接收支付请求 orderId=ord_70001 userId=u_91
+2026-09-06T10:00:01.100+08:00	ERROR	PaymentGateway 调用支付网关失败 timeout after 5000ms traceId=pay_7f01
+2026-09-06T10:00:01.200+08:00	WARN	Deadlock found when trying to get lock; try restarting transaction
+2026-09-06T10:00:02.000+08:00	ERROR	PaymentController 支付接口返回 504 orderId=ord_70001 traceId=pay_7f01
+2026-09-06T10:00:03.000+08:00	INFO	PaymentRetry 第 1 次重试 traceId=pay_7f01
+2026-09-06T10:05:00.000+08:00	INFO	HealthCheck /actuator/health status=UP

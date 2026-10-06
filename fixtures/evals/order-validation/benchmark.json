@@ -1,0 +1,28 @@
+{
+  "scenario": "order-validation",
+  "engine": "fake",
+  "repoDir": "fixtures/demo-repo",
+  "repoId": "app",
+  "cases": [
+    {
+      "id": "val-001",
+      "question": "order-service 下单接口报 400，11:20 开始，提示 sku 相关错误，请定位根因",
+      "occurredAt": "2026-09-06T11:20:30+08:00",
+      "service": "order-service",
+      "environment": "test",
+      "repo": "app",
+      "gold": {
+        "answer": "OrderService.validate 对 sku 做空校验并抛 IllegalArgumentException，导致下单接口 400",
+        "evidence": [
+          { "kind": "log", "level": "ERROR", "substring": "sku is required" },
+          { "kind": "code", "repoId": "app", "path": "src/main/java/com/example/order/OrderService.java", "lineStart": 27, "lineEnd": 31 }
+        ]
+      },
+      "distractors": [
+        { "kind": "log", "level": "WARN", "substring": "RedisPool 连接池使用率 88%" },
+        { "kind": "log", "level": "INFO", "substring": "HealthCheck" }
+      ],
+      "labels": ["validation", "log+code"]
+    }
+  ]
+}

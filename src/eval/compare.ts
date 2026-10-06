@@ -14,6 +14,7 @@ export interface VariantGroup {
 export function variantKey(r: EvalRecord): string {
   const f = r.fingerprint;
   return [
+    `scenario=${f.scenario}`,
     `engine=${f.engine}`,
     `model=${f.model ?? "-"}`,
     `rules=${f.rulesHash ?? "-"}`,
