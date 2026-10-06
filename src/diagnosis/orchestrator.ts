@@ -8,7 +8,7 @@
 // 这是"内联执行"路径（worker 与引擎同进程），用于本地/测试/评测；
 // 生产 Host 可改用 host/runner-executor.ts 的独立子进程路径，二者共用 finalize.ts。
 import type { AppConfig } from "../config/index.ts";
-import type { RunErrorCode } from "../domain/types.ts";
+import type { MaterialScope, RunErrorCode } from "../domain/types.ts";
 import type { FileLogSource } from "../sources/logs.ts";
 import type { Store, ClaimedRun } from "../storage/store.ts";
 import type { EventStore } from "../host/event-store.ts";
@@ -37,6 +37,11 @@ export interface OrchestratorDeps {
   eventStore?: EventStore;
   /** Langfuse 观测记录器：未启用时缺省（不采集，业务不受影响）。 */
   recorder?: ObservationRecorder;
+  /**
+   * 材料准备完成、模型取证之前的观察钩（评测隔离用，只读）：可在此核对实际解析出的源码版本。
+   * 抛错即 fail-closed（由编排层 failRun）；生产不传，行为不变。
+   */
+  onPrepared?: (prepared: { scope: MaterialScope; missingMaterial: string[] }) => void;
 }
 
 export async function executeRun(deps: OrchestratorDeps, claimed: ClaimedRun): Promise<void> {
@@ -133,6 +138,8 @@ export async function executeRun(deps: OrchestratorDeps, claimed: ClaimedRun): P
       sink,
     });
     const question = input.question;
+    // 评测隔离钩子（只读）：在模型取证前核对实际材料范围；抛错则 fail-closed。生产不传。
+    deps.onPrepared?.({ scope, missingMaterial });
     // 首次执行：把本轮用户输入落成会话条目（恢复时不追加，避免重复）。
     if (!runSession.resumed) runSession.appendUserMessage(renderDiagnosisInput(input));
 

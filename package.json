@@ -15,9 +15,11 @@
     "eval": "node --experimental-strip-types scripts/eval.ts",
     "eval:compare": "node --experimental-strip-types scripts/eval-compare.ts",
     "eval:review": "node --experimental-strip-types scripts/eval-review.ts",
+    "preeval:v2": "node scripts/init-eval-fixture.mjs",
+    "eval:v2": "node --experimental-strip-types src/evals/v2/cli.ts",
     "docs:check": "node scripts/check-docs.mjs",
     "test:go": "cd adapters/go && go test ./...",
-    "pretest": "node scripts/init-demo-repo.mjs"
+    "pretest": "node scripts/init-demo-repo.mjs && node scripts/init-eval-fixture.mjs"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "0.84.2",
