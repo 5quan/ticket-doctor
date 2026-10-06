@@ -8,10 +8,8 @@ import { randomUUID } from "node:crypto";
 import readline from "node:readline";
 import { buildAuditor, buildEngine } from "../agent/factory.ts";
 import type { SavedToolResult, SessionSink, ToolExecutionRecord } from "../agent/types.ts";
-import type { AuditResult } from "../agent/audit-types.ts";
-import { AUDIT_POLICY_VERSION } from "../agent/audit-types.ts";
 import type { EvidenceRef } from "../evidence/types.ts";
-import { buildAuditInput, runAuditPhase } from "../diagnosis/audit.ts";
+import { runDiagnosisLoop } from "../diagnosis/diagnosis-loop.ts";
 import type { AppConfig } from "../config/index.ts";
 import { renderDiagnosisInput } from "../agent/input-text.ts";
 import { IpcEvidenceSink } from "../evidence/ipc-sink.ts";
@@ -153,7 +151,44 @@ async function runTask(task: RunnerTask, controller: AbortController): Promise<v
     if (!sink.resumed) sink.appendUserMessage(renderDiagnosisInput(input));
     emit({ type: "progress", name: "prepared", payload: { services: scope.services, repos: scope.repos.length } });
 
-    const result = await engine.run(input, toolbox, controller.signal, sink, obs);
+    // 诊断 + 独立审计 + 有界补证循环（OQ-30）：同一次 attempt、同一会话；审计不主动检索。
+    const loop = await runDiagnosisLoop({
+      engine,
+      auditor: buildAuditor(config),
+      auditConfig: config.diagnosis.audit,
+      maxRounds: config.diagnosis.audit.maxRounds,
+      signal: controller.signal,
+      input,
+      scope,
+      toolbox,
+      session: sink,
+      obs,
+      // 跨轮引用：Host 传入的既往证据 + 本轮工具箱已提交证据，按 uid 去重；每轮重建（补证后增长）。
+      evidence: () => {
+        const merged = new Map<string, EvidenceRef>();
+        for (const ref of task.priorEvidence ?? []) merged.set(ref.evidenceUid, ref);
+        for (const ref of toolbox.evidenceSnapshot()) merged.set(ref.evidenceUid, ref);
+        return [...merged.values()];
+      },
+      executionLimits: () => [
+        `工具调用 ${toolbox.toolCalls}/${config.diagnosis.maxToolCalls}`,
+        `时间预算 ${config.diagnosis.timeoutMs}ms`,
+      ],
+      onAudit: (round, outcome) =>
+        emit({
+          type: "progress",
+          name: "audit_round",
+          payload: {
+            round,
+            policyVersion: outcome.policyVersion,
+            failure: outcome.failure,
+            verdicts: outcome.audit?.claimVerdicts.length ?? 0,
+            stopAdvice: outcome.audit?.stopAdvice,
+          },
+        }),
+    });
+
+    const result = loop.result;
     if (result.kind === "reply") {
       await emitFinal({
         type: "result",
@@ -162,45 +197,12 @@ async function runTask(task: RunnerTask, controller: AbortController): Promise<v
           reason: result.reason,
           text: result.text,
           toolCalls: result.toolCalls,
-          modelTurns: result.modelTurns,
+          modelTurns: loop.modelTurns,
           model: result.model,
         },
       });
       return;
     }
-    // 独立审计（OQ-30）：本 Runner 内开独立上下文会话复核草稿；不主动检索，只读冻结快照。
-    let audit: AuditResult | undefined;
-    let auditFailure: string | undefined;
-    let auditTurns = 0;
-    const auditor = buildAuditor(config);
-    if (auditor && config.diagnosis.audit.enabled) {
-      // 跨轮引用：Host 传入的既往证据 + 本轮工具箱已提交证据，按 uid 去重。
-      const merged = new Map<string, EvidenceRef>();
-      for (const ref of task.priorEvidence ?? []) merged.set(ref.evidenceUid, ref);
-      for (const ref of toolbox.evidenceSnapshot()) merged.set(ref.evidenceUid, ref);
-      emit({ type: "progress", name: "audit_started", payload: { policyVersion: AUDIT_POLICY_VERSION } });
-      const phase = await runAuditPhase({
-        auditor,
-        config: config.diagnosis.audit,
-        input: buildAuditInput({
-          question: input.question,
-          service: input.service,
-          environment: input.environment,
-          scope,
-          draft: result.draft,
-          evidence: [...merged.values()],
-          executionLimits: [
-            `工具调用 ${result.toolCalls}/${config.diagnosis.maxToolCalls}`,
-            `时间预算 ${config.diagnosis.timeoutMs}ms`,
-          ],
-        }),
-        signal: controller.signal,
-      });
-      audit = phase.audit;
-      auditFailure = phase.failure;
-      auditTurns = phase.modelTurns;
-    }
-
     await emitFinal({
       type: "result",
       result: {
@@ -210,10 +212,11 @@ async function runTask(task: RunnerTask, controller: AbortController): Promise<v
         scope,
         missingMaterial,
         toolCalls: result.toolCalls,
-        modelTurns: result.modelTurns + auditTurns,
+        modelTurns: loop.modelTurns,
         model: result.model,
-        audit,
-        auditFailure,
+        audit: loop.audit,
+        auditFailure: loop.auditFailure,
+        auditRounds: loop.auditRounds,
       },
     });
   } catch (err) {

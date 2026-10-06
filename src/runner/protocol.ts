@@ -70,6 +70,8 @@ export type RunnerResult =
       audit?: AuditResult;
       /** 审计失败且不阻断时的原因（failBlocks=false）。 */
       auditFailure?: string;
+      /** 实际补证轮数（0=单次审计）。 */
+      auditRounds?: number;
     }
   | {
       kind: "reply";

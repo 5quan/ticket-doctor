@@ -112,6 +112,36 @@ test("selectAuditEvidence：草稿引用的证据优先，其余补足", () => {
   assert.equal(picked.length, 3);
 });
 
+// 三类必须被审计识别的问题（启用补证循环前的验证口径）。
+
+test("三类问题①错误归因但引用有效：有引用不等于支持，仍按审计降级", () => {
+  const out = applyAudit(
+    report({ hypotheses: [{ cause: "把超时归因成连接池耗尽", confidence: "high", status: "supported", evidenceIds: ["u1", "u2"] }] }),
+    { claimVerdicts: [{ hypothesisIndex: 0, verdict: "unsupported", reason: "证据与结论的语义关系不成立" }], missingEvidence: [], stopAdvice: stop },
+  );
+  assert.equal(out.hypotheses[0]!.status, "candidate");
+  assert.equal(out.completeness, "partial");
+});
+
+test("三类问题②材料不足仍标 supported：审计判 undecidable 后降级", () => {
+  const out = applyAudit(
+    report({ hypotheses: [{ cause: "仅凭单条现象下的结论", confidence: "medium", status: "supported", evidenceIds: ["u1"] }] }),
+    { claimVerdicts: [{ hypothesisIndex: 0, verdict: "undecidable", reason: "材料不足" }], missingEvidence: [{ hypothesisIndex: 0, what: "完整调用链" }], stopAdvice: stop },
+  );
+  assert.equal(out.hypotheses[0]!.status, "candidate");
+  assert.equal(out.completeness, "partial");
+  assert.ok(out.missingMaterial.some((m) => m.includes("完整调用链")));
+});
+
+test("三类问题③存在反证却被忽略：审计判 contradicted 后 refuted", () => {
+  const out = applyAudit(
+    report({ hypotheses: [{ cause: "与反证矛盾的结论", confidence: "high", status: "supported", evidenceIds: ["u1"] }] }),
+    { claimVerdicts: [{ hypothesisIndex: 0, verdict: "contradicted", reason: "E2 显示相反结论" }], missingEvidence: [], stopAdvice: stop },
+  );
+  assert.equal(out.hypotheses[0]!.status, "refuted");
+  assert.equal(out.completeness, "partial");
+});
+
 test("FakeEvidenceAuditor：可解析→supported，无引用→unsupported+补证，解析不到→undecidable", async () => {
   const input: AuditInput = buildAuditInput({
     question: "q",

@@ -71,7 +71,7 @@ test("完整链路：新建调查 → 诊断 → 报告 → 投递，且报告�
 test("独立审计：Host 应用判定（contradicted→refuted，报告转 partial，不阻断发布）", async () => {
   const store = memoryStore();
   const cfg = config();
-  cfg.diagnosis.audit = { enabled: true, allowRetrieval: false, failBlocks: false };
+  cfg.diagnosis.audit = { enabled: true, allowRetrieval: false, failBlocks: false, maxRounds: 1 };
   const engine = new FakeDiagnosisEngine({ defaultService: "checkout-service" });
   const auditor: EvidenceAuditor = {
     name: "stub-audit",
@@ -105,7 +105,7 @@ test("独立审计：Host 应用判定（contradicted→refuted，报告转 part
 test("独立审计失败（failBlocks=false）：显式降级但不阻断发布", async () => {
   const store = memoryStore();
   const cfg = config();
-  cfg.diagnosis.audit = { enabled: true, allowRetrieval: false, failBlocks: false };
+  cfg.diagnosis.audit = { enabled: true, allowRetrieval: false, failBlocks: false, maxRounds: 1 };
   const engine = new FakeDiagnosisEngine({ defaultService: "checkout-service" });
   const auditor: EvidenceAuditor = {
     name: "boom",

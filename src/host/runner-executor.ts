@@ -278,6 +278,7 @@ export function createRunnerExecutor(deps: RunnerExecutorDeps): RunExecutor {
               question: message.text,
               audit: result.kind === "report" ? result.audit : undefined,
               auditFailure: result.kind === "report" ? result.auditFailure : undefined,
+              auditRounds: result.kind === "report" ? result.auditRounds : undefined,
             });
             deps.recorder?.endAttempt(obsIdentity, {
               status: "ok",

@@ -10,7 +10,7 @@
 
 「外部触发 → 会话创建 → 执行任务 → 结果返回」**主干闭环已完成并可运行**（Host + 独立 Runner + Go 接入适配器），
 证据已升级为**持久化 + 稳定 UID（两阶段提交）**，飞书触发链路已修（门控单点化 + `-help`）。
-当前缺口集中在：**真实数据源、审计补证循环、评测 M2/M3、图片**（飞书长连接 S3 已实现待真机验证；独立审计首版单次审计已实现）。
+当前缺口集中在：**真实数据源、评测 M2/M3、图片**（飞书长连接 S3 待真机验证；独立审计 + 有界补证循环已实现）。
 
 > **2026-10-04 更新**：Langfuse OTel 观测已接入（trace=attempt；generation 含模型回答/thinking/usage，
 > 工具与报告校验全埋点；`TD_OBSERVABILITY_ENABLED` 门控，默认关闭。方案见
@@ -27,8 +27,9 @@
 > **2026-10-04 更新（OQ-30 首版单次审计）**：同一 Runner、同一事件循环内跑两个独立 pi 会话（诊断 → 审计），
 > 共享一次 attempt 与总超时；审计**不主动检索**（`TD_AUDIT_ALLOW_RETRIEVAL=false`）、失败**显式降级不阻断**
 > （`TD_AUDIT_FAIL_BLOCKS=false`）；模型只出 `claimVerdicts/missingEvidence/stopAdvice`，Host 确定性应用。
-> 总开关 `TD_AUDIT_ENABLED`（默认 false）。实现见 `src/diagnosis/audit.ts`、`src/agent/pi-auditor.ts`。
-> 补证循环/并行专项审计/主动检索均未做，留待首版验证有效后再加。
+> 总开关 `TD_AUDIT_ENABLED`（默认 false）。实现见 `src/diagnosis/audit.ts`、`src/diagnosis/diagnosis-loop.ts`、`src/agent/pi-auditor.ts`。
+> **有界补证循环已加**：`TD_AUDIT_MAX_ROUNDS`（默认 1）——审计判 `continue` 且有缺证项、轮次/工具预算未耗尽时，
+> 把缺证项写回同一诊断会话补证，再审计；补证轮仍共享工具额度与总超时。并行专项审计/主动检索仍未做。
 
 ---
 
@@ -37,7 +38,7 @@
 | 项 | 值 |
 |---|---|
 | 版本 / 分支 | `0.3.1` / `main` |
-| 测试 | TS 167（`npm test`，数字以 docs/status.json 为准）+ Go adapter（`npm run test:go`）+ `typecheck` 全绿 |
+| 测试 | TS 179（`npm test`，数字以 docs/status.json 为准）+ Go adapter（`npm run test:go`）+ `typecheck` 全绿 |
 | 迁移 | `001` … `006_evidence_uid.sql` |
 | 运行 | `npm run host`（生产，systemd `ticket-doctor-host`）/ `npm run demo`（离线；可开观测做验证） |
 | 部署 | `docker-compose.yml` + `Dockerfile` + `adapters/go/Dockerfile`（已构建并冒烟） |
@@ -155,7 +156,7 @@ npm run demo        # 离线端到端冒烟
 | ✅ | ~~修评测打分器（§4）~~ | 已完成（v0.3.1）；fake 基线 70/20/60 |
 | ✅ | ~~S3 Go 长连接~~ | 已完成（单测全覆盖）；**实施方案：`docs/adapter-longconn-design.md`**；官方 Go SDK `.../v3/ws` 实现 `eventsource.Source`，`ADAPTER_MODE=webhook|ws`；真机人工验证待有凭据时执行（OQ-40） |
 | P1 | S4 弃用 Host 内直连 | 删 `TD_FEISHU_DIRECT`、`src/integrations/feishu` SDK 路径（**注意 `demo.ts` 也用 `createFeishuGateway`**） |
-| ✅ | ~~独立审计 Agent 首版（OQ-30）~~ | 已完成：Runner 内独立会话、逐结论判定、Host 应用；补证循环/并行审计待后续 |
+| ✅ | ~~独立审计 Agent + 有界补证循环（OQ-30）~~ | 已完成：Runner 内独立会话、逐结论判定、Host 应用；补证循环由 `TD_AUDIT_MAX_ROUNDS` 封顶；并行审计/主动检索待后续 |
 | P1 | 评测 M2/M3 | rules 条目化 + delta/Pareto、扩样本、judge、CI 门禁；v2 校准基线已重跑（OQ-41，见 §4 与 `docs/status.json#eval`），旧口径数字已作废 |
 | P2 | 钉钉/Slack 实装、图片处理（OQ-27） | 平台按 `Platform` 接口；图片下载→视觉模型→登记证据 |
 | P2 | 真实日志平台 `LogSource`、工具回放 UI | 按端口新增，不动编排 |

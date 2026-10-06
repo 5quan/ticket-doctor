@@ -58,6 +58,8 @@ export interface AuditConfig {
   allowRetrieval: boolean;
   /** 审计失败（报错/超时/未产出）是否阻断发布；false=显式降级后照常提交。 */
   failBlocks: boolean;
+  /** 有界补证循环上限：审计建议 continue 且预算足够时，最多回主诊断补证几轮（0=单次审计）。 */
+  maxRounds: number;
 }
 
 export interface FeishuConfig {
@@ -226,6 +228,7 @@ export function loadConfig(opts: { envFile?: string } = {}): AppConfig {
         enabled: process.env.TD_AUDIT_ENABLED === "true",
         allowRetrieval: process.env.TD_AUDIT_ALLOW_RETRIEVAL === "true",
         failBlocks: process.env.TD_AUDIT_FAIL_BLOCKS === "true",
+        maxRounds: num("TD_AUDIT_MAX_ROUNDS", 1),
       },
     },
     feishu: {

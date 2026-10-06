@@ -61,6 +61,8 @@ export interface FinalizeArgs {
   audit?: AuditResult;
   /** 审计失败且不阻断时的原因（failBlocks=false）：显式降级但不阻断发布。 */
   auditFailure?: string;
+  /** 实际补证轮数（0=单次审计），随 audit_applied 留痕。 */
+  auditRounds?: number;
 }
 
 /**
@@ -128,6 +130,7 @@ export function finalizeEngineResult(
     report = applyAudit(report, args.audit);
     store.appendRunEvent(claimed.run.id, claimed.attemptId, "audit_applied", {
       policyVersion: AUDIT_POLICY_VERSION,
+      auditRounds: args.auditRounds ?? 0,
       verdicts: args.audit.claimVerdicts,
       stopAdvice: args.audit.stopAdvice,
     });

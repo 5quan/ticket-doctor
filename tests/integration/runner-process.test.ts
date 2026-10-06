@@ -65,7 +65,7 @@ test("独立 Runner 子进程执行一轮诊断并由 Host 回写报告", async 
 test("独立 Runner 子进程内跑审计并回传判定（process 路径）", async () => {
   const store = memoryStore();
   const cfg = config();
-  cfg.diagnosis.audit = { enabled: true, allowRetrieval: false, failBlocks: false };
+  cfg.diagnosis.audit = { enabled: true, allowRetrieval: false, failBlocks: false, maxRounds: 1 };
   routeInbound(store, cfg, msg({ externalMessageId: "om_proc_audit" }));
   const claimed = store.claimNextRun("w1", 60_000)!;
 

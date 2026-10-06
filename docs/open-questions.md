@@ -141,8 +141,10 @@ Agent 是角色/上下文/权限，Runner 是执行进程：不新增 Worker/队
    置 true 则走 `failRun`（可重试）。
 3. **降级映射**：`contradicted → refuted`；`unsupported`/`undecidable` 把 `supported → candidate`（confidence→low）；
    已是 candidate 的结论不因弱判定强行降完整度。只有「原标 supported 的结论被降级」或有 `missingEvidence` 才判 partial。
-4. **程序决定收敛**：审计只出 `claimVerdicts[] / missingEvidence[] / stopAdvice`；首版按单次审计执行，
-   不实现补证循环（`stopAdvice=continue` 只记录）。
+4. **程序决定收敛**：审计只出 `claimVerdicts[] / missingEvidence[] / stopAdvice`；程序按确定性规则决定是否继续。
+   **有界补证循环（2026-10-04 追加）**：`stopAdvice=continue` 且有 `missingEvidence`、轮次 < `TD_AUDIT_MAX_ROUNDS`
+   （默认 1）、工具额度未耗尽时，把缺证项写回**同一诊断会话**补证（保留调查历史），再审计；补证轮与主诊断
+   共享工具额度与总超时（同一 Toolbox/AbortSignal）；补证后若变成闲聊/反问，以该结果为准但仍记录审计判定。
 
 **版本控制**：`AUDIT_POLICY_VERSION = "1.0.0"`（`src/agent/audit-types.ts`），改动提示词/输出契约/降级规则时递增；
 结果随 `run_events`（`audit_started` / `audit_applied` / `audit_failed`）与 `policyVersion` 落库，禁止跨版本比较判定。
@@ -156,7 +158,10 @@ Agent 是角色/上下文/权限，Runner 是执行进程：不新增 Worker/队
 `selectAuditEvidence` / `runAuditPhase` / `applyAudit` / `applyAuditFailure`）；Host 在 `finalize.ts` 应用；
 两条执行路径（`orchestrator.ts` 内联、`entrypoints/runner.ts` 进程 + `runner-executor.ts`）都接入；协议 v4。
 
-**未做**：有界补证循环、并行专项审计、Supervisor、审计主动检索、审计专用观测 span（当前只记 run_events 与模型轮次）。
+**程序控制器**：`src/diagnosis/diagnosis-loop.ts`（`runDiagnosisLoop` / `shouldSupplement` / `renderSupplementPrompt`）
+内联与进程两条路径共用；无界风险由 `maxRounds` + 工具额度 + 总超时三重封顶。
+
+**未做**：并行专项审计、Supervisor、审计主动检索、审计专用观测 span（当前只记 run_events 与模型轮次）。
 
 ## 观测（Langfuse）（2026-10-04 新增）
 

@@ -31,7 +31,7 @@ export function testConfig(overrides: Partial<AppConfig> = {}): AppConfig {
       defaultTimeWindowMs: 6 * 60 * 60 * 1000,
       fallbackTimeWindowMs: 24 * 60 * 60 * 1000,
       compactionEnabled: true,
-      audit: { enabled: false, allowRetrieval: false, failBlocks: false },
+      audit: { enabled: false, allowRetrieval: false, failBlocks: false, maxRounds: 1 },
     },
     feishu: { botOpenId: "ou_bot", requireMention: true },
     host: { host: "127.0.0.1", port: 0, sseReplayLimit: 1000, feishuDirect: false },

@@ -142,7 +142,7 @@ npm run worker           # 只跑 worker
 - 证据：两阶段提交 + 稳定 UID + 报告 v1/v2（OQ-38）；工具 6 个（含 `list_files`、`search_code` 有界预览）。
 - 检索范围：`query_logs` 在工具入口强制本轮 `service` + 时间窗；`TD_ALLOWED_REPOS` 成硬白名单（OQ-44）。
 - 检索覆盖：工具返回带覆盖信息（总数 / 是否截断 / 是否还有 / 续查 cursor），数量上限不再静默切片；空结果与失败/越权分开（backlog T7）。
-- 独立审计（OQ-30 首版）：同一 Runner 内诊断 → 独立审计会话 → 程序逐结论降级；不主动检索、失败显式降级不阻断；`AUDIT_POLICY_VERSION` 随结果落库。
+- 独立审计（OQ-30）：同一 Runner 内诊断 → 独立审计会话 → 程序逐结论降级；不主动检索、失败显式降级不阻断；有界补证循环由 `TD_AUDIT_MAX_ROUNDS` 封顶；`AUDIT_POLICY_VERSION` 随结果落库。
 - 评测：旧 v1/v2 harness 已移除、另行立项（历史口径见 `docs/eval-design.md`；冻结基线见 `docs/status.json#eval`）。
 
 **最高优先**：S4 弃用 Host 内直连 → 独立审计 Agent（OQ-30）→ 评测 M2/M3；S3 真机人工验证待有飞书凭据时执行。

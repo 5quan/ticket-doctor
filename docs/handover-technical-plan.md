@@ -233,8 +233,9 @@ type Platform interface {
 > **✅ 已实施（首版单次审计，2026-10-04）**：契约由「sufficient/insufficient」升级为逐结论 `claimVerdicts[]`
 > （supported / unsupported / contradicted / undecidable）+ `missingEvidence[]` + `stopAdvice`，程序**逐条降级具体结论**
 > （`contradicted→refuted`，`unsupported/undecidable` 把 supported 降 candidate）；`AUDIT_POLICY_VERSION=1.0.0`。
-> 冻结策略：审计**不主动检索**、失败**显式降级不阻断**。详见 `docs/open-questions.md`「OQ-30 实施记录」。
-> 未做（后续）：有界补证循环、并行专项审计、Supervisor、审计主动检索。
+> 冻结策略：审计**不主动检索**、失败**显式降级不阻断**；**有界补证循环**已加（`TD_AUDIT_MAX_ROUNDS` 默认 1）。
+> 详见 `docs/open-questions.md`「OQ-30 实施记录」。
+> 未做（后续）：并行专项审计、Supervisor、审计主动检索。
 
 **目标/验收**：把「证据是否充分」从主诊断剥离到**独立上下文**，结构化输出
 `已确认事实 / 疑似原因 / 补证请求`，程序按预算收敛；修掉「材料不足仍给 supported」与「引用干扰证据」。
@@ -251,6 +252,9 @@ type Platform interface {
 `src/diagnosis/finalize.ts`、提示词与 `docs/eval-design.md`（评测体系另行立项）。
 
 ---
+
+**已实现的有界补证循环**（`src/diagnosis/diagnosis-loop.ts`）：诊断 → 审计 → 若 `continue` 且有缺证项、
+轮次/工具预算未耗尽，则把缺证项写回同一诊断会话补证 → 修订草稿 → 再审计；共享一次 attempt 与总超时。
 
 ### 5.7 [阶段二] 评测 M2 / M3（RSI）——另行立项
 

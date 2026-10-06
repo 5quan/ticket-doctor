@@ -14,12 +14,10 @@ import type { Store, ClaimedRun } from "../storage/store.ts";
 import type { EventStore } from "../host/event-store.ts";
 import { ToolBudgetExceeded } from "../agent/toolbox.ts";
 import type { DiagnosisEngine } from "../agent/types.ts";
-import type { AuditResult } from "../agent/audit-types.ts";
-import { AUDIT_POLICY_VERSION } from "../agent/audit-types.ts";
-import { buildAuditor } from "../agent/factory.ts";
 import type { EvidenceAuditor } from "../agent/audit-types.ts";
+import { buildAuditor } from "../agent/factory.ts";
 import { StoreEvidenceResolver } from "../evidence/store-resolver.ts";
-import { buildAuditInput, runAuditPhase } from "./audit.ts";
+import { runDiagnosisLoop, type DiagnosisLoopResult } from "./diagnosis-loop.ts";
 import type { ObservationRecorder } from "../observability/langfuse.ts";
 import { StoreEvidenceSink } from "../evidence/store-sink.ts";
 import { prepareDiagnosis, type PreparedDiagnosis } from "./prepare.ts";
@@ -138,9 +136,34 @@ export async function executeRun(deps: OrchestratorDeps, claimed: ClaimedRun): P
     // 首次执行：把本轮用户输入落成会话条目（恢复时不追加，避免重复）。
     if (!runSession.resumed) runSession.appendUserMessage(renderDiagnosisInput(input));
 
-    let result: Awaited<ReturnType<DiagnosisEngine["run"]>>;
+    let loop: DiagnosisLoopResult;
     try {
-      result = await engine.run(input, toolbox, controller.signal, runSession, obs);
+      loop = await runDiagnosisLoop({
+        engine,
+        auditor: deps.auditor ?? buildAuditor(config),
+        auditConfig: config.diagnosis.audit,
+        maxRounds: config.diagnosis.audit.maxRounds,
+        signal: controller.signal,
+        input,
+        scope,
+        toolbox,
+        session: runSession,
+        obs,
+        // 每轮重建：补证后本轮证据会增长。
+        evidence: () => new StoreEvidenceResolver(store, investigation.id, run.id).listByInvestigation(investigation.id),
+        executionLimits: () => [
+          `工具调用 ${toolbox.toolCalls}/${config.diagnosis.maxToolCalls}`,
+          `时间预算 ${config.diagnosis.timeoutMs}ms`,
+        ],
+        onAudit: (round, outcome) =>
+          store.appendRunEvent(run.id, claimed.attemptId, "audit_round", {
+            round,
+            policyVersion: outcome.policyVersion,
+            failure: outcome.failure,
+            verdicts: outcome.audit?.claimVerdicts.length ?? 0,
+            stopAdvice: outcome.audit?.stopAdvice,
+          }),
+      });
     } catch (err) {
       runSession.finish();
       if (err instanceof ToolBudgetExceeded) {
@@ -151,45 +174,12 @@ export async function executeRun(deps: OrchestratorDeps, claimed: ClaimedRun): P
       throw err;
     }
     runSession.finish();
-
-    // 独立审计（OQ-30）：引擎产出草稿后，在同一次 attempt 内跑独立上下文复核；
-    // 失败策略（阻断/降级）由配置决定，判定由 Host 侧 finalize 确定性应用。
-    let audit: AuditResult | undefined;
-    let auditFailure: string | undefined;
-    let auditTurns = 0;
-    if (result.kind === "report") {
-      const auditor = deps.auditor ?? buildAuditor(config);
-      if (auditor && config.diagnosis.audit.enabled) {
-        const evidence = new StoreEvidenceResolver(store, investigation.id, run.id).listByInvestigation(investigation.id);
-        const executionLimits = [
-          `工具调用 ${toolbox.toolCalls}/${config.diagnosis.maxToolCalls}`,
-          `时间预算 ${config.diagnosis.timeoutMs}ms`,
-        ];
-        store.appendRunEvent(run.id, claimed.attemptId, "audit_started", { policyVersion: AUDIT_POLICY_VERSION });
-        const phase = await runAuditPhase({
-          auditor,
-          config: config.diagnosis.audit,
-          input: buildAuditInput({
-            question,
-            service: investigation.service ?? undefined,
-            environment: investigation.environment ?? undefined,
-            scope,
-            draft: result.draft,
-            evidence,
-            executionLimits,
-          }),
-          signal: controller.signal,
-        });
-        audit = phase.audit;
-        auditFailure = phase.failure;
-        auditTurns = phase.modelTurns;
-      }
-    }
+    const result = loop.result;
 
     store.appendRunEvent(run.id, claimed.attemptId, "engine_finished", {
       kind: result.kind,
-      toolCalls: result.toolCalls,
-      modelTurns: result.modelTurns + auditTurns,
+      toolCalls: toolbox.toolCalls,
+      modelTurns: loop.modelTurns,
       model: result.model,
     });
 
@@ -201,8 +191,9 @@ export async function executeRun(deps: OrchestratorDeps, claimed: ClaimedRun): P
       missingMaterial,
       toolCalls: toolbox.toolCalls,
       question,
-      audit,
-      auditFailure,
+      audit: loop.audit,
+      auditFailure: loop.auditFailure,
+      auditRounds: loop.auditRounds,
     });
     endObservation(
       finalized.ok
