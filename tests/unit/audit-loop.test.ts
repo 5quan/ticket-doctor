@@ -5,6 +5,7 @@ import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { AuditResult, EvidenceAuditor } from "../../src/agent/audit-types.ts";
 import type { DiagnosisEngine, EngineResult, SessionSink, Toolbox } from "../../src/agent/types.ts";
 import type { ReportDraft } from "../../src/domain/types.ts";
+import type { AttemptObservationScope, ObservationEvent } from "../../src/observability/types.ts";
 import { renderSupplementPrompt, runDiagnosisLoop, shouldSupplement } from "../../src/diagnosis/diagnosis-loop.ts";
 
 function draft(cause: string): ReportDraft {
@@ -184,6 +185,31 @@ test("shouldSupplement：continue+补证项+预算内 才为真", () => {
   assert.equal(shouldSupplement(continueAdvice, { ...base, toolCalls: 12 }), false);
   assert.equal(shouldSupplement({ ...continueAdvice, missingEvidence: [] }, base), false);
   assert.equal(shouldSupplement(undefined, base), false);
+});
+
+test("审计观测：每轮发 audit phase_start/end，且审计器拿到对应 scopeId", async () => {
+  const events: ObservationEvent[] = [];
+  const obs: AttemptObservationScope = {
+    scopeId: "attempt-scope",
+    sink: { record: (e) => void events.push(e) },
+  };
+  const seenScopes: Array<string | undefined> = [];
+  const { engine } = scriptedEngine([reportResult("v1")]);
+  const auditor: EvidenceAuditor = {
+    name: "capture",
+    async audit(_input, _signal, scope) {
+      seenScopes.push(scope?.scopeId);
+      return { result: stopAdvice, modelTurns: 1 };
+    },
+  };
+  await runDiagnosisLoop(loopDeps({ engine, auditor, obs }));
+
+  const starts = events.filter((e) => e.kind === "phase_start" && e.phase === "audit");
+  const ends = events.filter((e) => e.kind === "phase_end" && e.phase === "audit");
+  assert.equal(starts.length, 1, "每轮审计一个 phase_start");
+  assert.equal(ends.length, 1, "每轮审计一个 phase_end");
+  const startId = (starts[0] as { logicalObservationId: string }).logicalObservationId;
+  assert.equal(seenScopes[0], startId, "审计器的 scopeId 应等于 phase 节点 id（模型 generation 挂到该节点下）");
 });
 
 test("renderSupplementPrompt：列出缺证项与建议动作", () => {

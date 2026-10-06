@@ -151,6 +151,16 @@ export function finalizeEngineResult(
     generation: claimed.generation,
   };
   deps.recorder?.recordReportValidation(obsIdentity, { draft, report, startedAt: validationStartedAt });
+  if (args.audit || args.auditFailure) {
+    deps.recorder?.recordAuditApplication(obsIdentity, {
+      policyVersion: AUDIT_POLICY_VERSION,
+      audit: args.audit,
+      failure: args.auditFailure,
+      auditRounds: args.auditRounds,
+      report,
+      startedAt: validationStartedAt,
+    });
+  }
 
   // v2 报告的 evidenceIds 已统一为 uid；展示层用 uid → 短号映射还原成 [E#]（§9.2.4）
   const evidenceLabels = new Map(

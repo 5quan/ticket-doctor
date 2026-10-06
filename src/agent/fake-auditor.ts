@@ -1,11 +1,12 @@
 // 确定性假审计器：零模型成本，用于离线 demo 与框架自检。
 // 判定口径（首版）：引用可在证据快照中解析 → supported；无引用 → unsupported；引用解析不到 → undecidable。
+import type { AttemptObservationScope } from "../observability/types.ts";
 import type { AuditInput, AuditOutcome, AuditResult, ClaimAudit, EvidenceAuditor } from "./audit-types.ts";
 
 export class FakeEvidenceAuditor implements EvidenceAuditor {
   readonly name = "fake-audit";
 
-  async audit(input: AuditInput, signal: AbortSignal): Promise<AuditOutcome> {
+  async audit(input: AuditInput, signal: AbortSignal, _obs?: AttemptObservationScope): Promise<AuditOutcome> {
     signal.throwIfAborted();
     const claimVerdicts: ClaimAudit[] = input.draft.hypotheses.map((h, i) => {
       const cites = h.evidenceIds ?? [];

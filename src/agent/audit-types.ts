@@ -5,6 +5,7 @@
 // 模型只出判定，程序按判定对**具体结论**降级（见 src/diagnosis/audit.ts）。
 import type { MaterialScope, ReportDraft } from "../domain/types.ts";
 import type { EvidenceRef } from "../evidence/types.ts";
+import type { AttemptObservationScope } from "../observability/types.ts";
 
 /**
  * 审计策略版本：改动「提示词 / 输出契约 / 降级规则」时递增。
@@ -67,7 +68,8 @@ export interface AuditOutcome {
 
 export interface EvidenceAuditor {
   readonly name: string;
-  audit(input: AuditInput, signal: AbortSignal): Promise<AuditOutcome>;
+  /** obs：审计会话的观测范围（每轮一个 scopeId）；未提供时不采集，业务行为不变。 */
+  audit(input: AuditInput, signal: AbortSignal, obs?: AttemptObservationScope): Promise<AuditOutcome>;
 }
 
 function truncate(text: string, max: number): string {

@@ -20,6 +20,7 @@ import { Type, type Static } from "@earendil-works/pi-ai";
 import { getBuiltinModel } from "@earendil-works/pi-ai/providers/all";
 import { attachPiObserver } from "../observability/pi-observer.ts";
 import { noopObservationSink } from "../observability/noop.ts";
+import type { AttemptObservationScope } from "../observability/types.ts";
 import { renderAuditInput, type AuditInput, type AuditOutcome, type AuditResult, type EvidenceAuditor } from "./audit-types.ts";
 
 const AUDIT_SYSTEM_PROMPT = `你是独立的证据审计员（不是诊断者）。唯一职责：检查草稿里每条结论是否被给出的证据真正支持。
@@ -84,7 +85,7 @@ export class PiEvidenceAuditor implements EvidenceAuditor {
     this.opts = opts;
   }
 
-  async audit(input: AuditInput, signal: AbortSignal): Promise<AuditOutcome> {
+  async audit(input: AuditInput, signal: AbortSignal, obs?: AttemptObservationScope): Promise<AuditOutcome> {
     const agentDir = join(tmpdir(), "ticket-doctor-auditor");
     mkdirSync(agentDir, { recursive: true });
 
@@ -139,10 +140,11 @@ export class PiEvidenceAuditor implements EvidenceAuditor {
     });
     const session = created.session;
     // 仅用于统计模型调用次数（noop sink 不发事件）；审计不占用检索工具额度。
+    // 审计会话的模型调用挂在 audit scope 下（父节点由 Host 侧 record 解析）；未启用观测则用 noop sink。
     const observer = attachPiObserver({
       session,
-      sink: noopObservationSink,
-      scopeId: "audit",
+      sink: obs?.sink ?? noopObservationSink,
+      scopeId: obs?.scopeId ?? "audit",
       maxEventBytes: this.opts.maxEventBytes ?? 524_288,
     });
     const onAbort = () => void session.abort();

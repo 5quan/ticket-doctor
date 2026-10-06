@@ -101,14 +101,25 @@ A 为框架交付必须通过项。B 为平台实测项；若目标机器资源�
 建议树：
 ```text
 diagnose-turn (span：原始问题 → 实际可见最终结果)
-├─ diagnosis-attempt (agent：attempt 1)
+├─ diagnosis-attempt (agent：诊断会话)
 │  ├─ model-request (generation)
 │  ├─ query_logs (tool)
 │  ├─ model-request (generation)
 │  ├─ read_code (tool)
 │  └─ submit_report (tool)
+├─ audit#1 (agent：独立审计会话，第 1 轮；OQ-30)
+│  └─ model-request (generation)
+├─ audit#2 (agent：补证后第 2 轮审计；仅补证循环产生)
+│  └─ model-request (generation)
+├─ audit-apply (span：程序按 claimVerdicts 降级 + 完整度调整)
 └─ report-validation (span：草稿 → 校验后报告与 issues)
 ```
+
+独立审计（OQ-30）**不单独建 trace**：审计是与诊断并列的独立会话，但同属一次 attempt，
+作为 trace 根下的兄弟 `agent` 节点表示（`audit#n`，每轮一个）。审计会话的 `model-request` 挂在对应
+`audit#n` 下，因此“诊断 vs 审计”的模型用量/耗时可按父节点分开看，trace 根仍是本次 attempt 的总量；
+程序应用审计判定记一个 `audit-apply` span。进程模式下审计的 `phase`/模型事件经 Runner `observation`
+消息上报，由 Host 记录（身份不来自 Runner）。
 
 首期每个 attempt 单独创建 trace，避免跨排队重试维护长生命周期根 span；同轮重试用 runId 关联，多轮用 sessionId 关联。attempt 重试保留独立记录，不能覆盖上次错误和费用。工具是 agent 的子节点，与要求该工具的 generation 为兄弟节点。本期不增加 Go 适配器埋点或独立投递 trace。
 

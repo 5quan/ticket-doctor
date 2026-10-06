@@ -53,13 +53,14 @@ interface ObservationBase {
 export type ObservationEvent =
   | (ObservationBase & {
       kind: "phase_start";
-      phase: "attempt";
+      /** attempt=诊断（主会话）；audit=独立审计会话（OQ-30，每轮一个）。 */
+      phase: "attempt" | "audit";
       input?: ObservationText;
       metadata?: Record<string, unknown>;
     })
   | (ObservationBase & {
       kind: "phase_end";
-      phase: "attempt";
+      phase: "attempt" | "audit";
       status: ObservationStatus;
       output?: ObservationText;
       error?: string;

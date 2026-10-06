@@ -9,6 +9,7 @@ import type { AuditConfig } from "../config/index.ts";
 import type { DiagnosisReport, MaterialScope, ReportDraft } from "../domain/types.ts";
 import { AUDIT_POLICY_VERSION, type AuditInput, type AuditResult, type ClaimVerdict, type EvidenceAuditor } from "../agent/audit-types.ts";
 import type { EvidenceRef } from "../evidence/types.ts";
+import type { AttemptObservationScope } from "../observability/types.ts";
 
 const VERDICT_LABEL: Record<ClaimVerdict, string> = {
   supported: "支持",
@@ -149,12 +150,14 @@ export async function runAuditPhase(opts: {
   config: AuditConfig;
   input: AuditInput;
   signal: AbortSignal;
+  /** 审计会话观测范围（每轮一个 scopeId）；未提供时不采集。 */
+  obs?: AttemptObservationScope;
 }): Promise<AuditPhaseOutcome> {
   if (!opts.auditor || !opts.config.enabled) {
     return { modelTurns: 0, policyVersion: AUDIT_POLICY_VERSION };
   }
   try {
-    const outcome = await opts.auditor.audit(opts.input, opts.signal);
+    const outcome = await opts.auditor.audit(opts.input, opts.signal, opts.obs);
     return { audit: outcome.result, modelTurns: outcome.modelTurns, policyVersion: AUDIT_POLICY_VERSION };
   } catch (err) {
     if (opts.config.failBlocks) throw err;

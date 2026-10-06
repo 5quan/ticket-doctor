@@ -29,7 +29,9 @@
 > （`TD_AUDIT_FAIL_BLOCKS=false`）；模型只出 `claimVerdicts/missingEvidence/stopAdvice`，Host 确定性应用。
 > 总开关 `TD_AUDIT_ENABLED`（默认 false）。实现见 `src/diagnosis/audit.ts`、`src/diagnosis/diagnosis-loop.ts`、`src/agent/pi-auditor.ts`。
 > **有界补证循环已加**：`TD_AUDIT_MAX_ROUNDS`（默认 1）——审计判 `continue` 且有缺证项、轮次/工具预算未耗尽时，
-> 把缺证项写回同一诊断会话补证，再审计；补证轮仍共享工具额度与总超时。并行专项审计/主动检索仍未做。
+> 把缺证项写回同一诊断会话补证，再审计；补证轮仍共享工具额度与总超时。
+> **观测**：同一 trace（=attempt）下，诊断是 `diagnosis-attempt` agent 节点，每轮审计是 `audit#n` 兄弟节点，
+> 程序应用记 `audit-apply` span；审计与诊断的模型用量按父节点分开看。并行专项审计/主动检索仍未做。
 
 ---
 
@@ -38,7 +40,7 @@
 | 项 | 值 |
 |---|---|
 | 版本 / 分支 | `0.3.1` / `main` |
-| 测试 | TS 179（`npm test`，数字以 docs/status.json 为准）+ Go adapter（`npm run test:go`）+ `typecheck` 全绿 |
+| 测试 | TS 183（`npm test`，数字以 docs/status.json 为准）+ Go adapter（`npm run test:go`）+ `typecheck` 全绿 |
 | 迁移 | `001` … `006_evidence_uid.sql` |
 | 运行 | `npm run host`（生产，systemd `ticket-doctor-host`）/ `npm run demo`（离线；可开观测做验证） |
 | 部署 | `docker-compose.yml` + `Dockerfile` + `adapters/go/Dockerfile`（已构建并冒烟） |

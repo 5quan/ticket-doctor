@@ -161,7 +161,11 @@ Agent 是角色/上下文/权限，Runner 是执行进程：不新增 Worker/队
 **程序控制器**：`src/diagnosis/diagnosis-loop.ts`（`runDiagnosisLoop` / `shouldSupplement` / `renderSupplementPrompt`）
 内联与进程两条路径共用；无界风险由 `maxRounds` + 工具额度 + 总超时三重封顶。
 
-**未做**：并行专项审计、Supervisor、审计主动检索、审计专用观测 span（当前只记 run_events 与模型轮次）。
+**观测（2026-10-04 追加）**：审计不单独建 trace，与诊断同属一次 attempt：trace 根下诊断是 `diagnosis-attempt` agent、
+每轮审计是 `audit#n` 兄弟 agent（`phase: "audit"`），审计 generation 挂对应 `audit#n` 下；程序应用记 `audit-apply` span。
+用量/耗时按父节点分离（诊断 vs 审计），trace 根仍是 attempt 总量；进程模式经 Runner `observation` 上报、Host 记录。
+
+**未做**：并行专项审计、Supervisor、审计主动检索。
 
 ## 观测（Langfuse）（2026-10-04 新增）
 

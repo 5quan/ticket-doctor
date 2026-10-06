@@ -171,6 +171,92 @@ test("report-validation：兄弟节点挂在 trace 根下；endAttempt 幂等", 
   assert.equal(ended.length, 3, "幂等 endAttempt 不产生额外 span");
 });
 
+function auditPhaseStart(id: string, round: number): ObservationEvent {
+  return {
+    schemaVersion: 1,
+    eventId: `aps-${id}`,
+    seq: 1,
+    timestamp: new Date().toISOString(),
+    kind: "phase_start",
+    phase: "audit",
+    logicalObservationId: id,
+    metadata: { round, policyVersion: "1.0.0" },
+  };
+}
+function auditPhaseEnd(id: string, status: "ok" | "error" = "ok"): ObservationEvent {
+  return {
+    schemaVersion: 1,
+    eventId: `ape-${id}`,
+    seq: 2,
+    timestamp: new Date().toISOString(),
+    kind: "phase_end",
+    phase: "audit",
+    logicalObservationId: id,
+    status,
+  };
+}
+const modelStartUnder = (id: string, parent: string): ObservationEvent => ({ ...modelStart(id), parentLogicalId: parent });
+const modelEndUnder = (id: string, parent: string): ObservationEvent => ({ ...modelEnd(id), parentLogicalId: parent });
+
+test("独立审计：audit agent 挂在 trace 根下，审计 generation 挂 audit 下（与诊断分离）", () => {
+  const { processor, ended } = spyProcessor();
+  const recorder = createLangfuseRecorder(CONFIG, processor)!;
+  recorder.beginAttempt(IDENTITY, { question: "q", engine: "pi" });
+  recorder.record(auditPhaseStart("audit-scope-1", 0), IDENTITY);
+  recorder.record(modelStartUnder("agen-1", "audit-scope-1"), IDENTITY);
+  recorder.record(modelEndUnder("agen-1", "audit-scope-1"), IDENTITY);
+  recorder.record(auditPhaseEnd("audit-scope-1"), IDENTITY);
+  recorder.endAttempt(IDENTITY, { status: "ok", kind: "report" });
+
+  const root = ended.find((s) => s.name === "diagnose-turn")!;
+  const audit = ended.find((s) => s.name === "audit#1")!;
+  const gen = ended.find((s) => s.name === "model-request")!;
+  assert.ok(audit, "应创建 audit#1 agent");
+  assert.equal(audit.attributes["langfuse.observation.type"], "agent");
+  assert.equal(audit.parentSpanContext?.spanId, root.spanContext().spanId, "audit 是 trace 根的直接子节点");
+  assert.equal(gen.parentSpanContext?.spanId, audit.spanContext().spanId, "审计 generation 挂在 audit 下，而非诊断 agent");
+});
+
+test("独立审计：补证两轮 → audit#1/audit#2 两个兄弟节点", () => {
+  const { processor, ended } = spyProcessor();
+  const recorder = createLangfuseRecorder(CONFIG, processor)!;
+  recorder.beginAttempt(IDENTITY, { question: "q", engine: "pi" });
+  for (const [round, id] of [[0, "a1"], [1, "a2"]] as const) {
+    recorder.record(auditPhaseStart(id, round), IDENTITY);
+    recorder.record(auditPhaseEnd(id), IDENTITY);
+  }
+  recorder.endAttempt(IDENTITY, { status: "ok", kind: "report" });
+  assert.ok(ended.find((s) => s.name === "audit#1"));
+  assert.ok(ended.find((s) => s.name === "audit#2"));
+});
+
+test("recordAuditApplication：audit-apply span 挂在 trace 根下", () => {
+  const { processor, ended } = spyProcessor();
+  const recorder = createLangfuseRecorder(CONFIG, processor)!;
+  recorder.beginAttempt(IDENTITY, { question: "q", engine: "pi" });
+  recorder.recordAuditApplication(IDENTITY, {
+    policyVersion: "1.0.0",
+    audit: { claimVerdicts: [], missingEvidence: [], stopAdvice: { action: "stop", reason: "x" } },
+    report: {
+      corrections: ["审计：降级"],
+      summary: "r",
+      completeness: "partial",
+      scope: { services: [], repos: [] },
+      confirmedFacts: [],
+      hypotheses: [],
+      uncertainties: [],
+      nextSteps: [],
+      missingMaterial: [],
+      executionLimits: [],
+    },
+    startedAt: Date.now() - 5,
+  });
+  recorder.endAttempt(IDENTITY, { status: "ok", kind: "report" });
+  const apply = ended.find((s) => s.name === "audit-apply")!;
+  const root = ended.find((s) => s.name === "diagnose-turn")!;
+  assert.equal(apply.parentSpanContext?.spanId, root.spanContext().spanId);
+});
+
 test("attempt 异常路径：残留子观测收敛为 ERROR，root status=ERROR", () => {
   const { processor, ended } = spyProcessor();
   const recorder = createLangfuseRecorder(CONFIG, processor)!;

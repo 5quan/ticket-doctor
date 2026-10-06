@@ -61,6 +61,8 @@ interface AttemptRecord {
   agent: Span;
   /** logicalObservationId → 在飞 span（generation/tool）。 */
   children: Map<string, Span>;
+  /** audit phase 的 agent 节点（logicalObservationId → span，每轮一个）。 */
+  auditAgents: Map<string, Span>;
   /** agent 节点是否已由 phase_end 关闭。 */
   agentEnded: boolean;
 }
@@ -74,6 +76,18 @@ export interface ObservationRecorder {
   recordReportValidation(
     identity: ObservationRunIdentity,
     data: { draft: unknown; report: DiagnosisReport; startedAt: number },
+  ): void;
+  /** audit-apply span：独立审计判定 → 程序应用后的报告（OQ-30）。 */
+  recordAuditApplication(
+    identity: ObservationRunIdentity,
+    data: {
+      policyVersion: string;
+      audit?: unknown;
+      failure?: string;
+      auditRounds?: number;
+      report: DiagnosisReport;
+      startedAt: number;
+    },
   ): void;
   /** attempt 终态：关 agent（若未关）与 trace 根，清理 registry。幂等。 */
   endAttempt(identity: ObservationRunIdentity, outcome: AttemptOutcome): void;
@@ -124,6 +138,17 @@ export function createLangfuseRecorder(
 
   const childCtx = (parent: Span) => trace.setSpan(ROOT_CONTEXT, parent);
 
+  /** model/tool 事件的父节点：诊断挂在 attempt agent，审计挂在对应 audit agent。 */
+  const resolveParent = (
+    rec: AttemptRecord,
+    identity: ObservationRunIdentity,
+    parentLogicalId: string | undefined,
+  ): Span | undefined => {
+    if (parentLogicalId === undefined) return undefined;
+    if (parentLogicalId === identityKey(identity)) return rec.agent;
+    return rec.auditAgents.get(parentLogicalId);
+  };
+
   const startObservation = (
     name: string,
     type: "generation" | "tool" | "agent" | "span",
@@ -170,7 +195,7 @@ export function createLangfuseRecorder(
         const agent = startObservation("diagnosis-attempt", "agent", root, {
           metadata: { attemptId: identity.attemptId, generation: identity.generation, engine: meta.engine, service: meta.service ?? null },
         });
-        registry.set(k, { root, agent, children: new Map(), agentEnded: false });
+        registry.set(k, { root, agent, children: new Map(), auditAgents: new Map(), agentEnded: false });
         return k;
       } catch (err) {
         warnThrottled("beginAttempt", err);
@@ -184,6 +209,18 @@ export function createLangfuseRecorder(
         if (!rec) return;
         switch (event.kind) {
           case "phase_start": {
+            if (event.phase === "audit") {
+              // 独立审计会话：在 trace 根下建兄弟 agent 节点（每轮一个 audit#n）。
+              const round = typeof event.metadata?.round === "number" ? (event.metadata.round as number) : undefined;
+              const span = startObservation(
+                round !== undefined ? `audit#${round + 1}` : "audit",
+                "agent",
+                rec.root,
+                { input: event.input ?? null, metadata: event.metadata },
+              );
+              rec.auditAgents.set(event.logicalObservationId, span);
+              return;
+            }
             if (event.logicalObservationId !== identityKey(identity)) return;
             rec.agent.setAttributes(
               createObservationAttributes("agent", {
@@ -194,6 +231,21 @@ export function createLangfuseRecorder(
             return;
           }
           case "phase_end": {
+            if (event.phase === "audit") {
+              const span = rec.auditAgents.get(event.logicalObservationId);
+              if (!span) return;
+              rec.auditAgents.delete(event.logicalObservationId);
+              span.setAttributes(
+                createObservationAttributes("agent", {
+                  output: event.output ?? null,
+                  metadata: event.metadata,
+                  level: levelOf(event.status),
+                  ...(event.error ? { statusMessage: event.error } : {}),
+                }),
+              );
+              endWithStatus(span, event.status, event.error);
+              return;
+            }
             if (event.logicalObservationId !== identityKey(identity)) return;
             rec.agent.setAttributes(
               createObservationAttributes("agent", {
@@ -208,11 +260,12 @@ export function createLangfuseRecorder(
             return;
           }
           case "model_start": {
-            if (event.parentLogicalId !== identityKey(identity)) return;
+            const parent = resolveParent(rec, identity, event.parentLogicalId);
+            if (!parent) return;
             const span = startObservation(
               "model-request",
               "generation",
-              rec.agent,
+              parent,
               {
                 input: event.input ?? null,
                 model: event.model,
@@ -265,11 +318,12 @@ export function createLangfuseRecorder(
             return;
           }
           case "tool_start": {
-            if (event.parentLogicalId !== identityKey(identity)) return;
+            const parent = resolveParent(rec, identity, event.parentLogicalId);
+            if (!parent) return;
             const span = startObservation(
               event.tool,
               "tool",
-              rec.agent,
+              parent,
               { input: event.input ?? null, metadata: { toolCallId: event.toolCallId, ...(event.metadata ?? {}) } },
               Date.parse(event.timestamp),
             );
@@ -299,6 +353,27 @@ export function createLangfuseRecorder(
         }
       } catch (err) {
         warnThrottled(`record(${event.kind})`, err);
+      }
+    },
+
+    recordAuditApplication(identity, data) {
+      try {
+        const rec = registry.get(identityKey(identity));
+        if (!rec) return;
+        const span = startObservation(
+          "audit-apply",
+          "span",
+          rec.root,
+          {
+            input: data.audit ?? { failure: data.failure ?? null },
+            output: { corrections: data.report.corrections, completeness: data.report.completeness },
+            metadata: { policyVersion: data.policyVersion, auditRounds: data.auditRounds ?? 0 },
+          },
+          data.startedAt,
+        );
+        span.end();
+      } catch (err) {
+        warnThrottled("recordAuditApplication", err);
       }
     },
 
@@ -335,6 +410,11 @@ export function createLangfuseRecorder(
           span.end();
         }
         rec.children.clear();
+        for (const span of rec.auditAgents.values()) {
+          span.setStatus({ code: SpanStatusCode.ERROR, message: "attempt_terminal" });
+          span.end();
+        }
+        rec.auditAgents.clear();
         // agent 兜底关闭：正常路径 phase_end 已关；异常/提前终态路径在这里收敛。
         if (!rec.agentEnded) {
           rec.agent.setAttributes(
