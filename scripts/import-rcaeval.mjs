@@ -102,6 +102,18 @@ for (const row of selected) {
     continue;
   }
 
+  // RCAEval 原生 gold：root_cause.txt（部分 suite 有）= 根因日志行（强 locator）。
+  let strongGold = null;
+  try {
+    const rc = readFileSync(await fetchTo(`${rawName}/root_cause.txt`), "utf8").trim();
+    const quoted = rc.match(/,"([\s\S]*)",[^,]*,[^,]*$/);
+    const logLine = quoted ? quoted[1] : rc;
+    const tail = logLine.lastIndexOf(" : ");
+    strongGold = (tail >= 0 ? logLine.slice(tail + 3) : logLine).trim();
+  } catch {
+    // 无 root_cause.txt：退化到启发式 locator
+  }
+
   const publicDir = join(evalRoot, "public", caseId);
   const viewDir = join(publicDir, "round-1");
   mkdirSync(viewDir, { recursive: true });
@@ -150,18 +162,21 @@ for (const row of selected) {
   };
   writeFileSync(join(publicDir, "case.json"), JSON.stringify(caseJson, null, 2));
 
+  const locatorText = strongGold ?? goldLine;
+  const locatorIsStrong = strongGold !== null;
   const truth = {
     schemaVersion: "prediagnosis-truth-v2",
     caseId,
-    locators: goldLine
-      ? [{ kind: "log", locatorId: "loc-rc", keyContent: goldLine.slice(0, 80), level: levelOf(goldLine) }]
+    locators: locatorText
+      ? [{ kind: "log", locatorId: "loc-rc", keyContent: locatorText.slice(0, 80), level: levelOf(locatorText) }]
       : [],
     rounds: [
       {
         roundId: "r1",
         allowedOutcomes: ["report"],
         allowedClaimDepth: "root",
-        requiredFacts: [],
+        // 原生 gold：报告必须把根因定位到 RCAEval 的 root_cause_service（自动判，requiredFactCoverage）。
+        requiredFacts: [{ factId: "fact-rc-service", concepts: [[service]], where: ["summary", "confirmedFacts", "hypotheses"] }],
         forbiddenRules: [],
         materialNeeds: [],
         evidenceRequirements: goldLine
@@ -175,7 +190,7 @@ for (const row of selected) {
       author: "rcaeval-import",
       reviewer: "provisional-self",
       provisional: true,
-      notes: `RCAEval ${row.dataset} 派生；gold 服务=${service} 故障=${fault}；题面合成、无代码 gold（log-only），语义待人工复核`,
+      notes: `RCAEval ${row.dataset} 原生 gold：root_cause_service=${service} fault=${fault}；locator=${strongGold !== null ? "root_cause.txt（强）" : "服务最高频日志（弱）"}；题面取自 fault_description；无代码 gold（log-only），语义待复核`,
     },
   };
   const privateDir = join(evalRoot, "private", caseId);
@@ -184,7 +199,7 @@ for (const row of selected) {
 
   byId.set(caseId, { caseId, publicDir: `public/${caseId}`, privateDir: `private/${caseId}` });
   imported += 1;
-  console.log(`  ${caseId}: service=${service} fault=${fault} 服务数=${byService.size} gold="${(goldLine ?? "").slice(0, 60)}"`);
+  console.log(`  ${caseId}: service=${service} fault=${fault} 服务数=${byService.size} gold=${locatorIsStrong ? "强(root_cause.txt)" : "弱"}="${(locatorText ?? "").slice(0, 50)}"`);
 }
 
 catalog.cases = [...byId.values()];

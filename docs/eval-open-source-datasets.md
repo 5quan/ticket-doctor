@@ -75,7 +75,21 @@
   - `--engine fake`：加载/执行/打分跑通（`executionSuccess 100%`）；
   - `--engine pi`（真实模型，1 次）：`recall.A/B/C1=100%`、`citationValidity 19/19`、`executionSuccess 100%`，但 **`recall.D=0%`**——**模型读到了 gold 材料（C1 命中），报告却没引用它（D 未命中）**。这正是四层可见性要暴露的"入库/可见 ≠ 报告引用"。
 - **发现**：RCAEval **RE3-OB 的代码级故障（F1–F5）在根因服务自身日志里往往没有 error 行**（adservice 全为 INFO）——所以自动 gold 只能退化为"该服务出现频次最高的日志"（度量"是否读到根因服务日志"，不是故障签名）。要进一步，需要 **M8c**：为对应应用建带故障/修复双提交的 fixture 仓库，补 code gold。
-- 口径：导入案例 `split=development`、`sourceTier=reproduced_history`、`admission=admitted`（材料准入）、`review.provisional=true`（**语义待人工复核**）；题面为**合成**；**不同 sourceTier / split 禁止同表比**。
+- 口径：导入案例 `split=development`、`sourceTier=reproduced_history`、`admission=admitted`（材料准入）、`review.provisional=true`（**语义待人工复核**）；**不同 sourceTier / split 禁止同表比**。
+- **原生 gold（重要更新）**：导入器已改用 RCAEval 的**原生标注**而非自己派生：
+  1. `requiredFacts=[服务名]` → `requiredFactCoverage` 自动判“报告是否把根因定位到 `root_cause_service`”；
+  2. 部分 suite（RE3-SS 8 例）的 `root_cause.txt` = **根因日志行**，作为**强 locator**（`recall` 命中该行）；无则退化为启发式。
+  题面取自 `fault_description`（现成描述），仅在无自由文本时补一句。
+
+### 6.1 两级 gold 的实测差异（RE3-SS carts f1，强 locator，pi）
+
+| 指标 | 结果 | 含义 |
+|---|---|---|
+| `requiredFactCoverage`（是否定位到 `carts`） | **2/2 = 100%** | 根因**服务**级正确 |
+| `recall.C1`（是否引用 root_cause.txt 根因行） | **0/2 = 0%** | 未引用**具体根因日志行** |
+| executionSuccess / hardFailures | 100% / 0 | 链路正常 |
+
+**读法**：模型找到了“哪个服务出问题”，但**没命中那条根因日志**（`recall.A=0` 说明该行根本未被工具返回——模型的查询没覆盖到它）。这正是“服务级 vs 证据级”两层 gold 的价值，也是面试可讲的点。
 - 待办：**M8b** 多导几例跑 pi + 人工复核（`rescore --review`）；**M8c** 代码级 gold。
 
 ---
