@@ -50,7 +50,7 @@
 
 ## 4. 采纳步骤（建议作为 M8 的真实案例来源）
 
-1. **M8a**：写 `scripts/import-rcaeval.mjs`——读 `cases.parquet` 索引 + 选定的 RE3 案例，产出 `fixtures/evals/rcaeval-<case>/`（`benchmark.json` + `logs/` + 可选的 `repo/`）。
+1. **M8a**：新增导入脚本（拟建 `import-rcaeval.mjs`，放 scripts/ 下）——读 `cases.parquet` 索引 + 选定的 RE3 案例，产出场景目录（拟建 `rcaeval-<case>/`，放 fixtures/evals 下：`benchmark.json` + `logs/` + 可选的 `repo/`）。
 2. **M8b**：先转 **5 个 RE3 案例**跑 `eval:v2 --engine pi`，人工复核语义分（把 `review.json` 标上），冻结"开源派生基线"。
 3. **M8c**：需要代码级 gold 时，为对应应用建 fixture 仓库（故障/修复双提交），把 code locator 补全，升级为 `log+code` 案例。
 4. **口径**：新增 `sourceTier`（`human_ticket` / `open_source_derived` / `synthetic_engineering`），**不同 tier 禁止同表比较**；manifest 记录 tier。
