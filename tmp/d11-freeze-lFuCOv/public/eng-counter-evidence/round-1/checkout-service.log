@@ -1,5 +1,0 @@
-2026-09-06T09:58:12.100+08:00	INFO	OrderController 接收下单请求 orderId=ord_88090 userId=u_3092
-2026-09-06T10:01:57.900+08:00	WARN	RedisPool 连接池使用率 92% pool=checkout-cache active=46/50
-2026-09-06T10:01:58.310+08:00	WARN	RedisPool 获取连接超时(2000ms) pool=checkout-cache active=50/50 等待队列=7
-2026-09-06T10:01:59.700+08:00	WARN	RedisPool 获取连接超时(2000ms) pool=checkout-cache active=50/50 等待队列=12
-2026-09-06T10:02:20.000+08:00	INFO	HealthCheck /actuator/health status=UP

@@ -11,3 +11,4 @@ fixtures/evals/*/repo/.git/
 
 # Go 适配器构建产物（go build -o adapter .）
 adapters/go/adapter
+tmp/
