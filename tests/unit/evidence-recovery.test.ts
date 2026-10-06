@@ -76,7 +76,7 @@ test("buildSavedToolResults：已提交批次重建模型可见文本，且只�
     toolCallId: "call-crash",
     payloadHash: evidencePayloadHash(items),
     items,
-    result: { count: 1 },
+    result: { count: 1, coverage: { returned: 1, total: 7, truncated: true, hasMore: true, nextCursor: "1" } },
     investigationId: inv.id,
     runId: run.id,
     attemptId: claimed.attemptId,
@@ -94,6 +94,8 @@ test("buildSavedToolResults：已提交批次重建模型可见文本，且只�
   assert.equal(saved.toolName, "query_logs");
   assert.match(saved.text, /\[E1\] /, "重建文本带短号（与工具返回同源渲染）");
   assert.match(saved.text, /命中 1 条日志（stub）：/);
+  // 覆盖信息必须能从已持久化的 result_json 还原（崩溃恢复文本 = 当时工具返回）。
+  assert.match(saved.text, /返回 1\/7 条；已截断，仍有更多；续查 cursor="1"/);
   assert.match(saved.text, /boom/);
 
   // 无未决调用的会话 → 空映射

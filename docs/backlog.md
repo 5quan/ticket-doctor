@@ -24,7 +24,7 @@
 | T4 | pi 内置 `read` 是否应该开放 | 当前 `noTools:"builtin"` 全关；用 `read_code` 代替 | 见文末“关于 pi 内置 read” | 待探讨 | P2 |
 | T5 | 工具缺少“路径层” | ✅ 已补 `list_files`（钉死 SHA 上 `git ls-tree -r --name-only`，glob 过滤 + 路径清单证据）；✅ `search_code` 已改“有界预览 + 路径清单”（清单 ≤20 文件 + 前 8 处预览，见 OQ-36） | 预览条数/清单上限按真实使用再调 | 已完成 | P1 |
 | T6 | 证据不足时 @ 相关人员补证 | `request_info` 只向触发者追问 | 支持在飞书话题 @ 指定人员补充业务背景/文档，作为补证渠道（注意权限与 scope） | 待办 | P2 |
-| T7 | 工具返回缺少完整覆盖信息 | 源层静默切片：logs `slice(0,20)`、grep 命中 ≥50 截断、`ls-tree` ≤200、`read` ≤200 行，都不报“还有更多”，更无续查位置；“返回 20 条”≠“只有 20 条” | 返回统一带 `truncated/hasMore/nextCursor/total` + 结构化 status（空结果/查询失败/权限拒绝分开） | 待办 | P1 |
+| T7 | 工具返回缺少完整覆盖信息 | ✅ 已完成：材料源统一返回 `{items,total,truncated,hasMore,nextCursor}`（`src/sources/page.ts`）；渲染覆盖行（返回 X/Y、是否仍有更多、续查 cursor）；`query_logs/list_files/search_code` 支持 `cursor` 续查，`read_code` 用 `startLine` 续读；空结果显式 `（无结果：…）` 与失败/越权区分；崩溃恢复从 `result_json` 还原覆盖信息 | 续查广度/深度阈值可按真实使用再调 | 已完成 | P1 |
 
 ## 三、可观测性与审计
 

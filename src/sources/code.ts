@@ -9,16 +9,23 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { CodeSnippet, RepositoryRef } from "../domain/types.ts";
+import { emptyPage, pageFromWindow, paginate, parseCursor, type SourcePage } from "./page.ts";
 
 const execFileP = promisify(execFile);
 const MAX_SNIPPET_CHARS = 2_000;
 const MAX_PATTERN = 200;
 const MAX_PATH = 512;
+/** 单次 search_code 返回的命中上限（分页页大小）。 */
+const SEARCH_PAGE_SIZE = 50;
+/** 单次 read_code 返回的行数上限（分页页大小）。 */
+const READ_PAGE_LINES = 200;
 
 export interface CodeSearchIntent {
   pattern: string;
   glob?: string;
   repoId?: string;
+  /** 继续查询位置（上一页的 nextCursor）。 */
+  cursor?: string;
 }
 
 export interface CodeReadIntent {
@@ -34,15 +41,17 @@ export interface CodeListIntent {
   glob?: string;
   repoId?: string;
   limit?: number;
+  /** 继续查询位置（上一页的 nextCursor）。 */
+  cursor?: string;
 }
 
 export interface CodeSource {
   readonly name: string;
   readonly repoId: string;
   readonly revision: string | undefined;
-  search(intent: CodeSearchIntent, signal: AbortSignal): Promise<CodeSnippet[]>;
-  read(intent: CodeReadIntent, signal: AbortSignal): Promise<CodeSnippet[]>;
-  listFiles(intent: CodeListIntent, signal: AbortSignal): Promise<string[]>;
+  search(intent: CodeSearchIntent, signal: AbortSignal): Promise<SourcePage<CodeSnippet>>;
+  read(intent: CodeReadIntent, signal: AbortSignal): Promise<SourcePage<CodeSnippet>>;
+  listFiles(intent: CodeListIntent, signal: AbortSignal): Promise<SourcePage<string>>;
 }
 
 export class CodeAccessError extends Error {}
@@ -148,7 +157,7 @@ export class GitCodeSource implements CodeSource {
     }
   }
 
-  async search(intent: CodeSearchIntent, signal: AbortSignal): Promise<CodeSnippet[]> {
+  async search(intent: CodeSearchIntent, signal: AbortSignal): Promise<SourcePage<CodeSnippet>> {
     const pattern = intent.pattern.trim();
     if (!pattern || pattern.length > MAX_PATTERN) {
       throw new CodeAccessError("search_code：pattern 必须是 1~200 个字符");
@@ -165,10 +174,13 @@ export class GitCodeSource implements CodeSource {
       const e = err as { code?: number | string; killed?: boolean; stderr?: string; message?: string };
       if (e.killed) throw new CodeAccessError("代码查询被中止");
       // git grep：无命中退出码 1，是正常空结果
-      if (Number(e.code) === 1) return [];
+      if (Number(e.code) === 1) return emptyPage<CodeSnippet>();
       throw new CodeAccessError((e.stderr ?? e.message ?? "git grep 失败").trim());
     }
-    const snippets: CodeSnippet[] = [];
+    // 钉死 SHA 上输出稳定：全量扫描统计 total，只在本页窗口内造 snippet（避免为分页建全量数组）。
+    const offset = parseCursor(intent.cursor);
+    const items: CodeSnippet[] = [];
+    let total = 0;
     for (const line of stdout.split(/\r?\n/)) {
       if (!line) continue;
       const c1 = line.indexOf(":");
@@ -180,25 +192,27 @@ export class GitCodeSource implements CodeSource {
       const text = line.slice(c3 + 1);
       if (!path || !Number.isInteger(lineno)) continue;
       if (intent.glob && !path.includes(intent.glob)) continue;
-      snippets.push({
-        path,
-        line: lineno,
-        text: text.length > MAX_SNIPPET_CHARS ? `${text.slice(0, MAX_SNIPPET_CHARS)}…` : text,
-      });
-      if (snippets.length >= 50) break;
+      if (total >= offset && items.length < SEARCH_PAGE_SIZE) {
+        items.push({
+          path,
+          line: lineno,
+          text: text.length > MAX_SNIPPET_CHARS ? `${text.slice(0, MAX_SNIPPET_CHARS)}…` : text,
+        });
+      }
+      total += 1;
     }
-    return snippets;
+    return pageFromWindow(items, total, offset);
   }
 
-  async listFiles(intent: CodeListIntent, signal: AbortSignal): Promise<string[]> {
+  async listFiles(intent: CodeListIntent, signal: AbortSignal): Promise<SourcePage<string>> {
     const stdout = await this.git(["ls-tree", "-r", "--name-only", this.sha], signal);
     const all = stdout.split(/\r?\n/).filter(Boolean);
     const glob = intent.glob?.trim();
     const filtered = glob ? all.filter((p) => p.includes(glob)) : all;
-    return filtered.slice(0, intent.limit ?? 200);
+    return paginate(filtered, { offset: parseCursor(intent.cursor), limit: intent.limit ?? 200 });
   }
 
-  async read(intent: CodeReadIntent, signal: AbortSignal): Promise<CodeSnippet[]> {
+  async read(intent: CodeReadIntent, signal: AbortSignal): Promise<SourcePage<CodeSnippet>> {
     const path = intent.path.trim();
     if (!path || path.length > MAX_PATH) throw new CodeAccessError("read_code：path 非法");
     if (path.startsWith("/") || path.includes("\\") || path.split("/").includes("..") || /[\x00-\x1f:]/.test(path)) {
@@ -207,18 +221,29 @@ export class GitCodeSource implements CodeSource {
     const content = await this.git(["show", `${this.sha}:${path}`], signal);
     const lines = content.split(/\r?\n/);
     if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+    const total = lines.length;
     const start = Math.max(1, Math.floor(intent.startLine ?? 1));
-    const end = Math.min(lines.length, Math.floor(intent.endLine ?? start + 199));
-    const out: CodeSnippet[] = [];
-    for (let line = start; line <= end && out.length < 200; line++) {
+    const requestedEnd = Math.max(start, Math.floor(intent.endLine ?? start + READ_PAGE_LINES - 1));
+    // 三重上限：文件末尾 / 请求终点 / 单页行数。
+    const returnedEnd = Math.min(total, requestedEnd, start + READ_PAGE_LINES - 1);
+    const items: CodeSnippet[] = [];
+    for (let line = start; line <= returnedEnd; line++) {
       const text = lines[line - 1] ?? "";
-      out.push({
+      items.push({
         path,
         line,
         text: text.length > MAX_SNIPPET_CHARS ? `${text.slice(0, MAX_SNIPPET_CHARS)}…` : text,
       });
     }
-    return out;
+    const truncated = returnedEnd < requestedEnd; // 被单页行数上限截断
+    const hasMore = returnedEnd < total; // 文件后面还有行
+    return {
+      items,
+      total,
+      truncated,
+      hasMore,
+      nextCursor: hasMore ? String(returnedEnd + 1) : undefined,
+    };
   }
 }
 
@@ -247,15 +272,15 @@ export class MultiRepoCodeSource implements CodeSource {
     return picked;
   }
 
-  search(intent: CodeSearchIntent, signal: AbortSignal): Promise<CodeSnippet[]> {
+  search(intent: CodeSearchIntent, signal: AbortSignal): Promise<SourcePage<CodeSnippet>> {
     return this.pick(intent.repoId).search(intent, signal);
   }
 
-  read(intent: CodeReadIntent, signal: AbortSignal): Promise<CodeSnippet[]> {
+  read(intent: CodeReadIntent, signal: AbortSignal): Promise<SourcePage<CodeSnippet>> {
     return this.pick(intent.repoId).read(intent, signal);
   }
 
-  listFiles(intent: CodeListIntent, signal: AbortSignal): Promise<string[]> {
+  listFiles(intent: CodeListIntent, signal: AbortSignal): Promise<SourcePage<string>> {
     return this.pick(intent.repoId).listFiles(intent, signal);
   }
 

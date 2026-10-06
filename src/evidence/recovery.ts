@@ -5,7 +5,7 @@
 // 进程路径（RunnerTask.savedToolResults）与内联路径（RunSession）共用。
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { pendingToolCallIds, type SavedToolResult } from "../agent/session-recovery.ts";
-import { renderEvidenceResult } from "./render.ts";
+import { extractCoverage, renderEvidenceResult } from "./render.ts";
 import type { EvidenceRef } from "./types.ts";
 
 /** buildSavedToolResults 依赖的 Store 子集（结构化类型，便于测试注入）。 */
@@ -13,7 +13,7 @@ export interface EvidenceBatchLookup {
   getBatchByToolCall(
     runId: string,
     toolCallId: string,
-  ): { batch: { batch_id: string; tool: string }; evidence: unknown[] } | undefined;
+  ): { batch: { batch_id: string; tool: string; result_json: string }; evidence: unknown[] } | undefined;
   listEvidenceRefsByBatch(batchId: string): EvidenceRef[];
 }
 
@@ -30,7 +30,11 @@ export function buildSavedToolResults(
     const refs = store.listEvidenceRefsByBatch(found.batch.batch_id);
     map.set(call.id, {
       toolName: call.name || found.batch.tool,
-      text: renderEvidenceResult(found.batch.tool, refs, refs, { maxResultChars: maxToolResultChars }),
+      // 重建文本必须与当时工具返回一致：覆盖信息从已持久化的 result_json 还原。
+      text: renderEvidenceResult(found.batch.tool, refs, refs, {
+        maxResultChars: maxToolResultChars,
+        coverage: extractCoverage(found.batch.result_json),
+      }),
       isError: false,
     });
   }

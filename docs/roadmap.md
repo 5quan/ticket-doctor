@@ -23,6 +23,7 @@
 - 证据：两阶段提交 + `evidence_uid` + 报告 v1/v2 + 崩溃恢复（OQ-38）。
 - 交互：闲聊/追问 + `-help` 机械回复（Host 出文案、适配器发送）。
 - 上下文防护：单条证据 + 单次工具结果双重截断 + pi compaction。
+- 检索覆盖：工具返回带覆盖信息（总数 / 是否截断 / 是否还有 / 续查 cursor），数量上限不再静默切片；空结果与失败/越权分开（backlog T7）。
 - 测试：`npm test`（TS）+ `npm run test:go`（Go adapter）+ `typecheck` 全绿；数量见 `docs/status.json#tests`。
 
 **待完成（P0）**

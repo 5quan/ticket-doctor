@@ -46,6 +46,8 @@ const SYSTEM_PROMPT = `你是飞书群里的 Bug 预检助手，像一名耐心�
 1. 先取证，后结论：在拿到足够日志/源码证据前，必须先调用 query_logs / search_code / read_code；
    不确定文件在哪时先用 list_files 缩小范围（路径 → 定位 → 内容）。
    禁止不取证就直接下结论。证据足够就停，不要为了凑数继续查询。
+   工具返回末尾会标注「覆盖：返回 X/Y 条…」：若写着“仍有更多”，说明结果被截断、不是全部；
+   需要时用返回的 cursor 继续取下一页（read_code 用 startLine 续读），不要当成“只有这些”。
 2. 只读：没有 shell、没有写操作，不要尝试执行命令或修改任何东西。
 3. 证据引用是硬规则：submit_report 中每条假设只能用 evidenceIds 引用工具返回的 [E#] 编号，
    禁止编造。没有证据的猜测把 status 设为 candidate、confidence 设为 low。
@@ -67,22 +69,27 @@ export function buildSystemPrompt(rules?: string): string {
   return `${SYSTEM_PROMPT}\n\n## 场景记忆规则（仅本场景生效）\n${extra}`;
 }
 
+const CURSOR_DESC = "仅当上一页返回「覆盖：…仍有更多；续查 cursor=…」时，原样回传该 cursor 取下一页";
+
 const queryLogsSchema = Type.Object({
   service: Type.String({ description: "服务名，决定查询哪个日志源" }),
   from: Type.String({ description: "起始时间，ISO8601" }),
   to: Type.String({ description: "结束时间，ISO8601" }),
   keywords: Type.Array(Type.String(), { description: "关键词，任一命中即保留；可为空数组" }),
+  cursor: Type.Optional(Type.String({ description: CURSOR_DESC })),
 });
 
 const listFilesSchema = Type.Object({
   glob: Type.Optional(Type.String({ description: "按路径子串过滤，如 /order/ 或 .java" })),
   repoId: Type.Optional(Type.String({ description: "多仓时指定仓库" })),
+  cursor: Type.Optional(Type.String({ description: CURSOR_DESC })),
 });
 
 const searchCodeSchema = Type.Object({
   pattern: Type.String({ description: "大小写敏感的子串，用于定位类名/方法名/异常信息" }),
   glob: Type.Optional(Type.String({ description: "按路径子串过滤，如 .java" })),
   repoId: Type.Optional(Type.String({ description: "多仓时指定仓库" })),
+  cursor: Type.Optional(Type.String({ description: CURSOR_DESC })),
 });
 
 const readCodeSchema = Type.Object({
@@ -301,7 +308,7 @@ export class PiDiagnosisEngine implements DiagnosisEngine {
           const to = Date.parse(params.to);
           if (Number.isNaN(from) || Number.isNaN(to)) throw new Error("from/to 必须是 ISO8601 时间");
           const text = await toolbox.queryLogs(
-            { service: params.service, from, to, keywords: params.keywords },
+            { service: params.service, from, to, keywords: params.keywords, cursor: params.cursor },
             id,
           );
           return { content: [{ type: "text" as const, text }], details: {} };
@@ -315,7 +322,7 @@ export class PiDiagnosisEngine implements DiagnosisEngine {
       parameters: listFilesSchema,
       execute: (id, params: Static<typeof listFilesSchema>) =>
         timedTool(toolsCtx, "list_files", id, params, async () => {
-          const text = await toolbox.listFiles({ glob: params.glob, repoId: params.repoId }, id);
+          const text = await toolbox.listFiles({ glob: params.glob, repoId: params.repoId, cursor: params.cursor }, id);
           return { content: [{ type: "text" as const, text }], details: {} };
         }),
     });
@@ -330,7 +337,7 @@ export class PiDiagnosisEngine implements DiagnosisEngine {
       execute: (id, params: Static<typeof searchCodeSchema>) =>
         timedTool(toolsCtx, "search_code", id, params, async () => {
           const text = await toolbox.searchCode(
-            { pattern: params.pattern, glob: params.glob, repoId: params.repoId },
+            { pattern: params.pattern, glob: params.glob, repoId: params.repoId, cursor: params.cursor },
             id,
           );
           return { content: [{ type: "text" as const, text }], details: {} };

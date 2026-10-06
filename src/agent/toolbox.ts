@@ -10,9 +10,10 @@ import { randomUUID } from "node:crypto";
 import type { MaterialScope } from "../domain/types.ts";
 import type { EvidenceItem, EvidenceRef, EvidenceSink } from "../evidence/types.ts";
 import { evidencePayloadHash } from "../evidence/util.ts";
-import { renderEvidenceResult, iso } from "../evidence/render.ts";
+import { renderCoverage, renderEvidenceResult, iso, type ResultCoverage } from "../evidence/render.ts";
 import type { MultiRepoCodeSource } from "../sources/code.ts";
 import type { LogSource } from "../sources/logs.ts";
+import type { SourcePage } from "../sources/page.ts";
 import type { CodeListArgs, CodeReadArgs, CodeSearchArgs, LogQueryArgs, Toolbox } from "./types.ts";
 
 export class ToolBudgetExceeded extends Error {}
@@ -84,6 +85,17 @@ export class DiagnosisToolbox implements Toolbox {
     return refs;
   }
 
+  /** SourcePage → 覆盖信息：随证据结果一起返回，告诉模型“这次拿得全不全、怎么续查”。 */
+  private coverageOf<T>(page: SourcePage<T>): ResultCoverage {
+    return {
+      returned: page.items.length,
+      total: page.total,
+      truncated: page.truncated,
+      hasMore: page.hasMore,
+      nextCursor: page.nextCursor,
+    };
+  }
+
   /** 每轮调查的服务边界：scope.services 非空时只允许查这些服务（部署级白名单由 LogSource 兜底）。 */
   private assertServiceInScope(service: string): void {
     const allowed = this.deps.scope.services;
@@ -116,13 +128,14 @@ export class DiagnosisToolbox implements Toolbox {
     const service = args.service.trim();
     this.assertServiceInScope(service);
     const window = this.clampToScopeWindow(args.from, args.to);
-    const intent = { service, from: window.from, to: window.to, keywords: args.keywords };
-    const entries = await this.deps.logs.query(intent, this.deps.signal);
-    if (entries.length === 0) return "（时间窗内没有匹配的日志条目）";
+    const intent = { service, from: window.from, to: window.to, keywords: args.keywords, cursor: args.cursor };
+    const page = await this.deps.logs.query(intent, this.deps.signal);
+    const coverage = this.coverageOf(page);
+    if (page.items.length === 0) return `（无结果：时间窗内没有匹配的日志条目）${renderCoverage(coverage)}`;
     const provenance =
       `${this.deps.logs.name} service=${service} window=[${iso(window.from)}~${iso(window.to)}]` +
       ` keywords=[${args.keywords.join(",")}]${window.clamped ? "（已按本次调查时间窗收窄）" : ""}`;
-    const items = entries.map((e) =>
+    const items = page.items.map((e) =>
       this.truncateItem({
         kind: "log",
         source: provenance,
@@ -131,8 +144,15 @@ export class DiagnosisToolbox implements Toolbox {
         level: e.level,
       }),
     );
-    const refs = await this.commitItems("query_logs", toolCallId, items, { ...intent, count: entries.length });
-    return renderEvidenceResult("query_logs", items, refs, { maxResultChars: this.deps.maxToolResultChars });
+    const refs = await this.commitItems("query_logs", toolCallId, items, {
+      ...intent,
+      count: page.items.length,
+      coverage,
+    });
+    return renderEvidenceResult("query_logs", items, refs, {
+      maxResultChars: this.deps.maxToolResultChars,
+      coverage,
+    });
   }
 
   /** 路径层：列出钉死版本的文件路径，先缩小范围再 search/read。 */
@@ -141,19 +161,27 @@ export class DiagnosisToolbox implements Toolbox {
     if (!this.deps.code) throw new Error("list_files 未启用：本次运行没有可用的源码");
     const target = this.deps.code.pick(args.repoId);
     const sha = target.revision!;
-    const paths = await this.deps.code.listFiles({ glob: args.glob, repoId: args.repoId }, this.deps.signal);
-    if (paths.length === 0) return "（没有匹配的文件路径）";
+    const page = await this.deps.code.listFiles(
+      { glob: args.glob, repoId: args.repoId, cursor: args.cursor },
+      this.deps.signal,
+    );
+    const coverage = this.coverageOf(page);
+    if (page.items.length === 0) return `（无结果：没有匹配的文件路径）${renderCoverage(coverage)}`;
     const item = this.truncateItem({
       kind: "code",
       source: `${target.repoId}@${sha.slice(0, 10)} 路径清单${args.glob ? ` glob=${args.glob}` : ""}`,
-      excerpt: paths.join("\n"),
+      excerpt: page.items.join("\n"),
     });
     const refs = await this.commitItems("list_files", toolCallId, [item], {
       glob: args.glob,
       repoId: args.repoId,
-      count: paths.length,
+      count: page.items.length,
+      coverage,
     });
-    return renderEvidenceResult("list_files", [item], refs, { maxResultChars: this.deps.maxToolResultChars });
+    return renderEvidenceResult("list_files", [item], refs, {
+      maxResultChars: this.deps.maxToolResultChars,
+      coverage,
+    });
   }
 
   async searchCode(args: CodeSearchArgs, toolCallId?: string): Promise<string> {
@@ -161,9 +189,10 @@ export class DiagnosisToolbox implements Toolbox {
     if (!this.deps.code) throw new Error("search_code 未启用：本次运行没有可用的源码");
     const target = this.deps.code.pick(args.repoId);
     const sha = target.revision!;
-    const snippets = await target.search(args, this.deps.signal);
-    if (snippets.length === 0) return "（没有匹配的代码片段）";
-    const items = snippets.map((s) =>
+    const page = await target.search(args, this.deps.signal);
+    const coverage = this.coverageOf(page);
+    if (page.items.length === 0) return `（无结果：没有匹配的代码片段）${renderCoverage(coverage)}`;
+    const items = page.items.map((s) =>
       this.truncateItem({
         kind: "code",
         excerpt: s.text,
@@ -174,9 +203,13 @@ export class DiagnosisToolbox implements Toolbox {
       pattern: args.pattern,
       glob: args.glob,
       repoId: args.repoId,
-      count: snippets.length,
+      count: page.items.length,
+      coverage,
     });
-    return renderEvidenceResult("search_code", items, refs, { maxResultChars: this.deps.maxToolResultChars });
+    return renderEvidenceResult("search_code", items, refs, {
+      maxResultChars: this.deps.maxToolResultChars,
+      coverage,
+    });
   }
 
   async readCode(args: CodeReadArgs, toolCallId?: string): Promise<string> {
@@ -184,21 +217,26 @@ export class DiagnosisToolbox implements Toolbox {
     if (!this.deps.code) throw new Error("read_code 未启用：本次运行没有可用的源码");
     const target = this.deps.code.pick(args.repoId);
     const sha = target.revision!;
-    const snippets = await target.read(args, this.deps.signal);
-    if (snippets.length === 0) return "（文件在该版本中不存在或为空）";
-    const first = snippets[0]!.line;
-    const last = snippets[snippets.length - 1]!.line;
+    const page = await target.read(args, this.deps.signal);
+    const coverage = this.coverageOf(page);
+    if (page.items.length === 0) return `（无结果：文件在该版本中不存在或为空）${renderCoverage(coverage)}`;
+    const first = page.items[0]!.line;
+    const last = page.items[page.items.length - 1]!.line;
     const item = this.truncateItem({
       kind: "code",
-      excerpt: snippets.map((s) => `${s.line}\t${s.text}`).join("\n"),
-      codeRef: { repoId: target.repoId, sha, path: snippets[0]!.path, startLine: first, endLine: last },
+      excerpt: page.items.map((s) => `${s.line}\t${s.text}`).join("\n"),
+      codeRef: { repoId: target.repoId, sha, path: page.items[0]!.path, startLine: first, endLine: last },
     });
     const refs = await this.commitItems("read_code", toolCallId, [item], {
       path: args.path,
       startLine: args.startLine,
       endLine: args.endLine,
-      lines: snippets.length,
+      lines: page.items.length,
+      coverage,
     });
-    return renderEvidenceResult("read_code", [item], refs, { maxResultChars: this.deps.maxToolResultChars });
+    return renderEvidenceResult("read_code", [item], refs, {
+      maxResultChars: this.deps.maxToolResultChars,
+      coverage,
+    });
   }
 }

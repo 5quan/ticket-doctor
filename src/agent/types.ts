@@ -11,11 +11,15 @@ export interface LogQueryArgs {
   from: number;
   to: number;
   keywords: string[];
+  /** 继续查询位置（上一页 nextCursor）；缺省从头开始。 */
+  cursor?: string;
 }
 export interface CodeSearchArgs {
   pattern: string;
   glob?: string;
   repoId?: string;
+  /** 继续查询位置（上一页 nextCursor）。 */
+  cursor?: string;
 }
 export interface CodeReadArgs {
   path: string;
@@ -26,6 +30,8 @@ export interface CodeReadArgs {
 export interface CodeListArgs {
   glob?: string;
   repoId?: string;
+  /** 继续查询位置（上一页 nextCursor）。 */
+  cursor?: string;
 }
 
 export interface Toolbox {

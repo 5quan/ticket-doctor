@@ -12,6 +12,47 @@ export function iso(ms: number): string {
 export const SEARCH_MAX_PATHS = 20;
 export const SEARCH_PREVIEW_HITS = 8;
 
+/**
+ * 工具返回的覆盖信息（backlog T7）：模型需要知道本次到底覆盖了多少，
+ * 否则会把“返回 20 条”误读成“只有 20 条”。
+ */
+export interface ResultCoverage {
+  returned: number;
+  /** 命中总数；undefined 表示未知，不得用 returned 冒充。 */
+  total?: number;
+  truncated: boolean;
+  hasMore: boolean;
+  nextCursor?: string;
+}
+
+/** 覆盖信息的人类可读行；总在正文之后单独给出，不占正文预算。 */
+export function renderCoverage(cov: ResultCoverage): string {
+  const parts: string[] = [cov.total !== undefined ? `返回 ${cov.returned}/${cov.total} 条` : `返回 ${cov.returned} 条`];
+  if (cov.total !== undefined) {
+    parts.push(cov.hasMore ? "已截断，仍有更多" : "已全部返回");
+  } else if (cov.hasMore) {
+    parts.push("已达上限，可能还有更多（总数未知）");
+  } else if (cov.truncated) {
+    parts.push("已截断");
+  } else {
+    parts.push("已全部返回");
+  }
+  if (cov.nextCursor !== undefined) parts.push(`续查 cursor="${cov.nextCursor}"`);
+  return `（覆盖：${parts.join("；")}）`;
+}
+
+/** 从持久化的结构化 result_json 还原覆盖信息（崩溃恢复重建文本时用）。 */
+export function extractCoverage(resultJson: string): ResultCoverage | undefined {
+  try {
+    const parsed = JSON.parse(resultJson) as { coverage?: ResultCoverage } | null;
+    const cov = parsed?.coverage;
+    if (!cov || typeof cov.returned !== "number") return undefined;
+    return cov;
+  } catch {
+    return undefined;
+  }
+}
+
 /** 按总量预算拼装多行结果，超出即截断并提示（与历史工具输出格式一致）。 */
 function assemble(header: string, lines: string[], budget: number): string {
   const kept: string[] = [];
@@ -77,18 +118,21 @@ export function renderEvidenceResult(
   tool: string,
   items: EvidenceItem[],
   refs: EvidenceRef[],
-  opts: { maxResultChars: number },
+  opts: { maxResultChars: number; coverage?: ResultCoverage },
 ): string {
-  switch (tool) {
-    case "query_logs":
-      return renderQueryLogs(items, refs, opts.maxResultChars);
-    case "list_files":
-      return renderListFiles(items, refs, opts.maxResultChars);
-    case "search_code":
-      return renderSearchCode(items, refs, opts.maxResultChars);
-    case "read_code":
-      return renderReadCode(items, refs);
-    default:
-      throw new Error(`未知证据工具：${tool}`);
-  }
+  const body = (() => {
+    switch (tool) {
+      case "query_logs":
+        return renderQueryLogs(items, refs, opts.maxResultChars);
+      case "list_files":
+        return renderListFiles(items, refs, opts.maxResultChars);
+      case "search_code":
+        return renderSearchCode(items, refs, opts.maxResultChars);
+      case "read_code":
+        return renderReadCode(items, refs);
+      default:
+        throw new Error(`未知证据工具：${tool}`);
+    }
+  })();
+  return opts.coverage ? `${body}\n${renderCoverage(opts.coverage)}` : body;
 }

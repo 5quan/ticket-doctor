@@ -10,6 +10,7 @@ import { evidencePayloadHash } from "../../src/evidence/util.ts";
 import { migrate, openDatabase } from "../../src/storage/db.ts";
 import type { Store } from "../../src/storage/store.ts";
 import { memoryStore } from "../helpers.ts";
+import { emptyPage } from "../../src/sources/page.ts";
 
 const ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 
@@ -236,7 +237,7 @@ test("工具返回前证据已入库：返回文本的 [E#] 与库中行一致",
   const ctx = claimedRun(store);
   const git = await GitCodeSource.create(join(process.cwd(), "fixtures", "demo-repo"), { repoId: "app" });
   const toolbox = new DiagnosisToolbox({
-    logs: { name: "stub", async query() { return []; } },
+    logs: { name: "stub", async query() { return emptyPage(); } },
     code: new MultiRepoCodeSource([git]),
     sink: new StoreEvidenceSink(store, {
       investigationId: ctx.investigationId,
@@ -274,7 +275,7 @@ test("commit 失败（lease_lost）→ 工具抛 EvidenceCommitError，不给模
 
   const git = await GitCodeSource.create(join(process.cwd(), "fixtures", "demo-repo"), { repoId: "app" });
   const toolbox = new DiagnosisToolbox({
-    logs: { name: "stub", async query() { return []; } },
+    logs: { name: "stub", async query() { return emptyPage(); } },
     code: new MultiRepoCodeSource([git]),
     sink: new StoreEvidenceSink(store, {
       investigationId: ctx.investigationId,

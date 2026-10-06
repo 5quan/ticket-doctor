@@ -160,4 +160,5 @@
 - `query_logs`：工具入口强制 `service ∈ scope.services`（scope 为空才退回日志源白名单），并把请求时间窗**收窄**到 `scope.timeWindow`；与本轮调查窗无交集直接拒绝（`ToolScopeViolation`，与空结果/查询失败区分）。实际生效的时间窗回写进证据来源并渲染给模型。
 - 仓库：`resolveSources` 让 `TD_ALLOWED_REPOS` 成为**硬白名单**（显式 `TD_REPOS` 也不得越权）；未显式设置时默认授权 `TD_REPOS` 声明的全部仓库。`prepareDiagnosis` 再兜底过滤一次，未授权仓库记入 `missingMaterial`。
 - 测试：`tests/unit/config-sources.test.ts`、`tests/unit/toolbox.test.ts`（服务越权/时间窗收窄/无交集/来源标注）。
-- 仍未做（见 backlog T7/M2）：工具返回缺少完整覆盖信息（是否截断、是否还有更多、续查位置），“返回 20 条”≠“只有 20 条”；空结果/失败/权限拒绝尚未结构化；日志过滤缺 environment 与 request/trace id。
+- 后续已补（T7，2026-10-04）：材料源统一返回覆盖信息（`total/truncated/hasMore/nextCursor`），`query_logs/list_files/search_code` 支持 `cursor` 续查、`read_code` 用 `startLine` 续读，空结果显式 `（无结果：…）`；崩溃恢复从 `result_json` 还原覆盖信息。
+- 仍未做（见 backlog M2）：日志过滤缺 environment 与 request/trace id 结构化字段。

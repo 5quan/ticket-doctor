@@ -9,6 +9,7 @@ import { DiagnosisToolbox, ToolScopeViolation } from "../../src/agent/toolbox.ts
 import { MemoryEvidenceSink } from "../../src/evidence/memory-sink.ts";
 import { GitCodeSource, MultiRepoCodeSource } from "../../src/sources/code.ts";
 import type { LogSource } from "../../src/sources/logs.ts";
+import { emptyPage, pageOf } from "../../src/sources/page.ts";
 import type { MaterialScope } from "../../src/domain/types.ts";
 
 const scope: MaterialScope = { services: ["svc"], repos: [] };
@@ -29,11 +30,13 @@ test("query_logs 结果总量超过预算时截断并提示", async () => {
   const logs: LogSource = {
     name: "stub",
     async query() {
-      return Array.from({ length: 20 }, (_, i) => ({
-        time: 1_700_000_000_000 + i,
-        level: "ERROR",
-        message: "x".repeat(500),
-      }));
+      return pageOf(
+        Array.from({ length: 20 }, (_, i) => ({
+          time: 1_700_000_000_000 + i,
+          level: "ERROR",
+          message: "x".repeat(500),
+        })),
+      );
     },
   };
   const toolbox = toolboxWith(logs, 1_000);
@@ -48,7 +51,7 @@ test("list_files 列出钉死版本的文件路径并签发证据", async () => 
   const repoDir = join(process.cwd(), "fixtures", "demo-repo");
   const git = await GitCodeSource.create(repoDir, { repoId: "app" });
   const toolbox = new DiagnosisToolbox({
-    logs: { name: "stub", async query() { return []; } },
+    logs: { name: "stub", async query() { return emptyPage(); } },
     code: new MultiRepoCodeSource([git]),
     sink: new MemoryEvidenceSink(),
     scope: { services: [], repos: [] },
@@ -70,7 +73,7 @@ test("条目较少时不截断", async () => {
   const logs: LogSource = {
     name: "stub",
     async query() {
-      return [{ time: 1_700_000_000_000, level: "ERROR", message: "boom" }];
+      return pageOf([{ time: 1_700_000_000_000, level: "ERROR", message: "boom" }]);
     },
   };
   const toolbox = toolboxWith(logs, 8_000);
@@ -81,7 +84,7 @@ test("条目较少时不截断", async () => {
 
 function codeToolbox(git: GitCodeSource, sink: MemoryEvidenceSink, maxToolResultChars: number): DiagnosisToolbox {
   return new DiagnosisToolbox({
-    logs: { name: "stub", async query() { return []; } },
+    logs: { name: "stub", async query() { return emptyPage(); } },
     code: new MultiRepoCodeSource([git]),
     sink,
     scope: { services: [], repos: [] },
@@ -143,7 +146,7 @@ function toolboxWithScope(scope: MaterialScope, logs: LogSource): DiagnosisToolb
 }
 
 test("query_logs 拒绝本次调查范围外的服务（fail-closed）", async () => {
-  const logs: LogSource = { name: "stub", async query() { return []; } };
+  const logs: LogSource = { name: "stub", async query() { return emptyPage(); } };
   const toolbox = toolboxWithScope({ services: ["svc-a"], repos: [] }, logs);
   await assert.rejects(
     () => toolbox.queryLogs({ service: "svc-b", from: 0, to: 1_000, keywords: [] }),
@@ -157,7 +160,7 @@ test("query_logs 把请求时间窗收窄到本次调查窗，不把模型窗口
     name: "stub",
     async query(intent) {
       seen = { from: intent.from, to: intent.to };
-      return [];
+      return emptyPage();
     },
   };
   const toolbox = toolboxWithScope({ services: ["svc"], repos: [], timeWindow: { from: 1_000, to: 2_000 } }, logs);
@@ -167,7 +170,7 @@ test("query_logs 把请求时间窗收窄到本次调查窗，不把模型窗口
 });
 
 test("query_logs 请求窗与调查窗无交集时拒绝", async () => {
-  const logs: LogSource = { name: "stub", async query() { return []; } };
+  const logs: LogSource = { name: "stub", async query() { return emptyPage(); } };
   const toolbox = toolboxWithScope({ services: ["svc"], repos: [], timeWindow: { from: 1_000, to: 2_000 } }, logs);
   await assert.rejects(
     () => toolbox.queryLogs({ service: "svc", from: 5_000, to: 6_000, keywords: [] }),
@@ -179,7 +182,7 @@ test("query_logs 结果标注实际生效的时间窗", async () => {
   const logs: LogSource = {
     name: "stub",
     async query() {
-      return [{ time: 1_500, level: "ERROR", message: "boom" }];
+      return pageOf([{ time: 1_500, level: "ERROR", message: "boom" }]);
     },
   };
   const toolbox = toolboxWithScope({ services: ["svc"], repos: [], timeWindow: { from: 1_000, to: 2_000 } }, logs);

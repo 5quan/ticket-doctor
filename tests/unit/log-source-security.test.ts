@@ -25,8 +25,10 @@ test("未配置授权（undefined）：不限制服务，可正常查询", async
   const dir = makeLogDir();
   try {
     const source = new FileLogSource({ dir, allowedServices: undefined });
-    const entries = await source.query(query("checkout-service"), controller().signal);
-    assert.equal(entries.length, 2);
+    const page = await source.query(query("checkout-service"), controller().signal);
+    assert.equal(page.items.length, 2);
+    assert.equal(page.total, 2);
+    assert.equal(page.hasMore, false);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -49,8 +51,8 @@ test("非空白名单：授权服务放行，越权服务直接报错", async ()
   const dir = makeLogDir();
   try {
     const source = new FileLogSource({ dir, allowedServices: ["checkout-service"] });
-    const entries = await source.query(query("checkout-service"), controller().signal);
-    assert.equal(entries.length, 2);
+    const page = await source.query(query("checkout-service"), controller().signal);
+    assert.equal(page.items.length, 2);
     await assert.rejects(
       source.query(query("other-service"), controller().signal),
       (err: unknown) => err instanceof LogAccessError && /不在授权范围内/.test(err.message),

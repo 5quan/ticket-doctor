@@ -5,6 +5,7 @@
 import { readFile, realpath } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 import type { LogEntry } from "../domain/types.ts";
+import { paginate, parseCursor, type SourcePage } from "./page.ts";
 
 export interface LogQueryIntent {
   service: string;
@@ -13,11 +14,13 @@ export interface LogQueryIntent {
   to: number;
   /** 任一命中即保留；为空表示不过滤。 */
   keywords: string[];
+  /** 继续查询位置（上一页的 nextCursor）；缺省从第 0 条开始。 */
+  cursor?: string;
 }
 
 export interface LogSource {
   readonly name: string;
-  query(intent: LogQueryIntent, signal: AbortSignal): Promise<LogEntry[]>;
+  query(intent: LogQueryIntent, signal: AbortSignal): Promise<SourcePage<LogEntry>>;
 }
 
 export class LogAccessError extends Error {}
@@ -78,7 +81,7 @@ export class FileLogSource implements LogSource {
     this.name = `file-log-source(${opts.dir})`;
   }
 
-  async query(intent: LogQueryIntent, signal: AbortSignal): Promise<LogEntry[]> {
+  async query(intent: LogQueryIntent, signal: AbortSignal): Promise<SourcePage<LogEntry>> {
     signal.throwIfAborted();
     if (!intent.service.trim()) throw new LogAccessError("query_logs：service 不能为空");
     if (this.denyAll) {
@@ -126,6 +129,7 @@ export class FileLogSource implements LogSource {
       entries.push({ time, level, message });
     }
     entries.sort((a, b) => b.time - a.time);
-    return entries.slice(0, this.maxEntries);
+    // 命中总数精确可知（全文件已扫描）；分页只影响本页返回，不再用返回条数冒充总数。
+    return paginate(entries, { offset: parseCursor(intent.cursor), limit: this.maxEntries });
   }
 }

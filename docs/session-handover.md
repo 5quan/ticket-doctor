@@ -18,9 +18,11 @@
 > `docs/self-host-langfuse-runbook.md`）。旧评测体系（v1/v2）已整体移除、另行立项，
 > roadmap 中的 M2/M3 条目已作相应标注。生产 Host 以 systemd（`ticket-doctor-host`）运行并已开启观测。
 >
-> **2026-10-04 更新（检索范围 P0）**：`query_logs` 不再把模型的 service/timeWindow 直交给日志源
+> **2026-10-04 更新（检索范围 P0 + 覆盖信息 T7）**：`query_logs` 不再把模型的 service/timeWindow 直交给日志源
 > （强制本轮 `scope.services` + 时间窗收窄，越界抛 `ToolScopeViolation`）；`TD_ALLOWED_REPOS` 落实为硬白名单
-> （`resolveSources` 解析 + `prepareDiagnosis` 兜底过滤）。见 OQ-44；遗留覆盖信息/日志过滤维度见 backlog T7/M2。
+> （`resolveSources` 解析 + `prepareDiagnosis` 兜底过滤）。见 OQ-44。材料源统一返回覆盖信息
+> （`total/truncated/hasMore/nextCursor`），工具渲染覆盖行并支持 `cursor` 续查，空结果显式区分；见 backlog T7。
+> 遗留：日志过滤缺 environment/request-id 结构化字段（backlog M2）。
 
 ---
 
@@ -29,7 +31,7 @@
 | 项 | 值 |
 |---|---|
 | 版本 / 分支 | `0.3.1` / `main` |
-| 测试 | TS 150（`npm test`，数字以 docs/status.json 为准）+ Go adapter（`npm run test:go`）+ `typecheck` 全绿 |
+| 测试 | TS 156（`npm test`，数字以 docs/status.json 为准）+ Go adapter（`npm run test:go`）+ `typecheck` 全绿 |
 | 迁移 | `001` … `006_evidence_uid.sql` |
 | 运行 | `npm run host`（生产，systemd `ticket-doctor-host`）/ `npm run demo`（离线；可开观测做验证） |
 | 部署 | `docker-compose.yml` + `Dockerfile` + `adapters/go/Dockerfile`（已构建并冒烟） |
