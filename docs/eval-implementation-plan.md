@@ -133,7 +133,7 @@
 | M4 | manifest/hash 纳入 audit policy + 覆盖口径；重放逐字段一致 | `replay` 与 `score.json` 一致 | ✅ 完成：manifest 新增 `diagnosis.audit`（policyVersion/enabled/maxRounds/failBlocks）与 `diagnosis.coverage`（search 50/read 200/list 200/log 20）；`replay` 5/5 逐字段一致 |
 | M5 | 隔离预检适配当前 sources | 违规 case `blocked`，不进口径 | ✅ 完成：隔离/链接单测无失败；预检已适配 T7 `SourcePage` |
 | M6 | review 与 Langfuse Annotation 对齐（权威源契约） | 人工裁决不被镜像覆盖 | 待办 |
-| M7 | Langfuse 接入（dataset 同步 + SDK 调 `runCase` + 程序分写回 + annotation） | 一个带 Langfuse 复核的小闭环跑通 | 待办 |
+| M7 | Langfuse 接入 | 一个带 Langfuse 复核的小闭环跑通 | 🟡 部分：**trace+score 推送已实现**（`src/evals/v2/langfuse.ts`，`npm run eval:v2 -- push`）——v4（4.50.0, `events_only`）下轨迹走 OTLP `/api/public/otel/v1/traces`、分数走 ingestion，均已 2xx；**dataset/experiment/annotation 待做**（v4 需 `@langfuse/*` 的 dataset/annotation API）。注意：v4 已下架 `/api/public/traces|observations|scores`（改用 `/api/public/v3/scores`），程序化验证需查 UI http://127.0.0.1:3001 |
 | M8 | 真实案例准入 + gold/评分标准（**并行**） | ≥1 可信案例（可先用 FastAPI 7 材料） | 待办 |
 | M9 | 冻结正式质量基线（含复核）；薄 MVP 退役/并入 | `status.json#eval_mvp` 落基线块 | 待办 |
 | M10 | 线上代理分 + 案例回流 + CI 门禁 | 低分 run 可回填为候选案例 | 待办 |
