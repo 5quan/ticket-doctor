@@ -6,8 +6,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { LogAccessError, FileLogSource } from "../../src/sources/logs.ts";
-import { applyReview, validateReview } from "../../src/evals/v2/review.ts";
-import { scoreTrial, type RoundScoreInput, type ScorerInput } from "../../src/evals/v2/scorer.ts";
+import { applyReview, judgedOutputsHash, validateReview } from "../../src/evals/v2/review.ts";
+import { listJudgableClaims, scoreTrial, type RoundScoreInput, type ScorerInput } from "../../src/evals/v2/scorer.ts";
 import { computeRequirementSatisfaction, type CallEvidence, type LayerContext, type LayerEvidence } from "../../src/evals/v2/visibility.ts";
 import type { CaseDescriptorV2, CaseScoreV2, TruthFileV2 } from "../../src/evals/v2/types.ts";
 import { runSuite } from "../../src/evals/v2/runner.ts";
@@ -106,6 +106,9 @@ function makeScore(callEvidence: CallEvidence[], over: Partial<RoundScoreInput> 
     visibility: visibilityWith(callEvidence),
     requiredTraceEvents: [],
     presentTraceEvents: [],
+    // 默认带一份 validated 终稿：claimSupport 的缺测口径（A2）= 实际可判判断清单
+    // （summary 1 条 + hypotheses 1 条 = 2），未复核时 unscored=2、value=null。
+    validatedReport: { completeness: "complete", summary: "库存服务调用失败（NPE）", confirmedFacts: [], hypotheses: [{ cause: "库存服务调用失败（NPE）", status: "supported", evidenceIds: ["uid-E1"] }], nextSteps: [], corrections: [], missingMaterial: [] },
     ...over,
   };
   return scoreTrial({ caseDesc, truth, engine: "scripted", trialId: "t1", suiteRunId: "s1", rounds: [round] });
@@ -149,48 +152,113 @@ test("汇总：未 review 的语义项在 trial 与 suite 聚合都保持 null�
   assert.equal(den > 0 && unscored === 0 ? num / den : null, null, "聚合规则：den=0 或 unscored>0 → null");
 });
 
-// ---------- 4. review 工件：导入、绑定校验、重评分 ----------
+// ---------- 4. review 工件：导入、绑定校验、重评分（A2 v3 契约） ----------
 
-test("review：合法工件导入后 claimSupport 出值、semanticReview 更新；硬失败不受影响", () => {
-  const base = makeScore([{ callId: "c1", text: "throw new NullPointerException", isError: false, evidence: [evidenceFor("E1", sha)] }]);
-  const scorerInput: ScorerInput = {
+function scorerInputFor(): ScorerInput {
+  return {
     caseDesc, truth, engine: "scripted", trialId: "t1", suiteRunId: "s1",
-    rounds: [{ roundId: "r1", truth: truth.rounds[0]!, outcome: "report", status: "succeeded", citations: [], allLogQueriesEmpty: false, expectedShas: { app: sha }, visibility: visibilityWith([{ callId: "c1", text: "throw new NullPointerException", isError: false, evidence: [evidenceFor("E1", sha)] }]), requiredTraceEvents: [], presentTraceEvents: [] }],
+    rounds: [{ roundId: "r1", truth: truth.rounds[0]!, outcome: "report", status: "succeeded", citations: [], allLogQueriesEmpty: false, expectedShas: { app: sha }, visibility: visibilityWith([{ callId: "c1", text: "throw new NullPointerException", isError: false, evidence: [evidenceFor("E1", sha)] }]), requiredTraceEvents: [], presentTraceEvents: [], validatedReport: { completeness: "complete", summary: "库存服务调用失败（NPE）", confirmedFacts: [], hypotheses: [{ cause: "库存服务调用失败（NPE）", status: "supported", evidenceIds: ["uid-E1"] }], nextSteps: [], corrections: [], missingMaterial: [] } }],
   };
-  const review = {
-    schemaVersion: "prediagnosis-review-v2" as const,
+}
+
+function bindFor(input: ScorerInput) {
+  return { suiteRunId: input.suiteRunId, outputsHash: judgedOutputsHash(input), claims: listJudgableClaims(input.rounds) };
+}
+
+function validReview(input: ScorerInput, verdict: "supported" | "unsupported" = "supported") {
+  const bind = bindFor(input);
+  const hypSlot = bind.claims.find((c) => c.field === "hypotheses")!;
+  const sumSlot = bind.claims.find((c) => c.field === "summary")!;
+  return {
+    schemaVersion: "prediagnosis-review-v3" as const,
     suiteRunId: "s1",
     caseId: "t-case",
     trialId: "t1",
-    review: { author: "human-a", reviewer: "human-b", provisional: false, rubricHash: "deadbeef" },
+    outputsHash: bind.outputsHash,
+    review: { author: "human-a", reviewer: "human-b", reviewerType: "human" as const, rubricHash: "deadbeef" },
     claims: [
-      { roundId: "r1", stage: "validated" as const, field: "hypotheses" as const, index: 0, verdict: "supported" as const, rationale: "证据与措辞匹配" },
+      { roundId: "r1", stage: "validated" as const, field: "hypotheses" as const, index: hypSlot.index, claimId: hypSlot.claimId, verdict, rationale: "证据与措辞匹配" },
+      { roundId: "r1", stage: "validated" as const, field: "summary" as const, index: sumSlot.index, claimId: sumSlot.claimId, verdict, rationale: "摘要与证据一致" },
     ],
   };
-  const checked = validateReview(review, caseDesc);
-  assert.equal(checked.ok, true);
+}
+
+test("review：合法工件导入后 claimSupport 出值、semanticReview 带来源与覆盖率；硬失败不受影响", () => {
+  const base = makeScore([{ callId: "c1", text: "throw new NullPointerException", isError: false, evidence: [evidenceFor("E1", sha)] }]);
+  const scorerInput = scorerInputFor();
+  const review = validReview(scorerInput);
+  const checked = validateReview(review, caseDesc, truth, bindFor(scorerInput));
+  assert.equal(checked.ok, true, JSON.stringify(checked.ok ? [] : checked.errors));
   const reviewed = applyReview(scorerInput, base, checked.ok ? checked.value : review);
   assert.equal(reviewed.semanticReview.imported, true);
   assert.equal(reviewed.semanticReview.provisional, false);
+  assert.equal(reviewed.semanticReview.reviewerType, "human", "来源类型必须显式（A2）");
+  assert.deepEqual(reviewed.semanticReview.coverage, { reviewed: 2, total: 2 });
   assert.equal(reviewed.claimSupport.value, 1);
+  assert.equal(reviewed.claimSupport.unscored, 0);
   assert.deepEqual(reviewed.hardFailures, base.hardFailures, "review 不得改变确定性硬失败");
   // 重放确定性：同一输入重评分结果稳定
   assert.deepEqual(applyReview(scorerInput, base, checked.ok ? checked.value : review), reviewed);
 });
 
-test("review：绑定错误/非法 verdict/缺理由 → 整份拒绝", () => {
-  const badCase = { ...caseDesc, caseId: "other-case" };
-  const base = { schemaVersion: "prediagnosis-review-v2" as const, suiteRunId: "s1", caseId: "t-case", trialId: "t1", review: { author: "a", reviewer: "b", provisional: false }, claims: [{ roundId: "r1", stage: "validated" as const, field: "hypotheses" as const, verdict: "supported" as const, rationale: "r" }] };
-  assert.equal(validateReview(base, badCase).ok, false, "caseId 绑定错误必须拒绝");
-  assert.equal(validateReview({ ...base, review: { author: "a", reviewer: "b", provisional: true } }, caseDesc).ok, false, "provisional 工件不得导入");
+test("review：部分覆盖 → 分母来自实际判断清单，缺测保持 null 且显示覆盖率", () => {
+  const base = makeScore([{ callId: "c1", text: "throw new NullPointerException", isError: false, evidence: [evidenceFor("E1", sha)] }]);
+  const scorerInput = scorerInputFor();
+  const full = validReview(scorerInput);
+  // 只复核 hypotheses 槽位（2 个可判判断中的 1 个）
+  const partial = { ...full, claims: full.claims.slice(0, 1) };
+  const checked = validateReview(partial, caseDesc, truth, bindFor(scorerInput));
+  assert.equal(checked.ok, true, JSON.stringify(checked.ok ? [] : checked.errors));
+  const reviewed = applyReview(scorerInput, base, checked.ok ? checked.value : partial);
+  assert.equal(reviewed.claimSupport.denominator, 2, "分母 = 实际可判判断数，不是提交的 review 条数");
+  assert.equal(reviewed.claimSupport.numerator, 1);
+  assert.equal(reviewed.claimSupport.unscored, 1, "未复核槽位保持缺测");
+  assert.equal(reviewed.claimSupport.value, null, "覆盖不全时不得出值");
+  assert.deepEqual(reviewed.semanticReview.coverage, { reviewed: 1, total: 2 });
+});
+
+test("review：绑定错误/未知槽位/重复记录/跨阶段/模型裁判身份缺失 → 整份拒绝", () => {
+  const base = { schemaVersion: "prediagnosis-review-v3" as const, suiteRunId: "s1", caseId: "t-case", trialId: "t1", outputsHash: "x".repeat(64), review: { author: "a", reviewer: "b", reviewerType: "human" as const }, claims: [] as never[] };
+  const scorerInput = scorerInputFor();
+  const bind = bindFor(scorerInput);
+  const v = (raw: unknown) => validateReview(raw, caseDesc, truth, bind);
+  assert.equal(v({ ...base, caseId: "other-case" }).ok, false, "caseId 绑定错误必须拒绝");
+  assert.equal(v({ ...base, suiteRunId: "other-suite" }).ok, false, "suite 绑定错误必须拒绝");
+  assert.equal(v({ ...base, outputsHash: "0".repeat(64) }).ok, false, "输出内容指纹不匹配必须拒绝（trial 可能已重跑）");
+  assert.equal(v({ ...base, review: { author: "a", reviewer: "b" } }).ok, false, "reviewerType 缺失必须拒绝");
+  assert.equal(v({ ...base, review: { author: "a", reviewer: "b", reviewerType: "robot" } }).ok, false, "reviewerType 非法值必须拒绝");
   assert.equal(
-    validateReview({ ...base, claims: [{ roundId: "rX", stage: "validated" as const, field: "hypotheses" as const, verdict: "supported" as const, rationale: "r" }] }, caseDesc).ok,
+    v({ ...base, claims: [{ roundId: "rX", stage: "validated", field: "hypotheses", index: 0, claimId: bind.claims[0]!.claimId, verdict: "supported", rationale: "r" }] }).ok,
     false,
     "未知 roundId 必须拒绝",
   );
   assert.equal(
-    validateReview({ ...base, claims: [{ roundId: "r1", stage: "validated" as const, field: "hypotheses" as const, verdict: "excellent" as never, rationale: "" }] }, caseDesc).ok,
+    v({ ...base, claims: [{ roundId: "r1", stage: "validated", field: "hypotheses", index: 9, claimId: bind.claims[0]!.claimId, verdict: "supported", rationale: "r" }] }).ok,
     false,
+    "不存在的假设下标必须拒绝",
+  );
+  assert.equal(
+    v({ ...base, claims: [{ roundId: "r1", stage: "validated", field: "hypotheses", index: bind.claims[0]!.index, claimId: "deadbeefdeadbeef", verdict: "supported", rationale: "r" }] }).ok,
+    false,
+    "claimId 与输出内容不符必须拒绝",
+  );
+  assert.equal(
+    v({ ...base, claims: [
+      { roundId: "r1", stage: "validated", field: "hypotheses", index: bind.claims[0]!.index, claimId: bind.claims[0]!.claimId, verdict: "supported", rationale: "r" },
+      { roundId: "r1", stage: "validated", field: "hypotheses", index: bind.claims[0]!.index, claimId: bind.claims[0]!.claimId, verdict: "unsupported", rationale: "r2" },
+    ] }).ok,
+    false,
+    "重复复核记录必须拒绝（不得重复计分）",
+  );
+  assert.equal(
+    v({ ...base, claims: [{ roundId: "r1", stage: "raw", field: "hypotheses", index: 0, claimId: bind.claims[0]!.claimId, verdict: "supported", rationale: "r" }] }).ok,
+    false,
+    "raw 跨阶段记录必须拒绝（语义判断只针对 validated 终稿）",
+  );
+  assert.equal(
+    v({ schemaVersion: "prediagnosis-review-v2", suiteRunId: "s1", caseId: "t-case", trialId: "t1", review: { author: "a", reviewer: "b", provisional: true }, claims: [] }).ok,
+    false,
+    "v2 旧工件必须整体拒绝",
   );
 });
 
@@ -239,7 +307,7 @@ test("suite：同名运行目录已存在 → 拒绝，不混合新旧记录；�
       engine: "scripted" as const, repeat: 1, baseConfig: testConfig(),
     };
     const summary1 = await runSuite(opts);
-    assert.equal(summary1.cases.length, 5, "三个行为 case + 两个版本 case（版本 case 预期失败但不阻断 suite）");
+    assert.equal(summary1.cases.length, 6, "四个行为 case（含 A1 审计循环）+ 两个版本 case（版本 case 预期失败但不阻断 suite）");
     await assert.rejects(() => runSuite(opts), /已存在且非空/, "同名 suite 必须拒绝");
     // 单 case 异常：写一个缺脚本的 scripted case 到 catalog，suite 仍应完成其余 case。
     const catalogPath = join(root, "catalog", "catalog.json");
@@ -252,8 +320,14 @@ test("suite：同名运行目录已存在 → 拒绝，不混合新旧记录；�
     catalog.cases.push({ caseId: "eng-broken", publicDir: "public/eng-broken", privateDir: "private/eng-broken" });
     wfs(catalogPath, JSON.stringify(catalog));
     const summary2 = await runSuite({ ...opts, suiteRunId: "dup-2" });
-    assert.equal(summary2.cases.length, 5, "好 case（含两个预期失败的版本 case）全部完成，坏 case 被隔离");
+    assert.equal(summary2.cases.length, 6, "好 case（含两个预期失败的版本 case）全部完成，坏 case 被隔离");
     assert.ok(summary2.families.every((f) => f.trials > 0));
+    // A3：终态必须显式入账——坏 case 进 caseStatuses（load_error），计划口径可对账。
+    const broken = summary2.caseStatuses.find((s) => s.caseId === "eng-broken");
+    assert.equal(broken?.phase, "load_error");
+    assert.equal(summary2.planned.cases, 7);
+    assert.equal(summary2.caseStatuses.length, 7, "每个计划 case 都必须有终态（A3）");
+    assert.equal(summary2.caseStatuses.filter((s) => s.phase === "scored").length, 6);
   } finally {
     // 临时目录留给系统清理
   }

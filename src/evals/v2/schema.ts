@@ -111,6 +111,9 @@ export function validateCaseDescriptor(
   if (c.scriptedEngine && c.split !== "engineering") {
     errors.push({ path: "scriptedEngine", message: "脚本引擎只允许 engineering 拆分使用" });
   }
+  if (c.scriptedAudit && c.split !== "engineering") {
+    errors.push({ path: "scriptedAudit", message: "脚本审计只允许 engineering 拆分使用" });
+  }
   if (c.split === "engineering" && c.sourceTier !== "synthetic_engineering") {
     errors.push({ path: "sourceTier", message: "engineering 拆分必须是 synthetic_engineering 来源" });
   }

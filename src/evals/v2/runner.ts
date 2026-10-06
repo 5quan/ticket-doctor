@@ -12,10 +12,13 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { AppConfig } from "../../config/index.ts";
-import { buildEngine } from "../../agent/factory.ts";
+import { buildAuditor, buildEngine } from "../../agent/factory.ts";
 import { FakeDiagnosisEngine } from "../../agent/fake-engine.ts";
+import { FakeEvidenceAuditor } from "../../agent/fake-auditor.ts";
 import { buildSystemPrompt } from "../../agent/pi-engine.ts";
+import { AUDIT_SYSTEM_PROMPT } from "../../agent/pi-auditor.ts";
 import type { DiagnosisEngine, EngineResult } from "../../agent/types.ts";
+import type { EvidenceAuditor } from "../../agent/audit-types.ts";
 import { FileLogSource } from "../../sources/logs.ts";
 import { openDatabase, migrate } from "../../storage/db.ts";
 import { Store } from "../../storage/store.ts";
@@ -30,7 +33,7 @@ import { checkIsolation, isolationSummary } from "./isolation.ts";
 import { validatePairing } from "./schema.ts";
 import { scanResolvedTreeForIsolation } from "./isolation.ts";
 import { CaptureSender } from "./capture.ts";
-import { buildSuiteManifest } from "./manifest.ts";
+import { buildSuiteManifest, materialDrift, snapshotCaseMaterials, type ManifestCase } from "./manifest.ts";
 import { exportEvidenceEvents, exportToolEvents, exportUsageEvent, TraceRecorder } from "./trace.ts";
 import {
   RecordingFileLogSource,
@@ -42,11 +45,13 @@ import {
   type CallEvidence,
   type SourceCallRecord,
 } from "./visibility.ts";
-import { CapturingEngine, ScriptedDiagnosisEngine, type ScriptStep } from "./scripted-engine.ts";
+import { CapturingEngine, ScriptedAuditor, ScriptedDiagnosisEngine, type ScriptStep, type ScriptedAuditStep } from "./scripted-engine.ts";
 import { SCORER_VERSION, scoreTrial, type CitationRecord, type RoundScoreInput, type ScorerInput } from "./scorer.ts";
 import type {
   CaseDescriptorV2,
   CaseScoreV2,
+  CaseStatus,
+  EngineCallRecord,
   MetricValue,
   RoundArtifacts,
   RoundOutcomeKind,
@@ -86,6 +91,7 @@ interface LoadedCase {
   caseDir: string;
   privateDir: string;
   steps: ScriptStep[];
+  auditSteps: ScriptedAuditStep[];
   isolation: { ok: boolean; counts: Record<string, number> };
   violationText?: string;
 }
@@ -95,7 +101,7 @@ function loadLoadedCase(opts: RunSuiteOptions, entry: CatalogEntry): LoadedCase 
   const truth = loadTruth(opts.evalV2Root, entry);
   const caseDir = join(opts.evalV2Root, entry.publicDir);
   const privateDir = join(opts.evalV2Root, entry.privateDir ?? "");
-  const loaded: LoadedCase = { entry, caseDesc, truth, caseDir, privateDir, steps: [], isolation: { ok: true, counts: {} } };
+  const loaded: LoadedCase = { entry, caseDesc, truth, caseDir, privateDir, steps: [], auditSteps: [], isolation: { ok: true, counts: {} } };
   // 隔离预检先行：失败的 case 不再加载任何制作侧资源（含脚本）。
   const violations = checkIsolation(opts.projectRoot, caseDir, caseDesc, truth, privateDir);
   loaded.isolation = isolationSummary(violations);
@@ -109,7 +115,34 @@ function loadLoadedCase(opts: RunSuiteOptions, entry: CatalogEntry): LoadedCase 
       throw new Error(`case ${entry.caseId} 脚本步数 ${loaded.steps.length} 少于轮数 ${caseDesc.rounds.length}`);
     }
   }
+  if (caseDesc.scriptedAudit) {
+    const auditPath = join(privateDir, "audit.json");
+    if (!existsSync(auditPath)) throw new Error(`case ${entry.caseId} 声明 scriptedAudit 但缺少 ${auditPath}`);
+    loaded.auditSteps = JSON.parse(readFileSync(auditPath, "utf8")) as ScriptedAuditStep[];
+  }
   return loaded;
+}
+
+/**
+ * 审计器注入（A1）：评测运行的审计引擎必须显式确定，禁止隐式回落。
+ * scripted/fake → 确定性审计器（脚本审计优先，否则零成本假审计）；
+ * pi → 按 pi 配置构建真实审计器（与诊断引擎同源，凭据缺失直接报错）。
+ * 该显式注入同时封死「环境配置 TD_ENGINE=pi 时工程自测隐式调用真实模型」的费用边界问题。
+ */
+function buildEvalAuditor(opts: RunSuiteOptions, loaded: LoadedCase): EvidenceAuditor | undefined {
+  if (!opts.baseConfig.diagnosis.audit.enabled) return undefined;
+  if (opts.engine === "pi") {
+    return buildAuditor({ ...opts.baseConfig, diagnosis: { ...opts.baseConfig.diagnosis, engine: "pi" } });
+  }
+  if (loaded.auditSteps.length > 0) return new ScriptedAuditor(loaded.auditSteps);
+  return new FakeEvidenceAuditor();
+}
+
+/** manifest 里的审计引擎名（与 buildEvalAuditor 同一规则，避免为取名字构造实例）。 */
+function auditEngineNameOf(opts: RunSuiteOptions, loaded: LoadedCase): string | null {
+  if (!opts.baseConfig.diagnosis.audit.enabled) return null;
+  if (opts.engine === "pi") return "pi-audit";
+  return loaded.auditSteps.length > 0 ? "scripted-audit" : "fake-audit";
 }
 
 export async function runSuite(opts: RunSuiteOptions): Promise<SuiteSummaryV2> {
@@ -122,8 +155,32 @@ export async function runSuite(opts: RunSuiteOptions): Promise<SuiteSummaryV2> {
   mkdirSync(runDir, { recursive: true });
 
   const catalog = loadCatalog(opts.evalV2Root);
+  // 未知 case 显式失败（A3）：静默缩小评测范围会让"看起来跑过"的 suite 缺样本。
+  if (opts.caseIds && opts.caseIds.length > 0) {
+    const known = new Set(catalog.cases.map((c) => c.caseId));
+    const unknown = opts.caseIds.filter((id) => !known.has(id));
+    if (unknown.length > 0) throw new Error(`未知 case：${unknown.join(", ")}（catalog 现有 ${catalog.cases.length} 例）`);
+  }
   const entries = catalog.cases.filter((c) => !opts.caseIds || opts.caseIds.includes(c.caseId));
   if (entries.length === 0) throw new Error("catalog 中没有匹配的 case");
+  // 准入预筛（A3）：非 engineering 且未 admitted 的 case 是**准入拒绝**（独立终态），
+  // 不进评测总体、不进计划口径；工程自测拆分不受准入门槛约束（schema 同规则）。
+  const admissionRejected: CatalogEntry[] = [];
+  const admissible: CatalogEntry[] = [];
+  for (const entry of entries) {
+    try {
+      const raw = JSON.parse(readFileSync(join(opts.evalV2Root, entry.publicDir, "case.json"), "utf8")) as { split?: string; admission?: string };
+      if (raw.split !== "engineering" && raw.admission !== "admitted") {
+        admissionRejected.push(entry);
+        continue;
+      }
+    } catch {
+      // 读不出 case.json 的按装载错误处理（下方正常流程记录）。
+    }
+    admissible.push(entry);
+  }
+  const repeat = Math.max(1, opts.repeat);
+  const plannedTrials = admissible.length * repeat;
 
   // pi 预检：显式选择且 key 就绪才允许（§7.1）；构建失败立即停止。
   if (opts.engine === "pi") {
@@ -133,46 +190,119 @@ export async function runSuite(opts: RunSuiteOptions): Promise<SuiteSummaryV2> {
 
   const promptHash = sha256Text(buildSystemPrompt());
   const caseSummaries: SuiteSummaryV2["cases"] = [];
-  const manifestCases: Parameters<typeof buildSuiteManifest>[0]["cases"] = [];
-  const blockedCases: Array<{ caseId: string; reason: string }> = [];
+  const frozenCases: ManifestCase[] = [];
+  const caseStatuses: CaseStatus[] = [];
+  // 审计引擎口径（A1）：同一 suite 内审计器构造规则一致，取首个启用 case 的引擎名。
+  let auditEngine: string | null = null;
 
-  for (const entry of entries) {
-    // 单 case 失败（装载/预检/执行/评分）不得终止整个 suite：记 blocked/异常后继续。
-    try {
-      const loaded = loadLoadedCase(opts, entry);
-      if (!loaded.isolation.ok) {
-        blockedCases.push({ caseId: entry.caseId, reason: `隔离预检失败：${loaded.violationText}` });
-        continue;
-      }
-      // case 与 truth 的轮次必须配对一致（审计配套项：schema 完整性）。
-      validatePairing(loaded.caseDesc, loaded.truth);
-
-      const trials: CaseScoreV2[] = [];
-      for (let t = 1; t <= Math.max(1, opts.repeat); t++) {
-        trials.push(await runTrial(opts, loaded, runDir, `t${t}`));
-      }
-      caseSummaries.push({
-        caseId: loaded.caseDesc.caseId,
-        familyId: loaded.caseDesc.familyId,
-        split: loaded.caseDesc.split,
-        admission: loaded.caseDesc.admission,
-        trials,
-      });
-      manifestCases.push({ caseDesc: loaded.caseDesc, truth: loaded.truth, isolation: loaded.isolation });
-    } catch (err) {
-      blockedCases.push({
-        caseId: entry.caseId,
-        reason: `case 异常（其余 case 继续）：${err instanceof Error ? err.message : String(err)}`,
-      });
-    }
+  for (const entry of admissionRejected) {
+    caseStatuses.push({ caseId: entry.caseId, phase: "admission_rejected", trials: 0, reason: "非 engineering 拆分且未 admitted（准入拒绝，不入评测总体）" });
   }
 
+  for (const entry of admissible) {
+    // 装载/校验失败不终止 suite：记 load_error 后继续（A3：终态必须显式入账）。
+    let loaded: LoadedCase;
+    try {
+      loaded = loadLoadedCase(opts, entry);
+      validatePairing(loaded.caseDesc, loaded.truth);
+    } catch (err) {
+      caseStatuses.push({ caseId: entry.caseId, phase: "load_error", trials: 0, reason: err instanceof Error ? err.message : String(err) });
+      continue;
+    }
+    if (!loaded.isolation.ok) {
+      caseStatuses.push({ caseId: entry.caseId, phase: "isolation_blocked", trials: 0, reason: `隔离预检失败：${loaded.violationText}` });
+      continue;
+    }
+
+    // 材料/配置指纹冻结于 trial 运行前（A3）：manifest 记录"运行开始时"的口径。
+    let frozen: ManifestCase;
+    try {
+      frozen = snapshotCaseMaterials({
+        projectRoot: opts.projectRoot,
+        caseDir: loaded.caseDir,
+        privateDir: loaded.privateDir,
+        caseDesc: loaded.caseDesc,
+        isolation: loaded.isolation,
+      });
+    } catch (err) {
+      caseStatuses.push({ caseId: entry.caseId, phase: "load_error", trials: 0, reason: `材料快照失败：${err instanceof Error ? err.message : String(err)}` });
+      continue;
+    }
+    frozenCases.push(frozen);
+    if (auditEngine === null) auditEngine = auditEngineNameOf(opts, loaded);
+
+    const trials: CaseScoreV2[] = [];
+    let trialFailure: string | undefined;
+    for (let t = 1; t <= repeat && !trialFailure; t++) {
+      try {
+        trials.push(await runTrial(opts, loaded, runDir, `t${t}`));
+      } catch (err) {
+        trialFailure = `t${t}: ${err instanceof Error ? err.message : String(err)}`;
+      }
+    }
+    if (trialFailure) {
+      caseStatuses.push({ caseId: entry.caseId, phase: "run_error", trials: trials.length, reason: `case 异常（其余 case 继续）：${trialFailure}` });
+      if (trials.length > 0) {
+        caseSummaries.push({
+          caseId: loaded.caseDesc.caseId,
+          familyId: loaded.caseDesc.familyId,
+          split: loaded.caseDesc.split,
+          admission: loaded.caseDesc.admission,
+          trials,
+        });
+      }
+      continue;
+    }
+    caseSummaries.push({
+      caseId: loaded.caseDesc.caseId,
+      familyId: loaded.caseDesc.familyId,
+      split: loaded.caseDesc.split,
+      admission: loaded.caseDesc.admission,
+      trials,
+    });
+    caseStatuses.push({ caseId: entry.caseId, phase: "scored", trials: trials.length });
+  }
+
+  // 冻结复核（A3）：全部 trial 结束后重取快照对比；漂移不影响已产生的记录，但必须显式暴露。
+  const freezeDrifts: Array<{ caseId: string; details: string[] }> = [];
+  for (const frozen of frozenCases) {
+    const entry = catalog.cases.find((c) => c.caseId === frozen.caseId)!;
+    try {
+      const afterDesc = loadCase(opts.evalV2Root, entry, opts.projectRoot);
+      const after = snapshotCaseMaterials({
+        projectRoot: opts.projectRoot,
+        caseDir: join(opts.evalV2Root, entry.publicDir),
+        privateDir: join(opts.evalV2Root, entry.privateDir ?? ""),
+        caseDesc: afterDesc,
+        isolation: frozen.isolation,
+      });
+      const details = materialDrift(frozen, after);
+      if (details.length > 0) freezeDrifts.push({ caseId: frozen.caseId, details });
+    } catch (err) {
+      freezeDrifts.push({ caseId: frozen.caseId, details: [`复核失败：${err instanceof Error ? err.message : String(err)}`] });
+    }
+  }
+  const freezeCheck = { checkedAt: Date.now(), ok: freezeDrifts.length === 0, drifts: freezeDrifts };
+
   const wall = { startedAt, finishedAt: Date.now() };
+  const scoredTrials = caseSummaries.reduce((n, c) => n + c.trials.length, 0);
+  const blockedExpectedTrials = caseSummaries.reduce(
+    (n, c) => n + c.trials.filter((t) => t.roundScores.length > 0 && t.roundScores.every((r) => r.outcome === "blocked")).length,
+    0,
+  );
   const summary: SuiteSummaryV2 = {
     schemaVersion: "prediagnosis-score-v2",
     suiteRunId: opts.suiteRunId,
     engine: opts.engine,
-    repeat: Math.max(1, opts.repeat),
+    repeat,
+    planned: { cases: admissible.length, trials: plannedTrials },
+    counts: {
+      scoredTrials,
+      blockedExpectedTrials,
+      admissionRejected: admissionRejected.length,
+      unscoredCases: caseStatuses.filter((s) => s.phase !== "scored" && s.phase !== "admission_rejected").length,
+    },
+    caseStatuses,
     cases: caseSummaries,
     aggregate: aggregateMetrics(caseSummaries),
     families: buildFamilies(caseSummaries),
@@ -182,11 +312,12 @@ export async function runSuite(opts: RunSuiteOptions): Promise<SuiteSummaryV2> {
   const manifest = buildSuiteManifest({
     suiteRunId: opts.suiteRunId,
     engine: opts.engine,
-    repeat: Math.max(1, opts.repeat),
+    engineActual: caseSummaries.length > 0 ? (caseSummaries[0]?.trials[0]?.engine ?? opts.engine) : opts.engine,
+    repeat,
     projectRoot: opts.projectRoot,
-    caseDirOf: (caseId) => join(opts.evalV2Root, catalog.cases.find((c) => c.caseId === caseId)!.publicDir),
-    privateDirOf: (caseId) => join(opts.evalV2Root, catalog.cases.find((c) => c.caseId === caseId)!.privateDir ?? ""),
-    cases: manifestCases,
+    auditEngine,
+    frozenCases,
+    freezeCheck,
     diagnosis: {
       provider: opts.baseConfig.diagnosis.provider,
       modelId: opts.baseConfig.diagnosis.modelId,
@@ -210,8 +341,12 @@ export async function runSuite(opts: RunSuiteOptions): Promise<SuiteSummaryV2> {
 
   writeFileSync(join(runDir, "summary.json"), JSON.stringify(summary, null, 2), "utf8");
   writeFileSync(join(runDir, "manifest.json"), JSON.stringify(manifest, null, 2), "utf8");
-  if (blockedCases.length > 0) {
-    writeFileSync(join(runDir, "blocked.json"), JSON.stringify(blockedCases, null, 2), "utf8");
+  const unscored = caseStatuses.filter((s) => s.phase !== "scored");
+  if (unscored.length > 0) {
+    writeFileSync(join(runDir, "blocked.json"), JSON.stringify({ planned: summary.planned, caseStatuses: unscored }, null, 2), "utf8");
+  }
+  if (!freezeCheck.ok) {
+    console.warn(`[eval:v2][freeze] 材料指纹漂移（manifest 冻结于运行前）：${JSON.stringify(freezeCheck.drifts)}`);
   }
   return summary;
 }
@@ -237,6 +372,9 @@ async function runTrial(opts: RunSuiteOptions, loaded: LoadedCase, runDir: strin
     engine = buildEngine({ ...opts.baseConfig, diagnosis: { ...opts.baseConfig.diagnosis, engine: "pi" } });
   }
   const capture = new CapturingEngine(engine);
+  // 审计器显式注入（A1）：scripted/fake 强制确定性审计，pi 才允许真实审计器。
+  const auditor = buildEvalAuditor(opts, loaded);
+  const auditEngine = auditor?.name ?? null;
 
   const artifacts: TrialArtifacts = {
     suiteRunId,
@@ -253,7 +391,6 @@ async function runTrial(opts: RunSuiteOptions, loaded: LoadedCase, runDir: strin
   let investigationId = "";
   let sessionCode: string | undefined;
   let prevExternalId: string | undefined;
-  let capturePtr = 0;
   const sourceCalls: SourceCallRecord[] = [];
 
   trace.emit("trial_started", { engine: capture.name, maxRounds: caseDesc.maxRounds });
@@ -318,12 +455,16 @@ async function runTrial(opts: RunSuiteOptions, loaded: LoadedCase, runDir: strin
       let preReadBlock: string | undefined; // 观察钩抛错会被 executeRun 消化转 failRun，用闭包标志带回阻断事实
       const expectedByRepo = new Map<string, string>();
       for (const repo of round.repos) if (repo.expectedSha) expectedByRepo.set(repo.repoId, repo.expectedSha);
+      // 捕获按"本轮 executeRun 期间实际发生的调用"切片（A1）：审计补证会让一次 run 内
+      // 产生多次引擎调用，按轮指针取单条会把补证稿错挂到下一轮。
+      const capStart = capture.captured.length;
       try {
         await executeRun(
           {
             store,
             config: cfg,
             engine: capture,
+            auditor,
             logSource: recordingSource,
             // 读取前核验（方案 §10.1/§10.2）：prepare 得到的实际源码版本与期望不符时，
             // 在模型取证前阻断。事件先落 trace，随后抛错由编排层 failRun（fail-closed）。
@@ -412,12 +553,36 @@ async function runTrial(opts: RunSuiteOptions, loaded: LoadedCase, runDir: strin
       }
 
       const runRow = store.getRun(claimed.run.id)!;
-      // 原始结果按"实际发生的引擎调用"消费（指针），失败轮不占位——
-      // capture.captured.at(r) 会在失败轮后错位（审计配套项）。
-      const raw = capture.captured[capturePtr];
-      if (raw) capturePtr += 1;
+      // 本轮实际发生的全部引擎调用（A1）：initial=首轮草稿，其后为审计补证再诊断。
+      // 失败轮按实际发生切片：executeRun 在引擎调用前失败 → 空切片，不占位。
+      const roundCalls = capture.captured.slice(capStart);
+      const engineCalls: EngineCallRecord[] = roundCalls.map((c, i) => ({
+        index: i,
+        phase: i === 0 ? ("initial" as const) : ("supplement" as const),
+        kind: c.kind,
+        ...(c.kind === "report" ? { draft: structuredClone(c.draft) as unknown } : { replyText: c.text, reason: c.reason }),
+        modelTurns: c.modelTurns,
+        ...(c.model ? { model: c.model } : {}),
+        wallTime: Date.now(),
+      }));
+      const initialCall = roundCalls[0];
+      const finalCall = roundCalls.at(-1);
+      for (const [i, c] of roundCalls.entries()) {
+        trace.emit(
+          "engine_call",
+          {
+            callIndex: i,
+            phase: i === 0 ? "initial" : "supplement",
+            kind: c.kind,
+            ...(c.kind === "report" ? { draft: c.draft } : { replyText: c.text, reason: c.reason }),
+            modelTurns: c.modelTurns,
+            model: c.model ?? null,
+          },
+          { roundId: round.roundId, runId: claimed.run.id, attemptId: claimed.attemptId },
+        );
+      }
       // 预期内的读取前阻断（版本/隔离预检）单独记 blocked，不与真实 error 混同。
-      const outcome = preReadBlock ? "blocked" : runError ? "error" : outcomeOf(raw);
+      const outcome = preReadBlock ? "blocked" : runError ? "error" : outcomeOf(finalCall);
       const reportRow = store.getReportByRun(claimed.run.id);
       const validatedReport = reportRow
         ? (JSON.parse(reportRow.content) as NonNullable<RoundArtifacts["rawDraft"]> & { scope?: unknown; corrections?: string[] })
@@ -436,10 +601,17 @@ async function runTrial(opts: RunSuiteOptions, loaded: LoadedCase, runDir: strin
       exportUsageEvent(trace, db, { roundId: round.roundId, attemptId: claimed.attemptId });
       presentEvents.add("evidence_committed");
       presentEvents.add("usage");
-      if ((raw?.toolCalls ?? 0) > 0) presentEvents.add("tool_returned");
+      if ((finalCall?.toolCalls ?? 0) > 0) presentEvents.add("tool_returned");
+      // engine_result_raw：本轮**最终**引擎结果摘要（与 finalize 落库的产出一致）；
+      // 逐次调用细节见 engine_call 事件与 artifacts.engineCalls。
       trace.emit(
         "engine_result_raw",
-        { kind: raw?.kind, draft: raw?.kind === "report" ? raw.draft : undefined, reply: raw?.kind === "reply" ? raw.text : undefined },
+        {
+          kind: finalCall?.kind,
+          draft: finalCall?.kind === "report" ? finalCall.draft : undefined,
+          reply: finalCall?.kind === "reply" ? finalCall.text : undefined,
+          engineCallCount: roundCalls.length,
+        },
         { roundId: round.roundId, runId: claimed.run.id },
       );
       presentEvents.add("engine_result_raw");
@@ -450,7 +622,8 @@ async function runTrial(opts: RunSuiteOptions, loaded: LoadedCase, runDir: strin
         presentEvents.add("delivery_captured");
       }
 
-      // 引用解析记录（raw=E# 短号，validated=uid），带版本核对。
+      // 引用解析记录（raw=初稿的 E# 短号，validated=终稿 uid），带版本核对。
+      // raw 阶段固定取**首轮草稿**（A1）：初稿错误不因审计纠正而抹去。
       const resolver = new StoreEvidenceResolver(store, investigationId, claimed.run.id);
       const expectedShas: Record<string, string> = {};
       for (const repo of round.repos) if (repo.expectedSha) expectedShas[repo.repoId] = repo.expectedSha;
@@ -482,7 +655,7 @@ async function runTrial(opts: RunSuiteOptions, loaded: LoadedCase, runDir: strin
           });
         }
       };
-      const rawReport = raw && raw.kind === "report" ? raw.draft : undefined;
+      const rawReport = initialCall && initialCall.kind === "report" ? initialCall.draft : undefined;
       const draftHypotheses = rawReport?.hypotheses as Array<{ evidenceIds?: string[] }> | undefined;
       if (draftHypotheses) recordCitations("raw", draftHypotheses.flatMap((h) => h.evidenceIds ?? []));
       if (validatedReport) {
@@ -543,12 +716,13 @@ async function runTrial(opts: RunSuiteOptions, loaded: LoadedCase, runDir: strin
         errorCode: (runRow as unknown as { error_code?: string | null }).error_code ?? null,
         errorMessage: (runRow as unknown as { error_message?: string | null }).error_message ?? null,
         outcome,
-        rawDraft: raw?.kind === "report" ? (raw.draft as unknown) : undefined,
+        rawDraft: initialCall?.kind === "report" ? (initialCall.draft as unknown) : undefined,
+        engineCalls,
         report: validatedReport,
-        replyText: raw?.kind === "reply" ? raw.text : undefined,
+        replyText: finalCall?.kind === "reply" ? finalCall.text : undefined,
         writebackText,
         corrections: (validatedReport as { corrections?: string[] } | undefined)?.corrections,
-        toolCalls: raw?.toolCalls ?? 0,
+        toolCalls: finalCall?.toolCalls ?? 0,
         allLogQueriesEmpty,
         scopeResolved: (validatedReport as { scope?: unknown } | undefined)?.scope,
         ...(runError ? { error: runError } : {}),
@@ -569,9 +743,9 @@ async function runTrial(opts: RunSuiteOptions, loaded: LoadedCase, runDir: strin
         outcome,
         status: runRow.status,
         errorCode: (runRow as unknown as { error_code?: string | null }).error_code ?? null,
-        rawDraft: raw?.kind === "report" ? raw.draft : undefined,
+        rawDraft: initialCall?.kind === "report" ? initialCall.draft : undefined,
         validatedReport: validatedReport as RoundScoreInput["validatedReport"],
-        replyText: raw?.kind === "reply" ? raw.text : undefined,
+        replyText: finalCall?.kind === "reply" ? finalCall.text : undefined,
         writebackText,
         citations,
         allLogQueriesEmpty,
@@ -621,7 +795,7 @@ async function runTrial(opts: RunSuiteOptions, loaded: LoadedCase, runDir: strin
 }
 
 /** 汇总聚合：按指标合并分子/分母（pooled），不做无分母均值。 */
-function aggregateMetrics(cases: SuiteSummaryV2["cases"]): Record<string, MetricValue> {
+export function aggregateMetrics(cases: SuiteSummaryV2["cases"]): Record<string, MetricValue> {
   const keys = [
     "traceCompletion",
     "citationValidity",

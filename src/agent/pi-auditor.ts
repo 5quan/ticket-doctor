@@ -23,7 +23,8 @@ import { noopObservationSink } from "../observability/noop.ts";
 import type { AttemptObservationScope } from "../observability/types.ts";
 import { renderAuditInput, type AuditInput, type AuditOutcome, type AuditResult, type EvidenceAuditor } from "./audit-types.ts";
 
-const AUDIT_SYSTEM_PROMPT = `你是独立的证据审计员（不是诊断者）。唯一职责：检查草稿里每条结论是否被给出的证据真正支持。
+/** 审计系统提示词（导出供评测 manifest 做口径指纹；改动时须同步 bump AUDIT_POLICY_VERSION）。 */
+export const AUDIT_SYSTEM_PROMPT = `你是独立的证据审计员（不是诊断者）。唯一职责：检查草稿里每条结论是否被给出的证据真正支持。
 
 规则：
 1. 只依据消息中给出的证据快照判定，不假设存在未提供的材料；你没有检索工具，不要尝试查询。

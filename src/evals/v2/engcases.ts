@@ -7,6 +7,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { CaseDescriptorV2, TruthFileV2 } from "./types.ts";
+import type { ScriptedAuditStep } from "./scripted-engine.ts";
 
 const T0 = Date.parse("2026-09-06T10:00:00+08:00");
 const REPO_DIR = "fixtures/evals/checkout-timeout/repo";
@@ -62,6 +63,8 @@ interface CaseBuild {
   materials: Record<string, string>;
   truth: TruthFileV2;
   script?: unknown[];
+  /** 确定性脚本审计步骤（A1）：落盘 private/audit.json，配合 caseDesc.scriptedAudit=true。 */
+  audit?: ScriptedAuditStep[];
   /** "version-pair"：生成自带故障/修复双提交的仓库（提交时间固定），expectedSha=故障提交。 */
   repoSpec?: "version-pair";
 }
@@ -363,6 +366,135 @@ export function engineeringCaseBuilds(projectRoot: string): CaseBuild[] {
       ],
     },
 
+    // ---- eng-audit-loop：初稿 → 审计要求补证 → 补证稿 → 终稿；轮 2 独立草稿（A1 验收） ----
+    {
+      caseId: "eng-audit-loop",
+      caseDesc: {
+        caseId: "eng-audit-loop",
+        familyId: "eng-checkout",
+        split: "engineering",
+        sourceTier: "synthetic_engineering",
+        publicBenchmark: false,
+        admission: "admitted",
+        maxRounds: 3,
+        scriptedEngine: true,
+        scriptedAudit: true,
+        rounds: [
+          {
+            roundId: "r1",
+            messageRef: "r1-message.txt",
+            receivedAt: "2026-09-06T10:30:00+08:00",
+            occurredAt: "2026-09-06T10:01:00+08:00",
+            materialView: "round-1",
+            services: ["checkout-service"],
+            repos: BENCH_REPOS(sha),
+          },
+          {
+            roundId: "r2",
+            messageRef: "r2-message.txt",
+            receivedAt: "2026-09-06T10:45:00+08:00",
+            occurredAt: "2026-09-06T10:01:00+08:00",
+            materialView: "round-2",
+            services: ["checkout-service"],
+            repos: BENCH_REPOS(sha),
+          },
+        ],
+      },
+      messages: {
+        "r1-message.txt": "checkout-service 服务: 2026-09-06 10:01 起下单接口大量 500，帮忙看下原因",
+        "r2-message.txt": "跟进：请基于完整证据给出正式结论与修复建议",
+      },
+      materials: {
+        "round-1/checkout-service.log": FULL_CHECKOUT_LOG,
+        "round-2/checkout-service.log": FULL_CHECKOUT_LOG,
+      },
+      truth: {
+        schemaVersion: "prediagnosis-truth-v2",
+        caseId: "eng-audit-loop",
+        locators: [{ kind: "log", locatorId: "loc-inventory-error", keyContent: "InventoryClient 调用库存服务失败 timeout", level: "ERROR" }],
+        rounds: [
+          {
+            roundId: "r1",
+            allowedOutcomes: ["report"],
+            allowedClaimDepth: "root",
+            requiredFacts: [{ factId: "root-cause-timeout", concepts: [["库存"], ["超时", "timeout"]], where: ["hypotheses"] }],
+            forbiddenRules: [],
+            materialNeeds: [],
+            evidenceRequirements: [{ requirementId: "req-inventory-error", depth: "root", supportsAnyOf: [{ allOf: ["loc-inventory-error"] }] }],
+            contradictedClaims: [],
+            writebackRequirements: [{ reqId: "wb-root-cause", concepts: [["库存"], ["超时", "timeout"]] }],
+          },
+          {
+            roundId: "r2",
+            allowedOutcomes: ["report"],
+            allowedClaimDepth: "root",
+            requiredFacts: [],
+            forbiddenRules: [],
+            materialNeeds: [],
+            evidenceRequirements: [],
+            contradictedClaims: [],
+            writebackRequirements: [],
+          },
+        ],
+        review: { author: "eval-v2-builder", reviewer: "provisional-self", provisional: true, notes: "A1 验收：审计补证循环的多调用归属" },
+      },
+      // 引擎脚本按"调用"消费：r1 初稿 → r1 补证稿 → r2 草稿（audit 循环会多消费一步）。
+      script: [
+        {
+          kind: "report",
+          tools: [{ tool: "queryLogs", args: { service: "checkout-service", from: T0, to: T0 + 2 * 3600_000, keywords: ["Redis"] } }],
+          draft: {
+            completeness: "partial",
+            summary: "发现 Redis 连接池告警，疑似连接池问题，需要补充库存侧证据",
+            confirmedFacts: ["RedisPool 连接池使用率 92%"],
+            hypotheses: [{ cause: "疑似 Redis 连接池打满导致下单失败（待补证）", confidence: "low", status: "candidate", evidenceIds: [] }],
+            uncertainties: ["库存服务调用是否失败"],
+            nextSteps: ["查询库存调用日志"],
+            missingMaterial: ["库存调用侧日志"],
+          },
+        },
+        {
+          kind: "report",
+          tools: [{ tool: "queryLogs", args: { service: "checkout-service", from: T0, to: T0 + 2 * 3600_000, keywords: [] } }],
+          draft: {
+            completeness: "complete",
+            summary: "库存服务调用超时导致下单失败（InventoryClient 3000ms 超时）；Redis 告警为伴随现象",
+            confirmedFacts: ["InventoryClient 调用库存服务失败 timeout after 3000ms"],
+            hypotheses: [{ cause: "库存服务调用超时（InventoryClient 3000ms 超时）导致下单失败", confidence: "high", status: "supported" }],
+            uncertainties: [],
+            nextSteps: ["与库存服务负责人核对超时配置与容量"],
+            missingMaterial: [],
+          },
+        },
+        {
+          kind: "report",
+          tools: [{ tool: "queryLogs", args: { service: "checkout-service", from: T0, to: T0 + 2 * 3600_000, keywords: [] } }],
+          draft: {
+            completeness: "complete",
+            summary: "结论不变：库存服务调用超时导致下单失败，建议核对超时配置",
+            confirmedFacts: ["InventoryClient 调用库存服务失败 timeout after 3000ms"],
+            hypotheses: [{ cause: "库存服务调用超时导致下单失败", confidence: "high", status: "supported" }],
+            uncertainties: [],
+            nextSteps: ["与库存服务负责人核对超时配置与容量"],
+            missingMaterial: [],
+          },
+        },
+      ],
+      // 审计脚本按"审计调用"消费：r1 审计#1 要求补证 → r1 审计#2 通过；r2 审计脚本耗尽（默认放行）。
+      audit: [
+        {
+          verdicts: [{ hypothesisIndex: 0, verdict: "undecidable", reason: "引用证据不足以支撑结论" }],
+          missingEvidence: [{ hypothesisIndex: 0, what: "库存调用的直接错误日志", suggestedTool: "query_logs" }],
+          stopAdvice: { action: "continue", reason: "材料尚不足，需补证后重报" },
+        },
+        {
+          verdicts: [{ hypothesisIndex: 0, verdict: "supported", reason: "错误日志已取得且支撑结论" }],
+          missingEvidence: [],
+          stopAdvice: { action: "stop", reason: "证据充分，可提交" },
+        },
+      ],
+    },
+
     // ---- eng-version-drift：正文时间把源码钉到修复版 → 读取前阻断（工单 §2 验收 a） ----
     {
       caseId: "eng-version-drift",
@@ -495,6 +627,9 @@ export function materializeEngineeringCases(projectRoot: string, evalV2Root: str
     writeFileSync(join(privateDir, "truth.private.json"), JSON.stringify(build.truth, null, 2), "utf8");
     if (build.script) {
       writeFileSync(join(privateDir, "script.json"), JSON.stringify(build.script, null, 2), "utf8");
+    }
+    if (build.audit) {
+      writeFileSync(join(privateDir, "audit.json"), JSON.stringify(build.audit, null, 2), "utf8");
     }
   }
 

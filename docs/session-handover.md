@@ -51,7 +51,7 @@
 | 项 | 值 |
 |---|---|
 | 版本 / 分支 | `0.3.1` / `main` |
-| 测试 | TS 258（`npm test`：含恢复的 eval-v2；数字以 docs/status.json 为准）+ Go adapter + `typecheck` 全绿 |
+| 测试 | TS 262（`npm test`：含恢复的 eval-v2；数字以 docs/status.json 为准）+ Go adapter + `typecheck` 全绿 |
 | 迁移 | `001` … `006_evidence_uid.sql` |
 | 运行 | `npm run host`（生产，systemd `ticket-doctor-host`）/ `npm run demo`（离线；可开观测做验证） |
 | 部署 | `docker-compose.yml` + `Dockerfile` + `adapters/go/Dockerfile`（已构建并冒烟） |

@@ -8,6 +8,11 @@
 //     截断、错误 SHA、错根因+正确引用（claimSupport 引用条件+归因）、合理追问、空日志推健康、
 //     摘要越界、反证后固执、引用不可解析等。
 //   * 所有比率带 numerator/denominator/notApplicable/unscored；null 不参与平均。
+//
+// 3.2.0（A2）：回写代理改组间 AND（原 flat 化 ANY 偏乐观）；claimSupport 的缺测口径从
+// requiredFacts 代理计数改为"实际可判判断清单"（validated 终稿的 summary/confirmedFacts/
+// hypotheses/nextSteps 逐条）；反证更新从按轮改为按被推翻 claim 逐条计分。
+import { createHash } from "node:crypto";
 import type {
   AssertionRuleV2,
   CaseDescriptorV2,
@@ -20,7 +25,7 @@ import type {
   RequirementSatisfaction,
 } from "./types.ts";
 
-export const SCORER_VERSION = "3.1.0";
+export const SCORER_VERSION = "3.2.0";
 
 // ---------- 概念断言判定（否定窗口豁免，逐次出现判定） ----------
 
@@ -132,6 +137,42 @@ function claimsOf(stage: "raw" | "validated", round: RoundScoreInput): ClaimSet 
   };
 }
 
+// ---------- 可判判断清单（A2）：review 的分母与绑定基准 ----------
+
+export type JudgableField = "summary" | "confirmedFacts" | "hypotheses" | "nextSteps";
+
+/** 一个可被内容复核判断的声明位（validated 终稿；summary 视为 1 条，数组字段逐条展开）。 */
+export interface ClaimSlot {
+  roundId: string;
+  stage: "validated";
+  field: JudgableField;
+  index: number;
+  /** 稳定内容 ID：sha256(roundId|field|index|text) 前 16 hex；输出内容变化即失效（A2）。 */
+  claimId: string;
+  text: string;
+}
+
+export function claimIdOf(roundId: string, field: JudgableField, index: number, text: string): string {
+  return createHash("sha256").update(`${roundId}\u0000${field}\u0000${index}\u0000${text.trim()}`).digest("hex").slice(0, 16);
+}
+
+/** 从评分输入枚举全部可判判断（validated 阶段；空文本不计）。 */
+export function listJudgableClaims(rounds: RoundScoreInput[]): ClaimSlot[] {
+  const out: ClaimSlot[] = [];
+  for (const round of rounds) {
+    const claims = claimsOf("validated", round);
+    const push = (field: JudgableField, index: number, text: string | undefined) => {
+      if (!text || !text.trim()) return;
+      out.push({ roundId: round.roundId, stage: "validated", field, index, claimId: claimIdOf(round.roundId, field, index, text), text: text.trim() });
+    };
+    push("summary", 0, claims.summary);
+    claims.confirmedFacts.forEach((t, i) => push("confirmedFacts", i, t));
+    claims.causes.forEach((h, i) => push("hypotheses", i, h.cause));
+    claims.nextSteps.forEach((t, i) => push("nextSteps", i, t));
+  }
+  return out;
+}
+
 // ---------- 断言规则应用 ----------
 
 function ruleFiresOnHypothesis(rule: AssertionRuleV2, h: { cause: string; status?: string; evidenceIds?: string[] }): boolean {
@@ -214,13 +255,17 @@ function hardChecksForRound(round: RoundScoreInput, stage: "raw" | "validated"):
   return failures;
 }
 
-/** 确定性回写判定（scoreTrial 与 review 重评分共用，避免两处口径漂移）。 */
+/**
+ * 确定性回写判定（scoreTrial 与 review 重评分共用，避免两处口径漂移）。
+ * 关键词**代理**指标（3.2.0）：概念组语义与 requiredFacts 一致——组间 AND、组内 any-of；
+ * 是否真正保留/否定事实由人工内容复核评价，此处只做机械覆盖检查。
+ */
 export function deterministicWritebackOk(round: RoundScoreInput): boolean {
   const wb = round.writebackText ? normalize(round.writebackText) : null;
   if (wb === null) return false;
   const conceptsPresent = (groups: string[][]): boolean => {
-    const words = groups.flat();
-    return words.length === 0 || words.some((w) => wb.includes(normalize(w)));
+    if (groups.length === 0) return true;
+    return assertsConcepts(wb, groups);
   };
   return round.truth.requiredFacts.every((f) => conceptsPresent(f.concepts)) &&
     (round.truth.writebackRequirements ?? []).every((r) => conceptsPresent(r.concepts));
@@ -306,30 +351,35 @@ export function scoreTrial(input: ScorerInput): CaseScoreV2 {
       clarifyResults.push(clarification);
     }
 
-    // 4. 反证更新（§9.4"反证后固执"）：被推翻概念不得再作为事实断言出现在
-    //    confirmedFacts 或 supported 假设里；只在 candidate 假设中 → 按降级判定。
-    //    summary 是叙述文本，"Redis 告警为伴随现象"属合法措辞，其固执表达应由
-    //    truth.forbiddenRules（where 含 summary）显式声明，不在此猜测。
-    //    无正式报告（error/缺失）→ 缺测 null，不算"撤回成功"。
-    let contradiction: boolean | null = null;
+    // 4. 反证更新（§9.4"反证后固执"；3.2.0 起按**被推翻 claim 逐条**判定）：
+    //    每条被推翻概念独立判定——一条正确降级不得掩盖同轮另一条仍固执的假设。
+    //    被推翻概念不得再作为事实断言出现在 confirmedFacts 或 supported 假设里；
+    //    只在 candidate 假设中 → 按降级判定。summary 是叙述文本，"Redis 告警为伴随现象"
+    //    属合法措辞，其固执表达应由 truth.forbiddenRules（where 含 summary）显式声明。
+    //    无正式报告（error/缺失）→ 该轮全部 claim 缺测 null，不算"撤回成功"。
+    let roundContradiction: boolean | null = null;
     if ((truth.contradictedClaims ?? []).length > 0) {
       if (round.outcome === "error" || !round.validatedReport) {
-        contradiction = null;
-        contradictionResults.push(null); // 缺测进分母口径：unscored，不算撤回成功
+        for (const claim of truth.contradictedClaims) contradictionResults.push(null);
+        roundContradiction = null;
       } else {
         const claims = claimsOf("validated", round);
-        const verdicts = truth.contradictedClaims.map((claim) => {
+        const claimOk: boolean[] = [];
+        for (const claim of truth.contradictedClaims) {
           const factsAsserted = claims.confirmedFacts.some((f) => assertsConcepts(f, claim.concepts));
           const supportedAssert = claims.causes.some((h) => h.status === "supported" && assertsConcepts(h.cause, claim.concepts));
-          if (supportedAssert || factsAsserted) return false;
-          const candidateAssert = claims.causes.some(
-            (h) => (h.status === "candidate" || h.status === "refuted") && assertsConcepts(h.cause, claim.concepts),
-          );
-          if (candidateAssert) return claim.allowCandidate;
-          return true; // 已撤回（报告存在且不再断言）
-        });
-        contradiction = verdicts.every((v) => v === true);
-        contradictionResults.push(contradiction);
+          let ok: boolean;
+          if (supportedAssert || factsAsserted) ok = false;
+          else {
+            const candidateAssert = claims.causes.some(
+              (h) => (h.status === "candidate" || h.status === "refuted") && assertsConcepts(h.cause, claim.concepts),
+            );
+            ok = candidateAssert ? claim.allowCandidate : true;
+          }
+          contradictionResults.push(ok);
+          claimOk.push(ok);
+        }
+        roundContradiction = claimOk.every((v) => v === true);
       }
     }
 
@@ -352,7 +402,7 @@ export function scoreTrial(input: ScorerInput): CaseScoreV2 {
       outcome: round.outcome,
       hardFailures: validatedFailures,
       clarificationSuccess: clarification,
-      contradictionUpdate: contradiction,
+      contradictionUpdate: roundContradiction,
       newC1Satisfied: round.visibility.filter((v) => v.applicable && v.satisfied.C1 === true).map((v) => v.requirementId),
     });
   }
@@ -378,6 +428,9 @@ export function scoreTrial(input: ScorerInput): CaseScoreV2 {
     validCitations.length === 0
       ? mkMetric(0, 0)
       : mkMetric(validCitations.filter((c) => c.resolved && !c.wrongSha).length, validCitations.length);
+
+  // ---- 可判判断清单（A2）：claimSupport 的缺测口径 = 实际可判判断数 ----
+  const claimSlots = listJudgableClaims(input.rounds);
 
   // ---- 确定性必需事实覆盖（关键词代理，单列；不是语义评分） ----
   const factTotal = input.rounds.reduce((n, r) => n + r.truth.requiredFacts.length, 0);
@@ -428,9 +481,9 @@ export function scoreTrial(input: ScorerInput): CaseScoreV2 {
     traceCompletion: mkMetric(traceResults.filter((t) => t).length, traceResults.length),
     recall: { A: recallOf("A"), B: recallOf("B"), C1: recallOf("C1"), C2: recallOf("C2"), D: recallOf("D") },
     citationValidity,
-    // 语义支持：review 导入前必须保持未评分（den=0，unscored=重要判断数）；
+    // 语义支持：review 导入前必须保持未评分（den=0，unscored=实际可判判断数，A2）；
     // 不允许关键词代理重新生成 value（P3）。
-    claimSupport: { numerator: 0, denominator: 0, notApplicable: 0, unscored: factTotal, value: null },
+    claimSupport: { numerator: 0, denominator: 0, notApplicable: 0, unscored: claimSlots.length, value: null },
     requiredFactCoverage,
     unsupportedAssertionRate: assertionCount === 0 ? mkMetric(0, 0) : mkMetric(unsupportedCount, assertionCount),
     clarificationSuccess:

@@ -1,7 +1,7 @@
 // 阶段一验收反例：真实访问边界（符号链接/目录别名/junction/空授权/扫描不完整）。
 // junction 用例在非 Windows 环境标记 skip（保留回归，Windows 上运行）。
 import assert from "node:assert/strict";
-import { linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -216,14 +216,13 @@ test("回归：Windows junction 真正触达路径检查（preflight 视图别�
     writeFileSync(join(root, "public", "c1", "round-2", "future-svc.log"), FUTURE_LINE);
     // (a) 视图目录 junction：round-1 → round-2（别名）→ 预检真实路径判重阻断
     const mkJunction = (target: string, link: string): void => {
-      const { rmSync: rm } = require("node:fs") as typeof import("node:fs");
-      rm(link, { force: true, recursive: true }); // 预清理：防止残留导致 EEXIST 干扰
+      rmSync(link, { force: true, recursive: true }); // 预清理：防止残留导致 EEXIST 干扰（ESM：顶部静态导入，不能用 require）
       try {
         symlinkSync(target, link, "junction");
       } catch (err) {
         const code = (err as NodeJS.ErrnoException).code ?? "";
         if (code === "EPERM" || code === "EACCES") {
-          t.skip(`环境限制：创建 junction 需管理员/开发者模式（${code}）`);
+          t.skip(`环境限制：创建 junction 需管理员/开发者模式（${code}）。替代验证：在启用开发者模式的 Windows 环境运行本测试`);
           return;
         }
         throw err; // EEXIST/EINVAL 等属实现错误，不得标为权限 skip
@@ -319,7 +318,7 @@ test("读取不完整：视图文件不可读 → incomplete_scan，不崩溃不
     chmodSync(join(root, "public", "c1", "round-1", "svc.log"), 0o000);
     try {
       readFileSync(join(root, "public", "c1", "round-1", "svc.log"));
-      t.skip("环境限制：当前用户（可能为 root）不受文件权限约束，无法构造不可读文件");
+      t.skip("环境限制：当前用户（可能为 root）不受文件权限约束，无法构造不可读文件。替代验证：以非 root 用户运行本测试（CI Linux job 默认满足）");
       return;
     } catch {
       // 预期：确实不可读，继续断言
@@ -349,7 +348,7 @@ test("扫描缺口补漏：视图子目录枚举失败 → incomplete_scan（不
     chmodSync(join(root, "public", "c1", "round-1", "nested"), 0o000);
     try {
       readdirSync(join(root, "public", "c1", "round-1", "nested"));
-      t.skip("环境限制：当前用户（可能为 root）不受目录权限约束");
+      t.skip("环境限制：当前用户（可能为 root）不受目录权限约束。替代验证：以非 root 用户运行本测试（CI Linux job 默认满足）");
       return;
     } catch {
       // 预期不可枚举

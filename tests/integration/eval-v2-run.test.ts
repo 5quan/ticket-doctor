@@ -165,9 +165,15 @@ test("隔离阻断：未来材料与首轮同视图的 case 被拒于评测之�
       caseIds: ["eng-bad-isolation"],
     });
     assert.equal(summary.cases.length, 0, "隔离失败的 case 不得进入评测");
-    const blocked = readJson(join(root, "runs", "int-blocked", "blocked.json")) as Array<{ caseId: string; reason: string }>;
-    assert.equal(blocked.length, 1);
-    assert.match(blocked[0].reason, /隔离预检失败/);
+    // A3：终态显式入账——caseStatuses 记 isolation_blocked，计划口径可对账。
+    assert.equal(summary.caseStatuses.length, 1);
+    assert.equal(summary.caseStatuses[0]!.phase, "isolation_blocked");
+    assert.match(summary.caseStatuses[0]!.reason ?? "", /隔离预检失败/);
+    assert.equal(summary.planned.cases, 1);
+    assert.equal(summary.planned.trials, 1);
+    const blocked = readJson(join(root, "runs", "int-blocked", "blocked.json")) as { caseStatuses: Array<{ caseId: string; phase: string; reason: string }> };
+    assert.equal(blocked.caseStatuses.length, 1);
+    assert.match(blocked.caseStatuses[0]!.reason, /隔离预检失败/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

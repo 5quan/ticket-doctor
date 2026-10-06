@@ -27,9 +27,19 @@ runs/<suite-id>/            # 每次运行：manifest.json + summary.json + 逐 
 ## 2. 运行
 
 > **2026-10-05 更新（迁移分支）**：新增 `--audit on|off`（默认 off，与 `TD_AUDIT_ENABLED` 解耦）、
-> `--gate on [--max-hard-failures N]`（CI 门禁，只卡硬失败；预期阻断 `blocked` 不计）、
-> `push`（把 trial trace+分数推 Langfuse，v4 下轨迹走 OTLP、分数走 ingestion）、
-> 以及 `sourceTier=reproduced_history` 的 log-only 案例（`repos` 可空，见 RCAEval 导入）。
+> `--gate on [--max-hard-failures N]`（CI 门禁）、`push`（把 trial trace+分数推 Langfuse，
+> v4 下轨迹走 OTLP、分数走 ingestion）、以及 `sourceTier=reproduced_history` 的 log-only 案例。
+>
+> **2026-10-07 更新（交付一，A0–A3 可信度加固）**：
+> - `--audit on` + `scripted/fake` → **确定性审计器**（case 私有 `audit.json` 脚本审计优先，
+>   否则零成本假审计）；**环境配置为 pi 也不会回落真实模型审计器**（费用边界）。`engine=pi`
+>   才构建真实审计器。实际引擎与审计提示词指纹入 manifest（`diagnosis.audit.engine/promptHash`）。
+> - `--gate on` 除硬失败外还查**完整性**：装载/隔离/运行错误（omissions）、trial 数不足都会
+>   失败退出；预期阻断（`blocked`）与准入拒绝（非 engineering 且未 admitted）单独计数不算失败。
+> - 每个用户轮保存**全部**引擎调用（`artifacts.rounds[].engineCalls`，initial/supplement），
+>   初稿错误保留在 `rawDraft`，终稿单独评价（`report`）；trace 增加逐调用 `engine_call` 事件。
+> - manifest 冻结于运行前，结束时复核材料指纹漂移（`freezeCheck`）；`project.dirtyFiles/diffHash`
+>   归档非干净提交的修改指纹；脚本/审计脚本 hash 入账（`cases[].scriptHash/auditScriptHash`）。
 
 ```bash
 npm run eval:v2 -- run --suite daily-1 --engine scripted [--repeat 3] [--cases eng-clarify]
@@ -39,19 +49,38 @@ npm run eval:v2 -- run --suite daily-1 --engine scripted [--repeat 3] [--cases e
   `DEEPSEEK_API_KEY` 预检通过，CLI 不代填凭据；真实模型每套配置完整跑三次并保留全部结果。
 - 每次 trial：全新 Store 与调查 → 生产编排（`executeRun`）逐轮执行 → 捕获发送端记录回写 →
   持久化导出 trace → 逐轮标准打分。
-- 产物：`runs/<suite>/manifest.json`（完整 HEAD、材料/标准/提示词/预算 hash）、
-  `summary.json`、逐 trial `trace.jsonl / outputs.json / score.json`。
+- 产物：`runs/<suite>/manifest.json`（完整 HEAD、材料/标准/提示词/预算/脚本/审计 hash、
+  freezeCheck）、`summary.json`（含 planned/counts/caseStatuses 终态）、逐 trial
+  `trace.jsonl / outputs.json / score.json`。
 
 ## 3. 复核与重评分
 
 ```bash
-npm run eval:v2 -- replay --suite daily-1    # 重算评分并与 score.json 逐字段比对
-npm run eval:v2 -- summary --suite daily-1   # 汇总视图（含硬失败清单）
+npm run eval:v2 -- replay --suite daily-1    # 重算评分并与 score.json 逐字段比对（缺产物即失败）
+npm run eval:v2 -- summary --suite daily-1   # 汇总视图（有复核工件时追加复核聚合）
+npm run eval:v2 -- rescore --suite daily-1 --case <id> --trial t1 --review review.json
 ```
 
+**review 工件 v3（`prediagnosis-review-v3`，2026-10-07，破坏性升级）**：
+
+- 绑定五元组 + 输出内容：`suiteRunId/caseId/trialId` 必须匹配，`outputsHash`（文件级，
+  由被复核输出内容计算）不匹配即拒绝——trial 重跑后旧工件不会误导入。
+- claims 只允许指向 **validated 终稿**的实际判断槽位（summary/confirmedFacts/hypotheses/
+  nextSteps 逐条枚举），必须携带稳定 `claimId`（内容 hash）；未知槽位、越界下标、重复记录、
+  raw 跨阶段记录整份拒绝。
+- `review.reviewerType` 必填 `human|model`——模型裁判分不得伪装人工分。
+- 反证复核按**被推翻 claim 逐条**（`roundId+claimId`，claimId 须存在于该轮 truth）。
+- 分母来自实际判断清单（不是提交的 review 条数）；未复核部分保持缺测，
+  `semanticReview.coverage` 显示覆盖率；硬失败不可被覆盖。
+- rescore 追加产物：review 工件按内容哈希归档到 `reviews/<hash>.review.json`，同一工件
+  拒绝重复导入；基础 `score.json` 保持不可变，复核分写 `score.reviewed.json`。
+- `summary` 在存在 `score.reviewed.json` 时追加复核聚合并写 `summary.reviewed.json`；
+  `push` 优先推送复核分并在 metadata 标注 `scoreSource`。
+
 - 语义项（claimSupport 等）在人工 rubric 导入前保持 null；provisional 标准的结论只作参考。
-- 评分器标识为独立版本（`SCORER_VERSION=3.0.0`），与旧口径禁止同表对比；改判定语义必须
-  bump 并对旧 trace 重评分。
+- 评分器标识为独立版本（`SCORER_VERSION=3.2.0`），与旧口径禁止同表对比；改判定语义必须
+  bump 并对旧 trace 重评分。3.2.0 变更：回写代理改组间 AND；claimSupport 缺测口径改为
+  实际判断清单；反证更新按被推翻 claim 逐条计分。
 
 ## 4. 关键口径速查
 

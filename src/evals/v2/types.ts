@@ -59,6 +59,11 @@ export interface CaseDescriptorV2 {
   rounds: CaseRoundV2[];
   /** 工程自测用的脚本引擎行为；真实模型 case 不得携带。 */
   scriptedEngine?: boolean;
+  /**
+   * 工程自测用的脚本审计行为（A1）：私有目录 audit.json 提供确定性审计步骤。
+   * 审计开启时 scripted/fake 引擎强制走确定性审计器，不得回落真实模型。
+   */
+  scriptedAudit?: boolean;
 }
 
 // ---------- 私有逐轮标准 ----------
@@ -222,6 +227,23 @@ export interface CapturedSend {
   at: number;
 }
 
+/** 一次诊断引擎调用的完整记录（A1）：一次用户轮可产生多次调用（审计补证循环）。 */
+export interface EngineCallRecord {
+  /** 本轮内的调用序号（0-based）。 */
+  index: number;
+  /** initial=首轮草稿；supplement=审计补证后的再诊断。 */
+  phase: "initial" | "supplement";
+  kind: "report" | "reply";
+  /** report 调用的草稿（深拷贝，未经校验/审计）。 */
+  draft?: unknown;
+  /** reply 调用的文本。 */
+  replyText?: string;
+  reason?: "clarify" | "chat";
+  modelTurns: number;
+  model?: string;
+  wallTime: number;
+}
+
 export interface RoundArtifacts {
   roundId: string;
   runId?: string;
@@ -229,11 +251,13 @@ export interface RoundArtifacts {
   errorCode?: string | null;
   errorMessage?: string | null;
   outcome: RoundOutcomeKind;
-  /** 模型原始草稿（引擎装饰器捕获，深拷贝，未经校验）。 */
+  /** 模型原始草稿（本轮**首次**引擎调用，深拷贝，未经校验；初稿错误不因审计纠正而抹去）。 */
   rawDraft?: unknown;
-  /** 校验后正式报告（reports 表持久化内容）。 */
+  /** 本轮全部引擎调用（初始草稿 + 补证再诊断 + 补证后转回复），按序完整保存（A1）。 */
+  engineCalls: EngineCallRecord[];
+  /** 校验（+审计应用）后的最终报告（reports 表持久化内容）。 */
   report?: unknown;
-  /** clarify/chat 回复文本。 */
+  /** clarify/chat 回复文本（取本轮**最后一次**调用；与生产实际产出一致）。 */
   replyText?: string;
   /** 实际回写（捕获发送端记录的文本）。 */
   writebackText?: string;
@@ -350,8 +374,17 @@ export interface CaseScoreV2 {
   writebackSuccess: MetricValue;
   hardFailures: HardFailure[];
   stageFindings: StageFinding[];
-  /** 语义 rubric 结果导入前恒为 unscored（§9.3）。 */
-  semanticReview: { imported: boolean; provisional: boolean };
+  /** 语义 rubric 结果导入前恒为 unscored（§9.3）；导入后携带来源身份与覆盖率（A2）。 */
+  semanticReview: {
+    imported: boolean;
+    provisional: boolean;
+    /** 导入复核的来源身份（A2）：reviewerType=human|model，模型裁判分不得伪装人工分。 */
+    author?: string;
+    reviewer?: string;
+    reviewerType?: "human" | "model";
+    /** claimSupport 复核覆盖率：已复核 / 实际可判判断总数。 */
+    coverage?: { reviewed: number; total: number };
+  };
   /** 逐轮摘要：产出类型、该轮硬失败、补问/反证结论、本轮新增 C1 满足的需求。 */
   roundScores: Array<{
     roundId: string;
@@ -365,11 +398,27 @@ export interface CaseScoreV2 {
   attribution: Array<{ layer: "engineering" | "material" | "reasoning" | "clarification" | "contradiction" | "scoring"; hint: string }>;
 }
 
+export type CasePhase = "admission_rejected" | "isolation_blocked" | "load_error" | "validate_error" | "run_error" | "score_error" | "scored";
+
+/** 单 case 的执行终态（A3）：计划内每个 case 必须落到其中一种，缺失即门禁失败。 */
+export interface CaseStatus {
+  caseId: string;
+  phase: CasePhase;
+  /** scored 的 case 此处为其 trial 数；未 scored 的 case 为 0。 */
+  trials: number;
+  reason?: string;
+}
+
 export interface SuiteSummaryV2 {
   schemaVersion: "prediagnosis-score-v2";
   suiteRunId: string;
   engine: string;
   repeat: number;
+  /** 计划口径（A3）：计划 case 数与计划 trial 数（不含准入拒绝的 case）。 */
+  planned: { cases: number; trials: number };
+  /** 终态计数（A3）：预期阻断的 trial 与准入拒绝的 case 单独计数，不与失败混同。 */
+  counts: { scoredTrials: number; blockedExpectedTrials: number; admissionRejected: number; unscoredCases: number };
+  caseStatuses: CaseStatus[];
   cases: Array<{ caseId: string; familyId: string; split: CaseSplit; admission: Admission; trials: CaseScoreV2[] }>;
   /** 聚合只作参考，硬失败单列；均值不得掩盖。 */
   aggregate: Record<string, MetricValue>;

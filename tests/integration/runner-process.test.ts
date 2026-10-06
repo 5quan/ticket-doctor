@@ -19,6 +19,9 @@ function config() {
   const base = testConfig();
   base.sources.repos = [{ repoId: "app", dir: join(ROOT, "fixtures", "demo-repo") }];
   base.sources.allowedRepos = ["app"];
+  // 子进程冷启动（node --experimental-strip-types）在并行测试负载下可超 5s 默认预算，
+  // 被误判 cancelled（交接文档坑 5）；此处放宽诊断超时，租约（60s）不变。
+  base.diagnosis.timeoutMs = 30_000;
   return base;
 }
 
