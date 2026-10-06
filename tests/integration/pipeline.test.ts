@@ -10,6 +10,7 @@ import { processDeliveriesOnce } from "../../src/delivery/delivery.ts";
 import { executeRun } from "../../src/diagnosis/orchestrator.ts";
 import { FakeFeishuClient } from "../../src/integrations/feishu/fake-client.ts";
 import type { DiagnosisEngine } from "../../src/agent/types.ts";
+import type { EvidenceAuditor } from "../../src/agent/audit-types.ts";
 import { extractSessionCode } from "../../src/domain/session.ts";
 import type { InboundMessage } from "../../src/domain/types.ts";
 import { routeInbound } from "../../src/intake/router.ts";
@@ -65,6 +66,65 @@ test("完整链路：新建调查 → 诊断 → 报告 → 投递，且报告�
   assert.match(report, /【预检报告】/);
   assert.match(report, /已确认事实/);
   assert.equal(extractSessionCode(report), routed.sessionCode);
+});
+
+test("独立审计：Host 应用判定（contradicted→refuted，报告转 partial，不阻断发布）", async () => {
+  const store = memoryStore();
+  const cfg = config();
+  cfg.diagnosis.audit = { enabled: true, allowRetrieval: false, failBlocks: false };
+  const engine = new FakeDiagnosisEngine({ defaultService: "checkout-service" });
+  const auditor: EvidenceAuditor = {
+    name: "stub-audit",
+    async audit() {
+      return {
+        result: {
+          claimVerdicts: [{ hypothesisIndex: 0, verdict: "contradicted", reason: "存在反证" }],
+          missingEvidence: [],
+          stopAdvice: { action: "stop", reason: "done" },
+        },
+        modelTurns: 1,
+      };
+    },
+  };
+
+  routeInbound(store, cfg, msg({ externalMessageId: "om_audit" }));
+  const claimed = store.claimNextRun("w1", 60_000)!;
+  await executeRun({ store, config: cfg, engine, auditor }, claimed);
+  assert.equal(store.getRun(claimed.run.id)!.status, "succeeded");
+
+  const stored = JSON.parse(store.getReportByRun(claimed.run.id)!.content) as {
+    completeness: string;
+    hypotheses: Array<{ status: string }>;
+    corrections: string[];
+  };
+  assert.equal(stored.hypotheses[0]!.status, "refuted");
+  assert.equal(stored.completeness, "partial");
+  assert.ok(stored.corrections.some((c) => c.includes("refuted")));
+});
+
+test("独立审计失败（failBlocks=false）：显式降级但不阻断发布", async () => {
+  const store = memoryStore();
+  const cfg = config();
+  cfg.diagnosis.audit = { enabled: true, allowRetrieval: false, failBlocks: false };
+  const engine = new FakeDiagnosisEngine({ defaultService: "checkout-service" });
+  const auditor: EvidenceAuditor = {
+    name: "boom",
+    async audit() {
+      throw new Error("audit model down");
+    },
+  };
+
+  routeInbound(store, cfg, msg({ externalMessageId: "om_audit_fail" }));
+  const claimed = store.claimNextRun("w1", 60_000)!;
+  await executeRun({ store, config: cfg, engine, auditor }, claimed);
+  assert.equal(store.getRun(claimed.run.id)!.status, "succeeded");
+
+  const stored = JSON.parse(store.getReportByRun(claimed.run.id)!.content) as {
+    completeness: string;
+    missingMaterial: string[];
+  };
+  assert.equal(stored.completeness, "partial");
+  assert.ok(stored.missingMaterial.some((m) => m.includes("audit model down")));
 });
 
 test("非诊断回复：不产生报告，直接把文本投递出去", async () => {

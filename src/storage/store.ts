@@ -991,6 +991,19 @@ export class Store {
     });
   }
 
+  /** 读取某轮的运行事件（按 sequence）。供测试/运维核对审计、失败等生命周期。 */
+  listRunEvents(runId: string): Array<{ sequence: number; type: string; payload: unknown; createdAt: number }> {
+    const rows = this.db
+      .prepare("SELECT sequence, type, payload, created_at FROM run_events WHERE run_id = ? ORDER BY sequence")
+      .all(runId) as Array<{ sequence: number; type: string; payload: string | null; created_at: number }>;
+    return rows.map((r) => ({
+      sequence: asNumber(r.sequence),
+      type: r.type,
+      payload: r.payload === null ? undefined : (JSON.parse(r.payload) as unknown),
+      createdAt: asNumber(r.created_at),
+    }));
+  }
+
   // ---------- session entries（单存储：模型会话进库，取代 JSONL） ----------
 
   /**

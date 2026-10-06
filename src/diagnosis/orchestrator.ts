@@ -14,6 +14,12 @@ import type { Store, ClaimedRun } from "../storage/store.ts";
 import type { EventStore } from "../host/event-store.ts";
 import { ToolBudgetExceeded } from "../agent/toolbox.ts";
 import type { DiagnosisEngine } from "../agent/types.ts";
+import type { AuditResult } from "../agent/audit-types.ts";
+import { AUDIT_POLICY_VERSION } from "../agent/audit-types.ts";
+import { buildAuditor } from "../agent/factory.ts";
+import type { EvidenceAuditor } from "../agent/audit-types.ts";
+import { StoreEvidenceResolver } from "../evidence/store-resolver.ts";
+import { buildAuditInput, runAuditPhase } from "./audit.ts";
 import type { ObservationRecorder } from "../observability/langfuse.ts";
 import { StoreEvidenceSink } from "../evidence/store-sink.ts";
 import { prepareDiagnosis, type PreparedDiagnosis } from "./prepare.ts";
@@ -27,6 +33,8 @@ export interface OrchestratorDeps {
   engine: DiagnosisEngine;
   /** 让测试注入假日志源。缺省用配置文件日志源。 */
   logSource?: FileLogSource;
+  /** 让测试注入审计器；缺省按配置构建（audit.enabled=false 时为 undefined，跳过审计）。 */
+  auditor?: EvidenceAuditor;
   /** Host EventStore（SSE）：提供时把生命周期事件持久化并推送。 */
   eventStore?: EventStore;
   /** Langfuse 观测记录器：未启用时缺省（不采集，业务不受影响）。 */
@@ -143,10 +151,45 @@ export async function executeRun(deps: OrchestratorDeps, claimed: ClaimedRun): P
       throw err;
     }
     runSession.finish();
+
+    // 独立审计（OQ-30）：引擎产出草稿后，在同一次 attempt 内跑独立上下文复核；
+    // 失败策略（阻断/降级）由配置决定，判定由 Host 侧 finalize 确定性应用。
+    let audit: AuditResult | undefined;
+    let auditFailure: string | undefined;
+    let auditTurns = 0;
+    if (result.kind === "report") {
+      const auditor = deps.auditor ?? buildAuditor(config);
+      if (auditor && config.diagnosis.audit.enabled) {
+        const evidence = new StoreEvidenceResolver(store, investigation.id, run.id).listByInvestigation(investigation.id);
+        const executionLimits = [
+          `工具调用 ${toolbox.toolCalls}/${config.diagnosis.maxToolCalls}`,
+          `时间预算 ${config.diagnosis.timeoutMs}ms`,
+        ];
+        store.appendRunEvent(run.id, claimed.attemptId, "audit_started", { policyVersion: AUDIT_POLICY_VERSION });
+        const phase = await runAuditPhase({
+          auditor,
+          config: config.diagnosis.audit,
+          input: buildAuditInput({
+            question,
+            service: investigation.service ?? undefined,
+            environment: investigation.environment ?? undefined,
+            scope,
+            draft: result.draft,
+            evidence,
+            executionLimits,
+          }),
+          signal: controller.signal,
+        });
+        audit = phase.audit;
+        auditFailure = phase.failure;
+        auditTurns = phase.modelTurns;
+      }
+    }
+
     store.appendRunEvent(run.id, claimed.attemptId, "engine_finished", {
       kind: result.kind,
       toolCalls: result.toolCalls,
-      modelTurns: result.modelTurns,
+      modelTurns: result.modelTurns + auditTurns,
       model: result.model,
     });
 
@@ -158,6 +201,8 @@ export async function executeRun(deps: OrchestratorDeps, claimed: ClaimedRun): P
       missingMaterial,
       toolCalls: toolbox.toolCalls,
       question,
+      audit,
+      auditFailure,
     });
     endObservation(
       finalized.ok

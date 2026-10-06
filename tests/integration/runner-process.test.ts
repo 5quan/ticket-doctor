@@ -62,6 +62,25 @@ test("独立 Runner 子进程执行一轮诊断并由 Host 回写报告", async 
   }
 });
 
+test("独立 Runner 子进程内跑审计并回传判定（process 路径）", async () => {
+  const store = memoryStore();
+  const cfg = config();
+  cfg.diagnosis.audit = { enabled: true, allowRetrieval: false, failBlocks: false };
+  routeInbound(store, cfg, msg({ externalMessageId: "om_proc_audit" }));
+  const claimed = store.claimNextRun("w1", 60_000)!;
+
+  // 真实 spawn src/entrypoints/runner.ts：Runner 内 buildAuditor(fake)→FakeEvidenceAuditor，Host 应用判定。
+  const execute = createRunnerExecutor({ store, config: cfg });
+  await execute(claimed);
+
+  assert.equal(store.getRun(claimed.run.id)!.status, "succeeded");
+  const events = store.listRunEvents(claimed.run.id);
+  assert.ok(
+    events.some((e) => e.type === "audit_applied"),
+    `process 路径应记录 audit_applied，实际事件：${events.map((e) => e.type).join(", ")}`,
+  );
+});
+
 test("Runner 上报的 usage 汇总到 run（process 路径）", async () => {
   const store = memoryStore();
   const cfg = config();

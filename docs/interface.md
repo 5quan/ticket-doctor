@@ -353,7 +353,8 @@ Worker claimNextRun() → executeRun()            src/diagnosis/orchestrator.ts
 
 - stdin：一行 `RunnerTask` JSON（含 `observability` 观测配置）；之后可发 `{"type":"cancel"}`。
 - stdout NDJSON：`ready | session_entry | tool_execution | observation | progress | result | error`。
-  `observation` 自协议 v3（`EVIDENCE_PROTOCOL_VERSION=3`）起加入，承载 Langfuse 观测事件（best-effort，不影响判定）。
+  `observation` 自协议 v3 起加入，承载 Langfuse 观测事件（best-effort，不影响判定）；
+  协议 v4（`EVIDENCE_PROTOCOL_VERSION=4`）加入独立审计：`RunnerTask.priorEvidence` 与 `RunnerResult.audit/auditFailure`。
 - 结果 `result`：`kind=report` 带 `draft + evidence[] + scope + missingMaterial`；`kind=reply` 带 `text + reason`。
 - Runner 不碰数据库；Host 校验代次后代为写入 `session_entries` / `tool_executions` / `reports`。
 

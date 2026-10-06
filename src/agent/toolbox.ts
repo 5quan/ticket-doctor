@@ -39,6 +39,8 @@ export interface ToolboxDeps {
 export class DiagnosisToolbox implements Toolbox {
   readonly maxToolCalls: number;
   private calls = 0;
+  /** 本轮已提交证据（按提交顺序）：供审计快照使用，避免审计再打一次数据库。 */
+  private readonly committed: EvidenceRef[] = [];
   private readonly deps: ToolboxDeps;
 
   constructor(deps: ToolboxDeps) {
@@ -82,7 +84,13 @@ export class DiagnosisToolbox implements Toolbox {
       items,
       result,
     });
+    this.committed.push(...refs);
     return refs;
+  }
+
+  /** 本轮已签发的证据快照（只读副本）。 */
+  evidenceSnapshot(): EvidenceRef[] {
+    return [...this.committed];
   }
 
   /** SourcePage → 覆盖信息：随证据结果一起返回，告诉模型“这次拿得全不全、怎么续查”。 */

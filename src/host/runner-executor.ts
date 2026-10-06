@@ -11,6 +11,7 @@ import type { AppConfig } from "../config/index.ts";
 import { classifyRunError, failRun, finalizeEngineResult } from "../diagnosis/finalize.ts";
 import { usageOf } from "../diagnosis/run-session.ts";
 import { buildSavedToolResults } from "../evidence/recovery.ts";
+import { StoreEvidenceResolver } from "../evidence/store-resolver.ts";
 import type { ObservationRecorder, ObservationRunIdentity } from "../observability/langfuse.ts";
 import {
   EVIDENCE_PROTOCOL_VERSION,
@@ -69,6 +70,10 @@ export function createRunnerExecutor(deps: RunnerExecutorDeps): RunExecutor {
       engine: config.diagnosis.engine,
       diagnosis: config.diagnosis,
       sources: config.sources,
+      // 审计开启时才传（避免无谓放大任务体积）：本调查既往证据，供跨轮引用在 Runner 内解析。
+      priorEvidence: config.diagnosis.audit.enabled
+        ? new StoreEvidenceResolver(store, investigation.id, run.id).listByInvestigation(investigation.id).slice(-200)
+        : undefined,
     };
     // 发送前协议版本校验（D12）：不匹配不派发，判本轮失败
     if (task.protocolVersion !== EVIDENCE_PROTOCOL_VERSION) {
@@ -271,6 +276,8 @@ export function createRunnerExecutor(deps: RunnerExecutorDeps): RunExecutor {
               missingMaterial: result.kind === "report" ? result.missingMaterial : undefined,
               toolCalls: result.toolCalls,
               question: message.text,
+              audit: result.kind === "report" ? result.audit : undefined,
+              auditFailure: result.kind === "report" ? result.auditFailure : undefined,
             });
             deps.recorder?.endAttempt(obsIdentity, {
               status: "ok",

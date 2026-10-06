@@ -230,6 +230,12 @@ type Platform interface {
 
 ### 5.6 [阶段二] 独立上下文审计 Agent（OQ-30）
 
+> **✅ 已实施（首版单次审计，2026-10-04）**：契约由「sufficient/insufficient」升级为逐结论 `claimVerdicts[]`
+> （supported / unsupported / contradicted / undecidable）+ `missingEvidence[]` + `stopAdvice`，程序**逐条降级具体结论**
+> （`contradicted→refuted`，`unsupported/undecidable` 把 supported 降 candidate）；`AUDIT_POLICY_VERSION=1.0.0`。
+> 冻结策略：审计**不主动检索**、失败**显式降级不阻断**。详见 `docs/open-questions.md`「OQ-30 实施记录」。
+> 未做（后续）：有界补证循环、并行专项审计、Supervisor、审计主动检索。
+
 **目标/验收**：把「证据是否充分」从主诊断剥离到**独立上下文**，结构化输出
 `已确认事实 / 疑似原因 / 补证请求`，程序按预算收敛；修掉「材料不足仍给 supported」与「引用干扰证据」。
 
@@ -324,7 +330,7 @@ type Platform interface {
 `GET /api/agent/capabilities`、`GET /`（Web 页）。
 
 **Host↔Runner**（`src/runner/protocol.ts`）：stdin `RunnerTask`（含 `observability` 配置）+ `{"type":"cancel"}`；
-stdout NDJSON `ready|session_entry|tool_execution|observation|progress|result|error`（`observation` 自协议 v3 起，承载观测事件）。
+stdout NDJSON `ready|session_entry|tool_execution|observation|progress|result|error`（`observation` 自协议 v3 起；协议 v4 加 `RunnerTask.priorEvidence` 与 `RunnerResult.audit/auditFailure`，OQ-30）。
 
 **工具**：`query_logs / list_files / search_code / read_code / request_info / submit_report`。
 

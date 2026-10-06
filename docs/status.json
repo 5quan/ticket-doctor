@@ -1,7 +1,7 @@
 {
   "version": "0.3.1",
   "tests": {
-    "ts": 156,
+    "ts": 167,
     "go": "adapter"
   },
   "migrations": {
@@ -16,7 +16,7 @@
     "host_runner": "done",
     "evidence_uid": "done",
     "observability_langfuse": "done",
-    "audit_agent": "todo",
+    "audit_agent": "done_first_version",
     "eval_harness": "removed",
     "eval_m2": "deferred"
   },

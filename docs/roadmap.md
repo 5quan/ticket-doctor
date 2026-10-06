@@ -45,7 +45,7 @@
 - [x] **修评测打分器（P0）**：已修——`scorer` 同时按 `evidence_uid` 与 `E#` 建索引，`EvidenceRecord` 增 `evidenceUid`（UID 兼容）；fake 基线误报 0% 已纠正。口径随后升级 v2 校准（OQ-41），数字以 `docs/status.json#eval` 为准。见 `docs/session-handover.md §4`。
 - [ ] **评测 Benchmark（RSI）— M2**：`rules.md` 条目化 + 增量 delta + 程序合并（照 ACE）；Pareto + μ_f（照 GEPA）；扩样本（20~30）、judge 版正确率、独立 test 集、CI 门禁。
 - [ ] **评测 Benchmark（RSI）— M3**：L1 自动迭代（`docs/evolve-protocol.md`）、场景迁移验证。
-- [ ] **独立上下文审计 Agent**：证据充分性审查，结构化输出已确认事实/疑似原因/补证请求（OQ-30）。
+- [x] **独立上下文审计 Agent（首版单次审计）**：诊断 → 程序冻结草稿+证据快照 → 独立审计会话（不主动检索）→ 程序逐结论降级；失败显式降级不阻断；`AUDIT_POLICY_VERSION=1.0.0`（OQ-30）。补证循环/并行审计/主动检索待后续。
 - [ ] 提示词调优（针对"跳工具直接作答 / 过度归因 / 漏报缺失材料"做 A/B）。
 - [x] 工具补**路径层** `list_files`（照搬 pi `ls`/`find` 分层）。
 - [x] `search_code` 改"有界预览 + 路径清单"（清单 ≤20 文件 + 前 8 处预览；每处命中仍签 `E#`，见 OQ-36）。

@@ -12,6 +12,8 @@ import type { ObservationRecorder, ObservationRunIdentity } from "../observabili
 import type { ClaimedRun, InvestigationRow, MessageRow, Store } from "../storage/store.ts";
 import { StoreEvidenceResolver } from "../evidence/store-resolver.ts";
 import { validateDraft } from "./validate.ts";
+import { applyAudit, applyAuditFailure } from "./audit.ts";
+import { AUDIT_POLICY_VERSION, type AuditResult } from "../agent/audit-types.ts";
 
 export interface FinalizeDeps {
   store: Store;
@@ -55,6 +57,10 @@ export interface FinalizeArgs {
   missingMaterial?: string[];
   toolCalls: number;
   question: string;
+  /** 独立审计判定（OQ-30）：由执行侧跑出，Host 在此确定性应用。 */
+  audit?: AuditResult;
+  /** 审计失败且不阻断时的原因（failBlocks=false）：显式降级但不阻断发布。 */
+  auditFailure?: string;
 }
 
 /**
@@ -107,7 +113,7 @@ export function finalizeEngineResult(
   // 证据已在工具 commit 时入库（D8）；校验按调查内已持久化证据解析（§9），跨调查结构性不可达。
   const resolver = new StoreEvidenceResolver(store, args.investigation.id, claimed.run.id);
   const validationStartedAt = Date.now();
-  const { report } = validateDraft(draft, {
+  const validation = validateDraft(draft, {
     resolver,
     scope,
     investigationId: args.investigation.id,
@@ -116,6 +122,23 @@ export function finalizeEngineResult(
       `时间预算 ${config.diagnosis.timeoutMs}ms`,
     ],
   });
+  let report = validation.report;
+  // 独立审计（OQ-30）：模型出判定，降级/降完整度在这里确定性执行；只降不升。
+  if (args.audit) {
+    report = applyAudit(report, args.audit);
+    store.appendRunEvent(claimed.run.id, claimed.attemptId, "audit_applied", {
+      policyVersion: AUDIT_POLICY_VERSION,
+      verdicts: args.audit.claimVerdicts,
+      stopAdvice: args.audit.stopAdvice,
+    });
+  }
+  if (args.auditFailure) {
+    report = applyAuditFailure(report, args.auditFailure);
+    store.appendRunEvent(claimed.run.id, claimed.attemptId, "audit_failed", {
+      policyVersion: AUDIT_POLICY_VERSION,
+      failure: args.auditFailure,
+    });
+  }
 
   // 观测：report-validation span（草稿 → 校验后报告与程序修正），与 attempt 是兄弟节点。
   const obsIdentity: ObservationRunIdentity = {

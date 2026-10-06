@@ -78,7 +78,7 @@
 
 | # | 议题 | 状态 |
 |---|---|---|
-| OQ-30 | 独立上下文审计 Agent（证据充分性审查） | 已结论（简历口径已定，阶段二实现；见下） |
+| OQ-30 | 独立上下文审计 Agent（证据充分性审查） | 已实施（首版单次审计，2026-10-04；见下实施记录） |
 | OQ-31 | 评测 Benchmark（RSI）与记忆规则迭代 | 已结论（阶段二，依赖逐次落盘；见 backlog Q6） |
 | OQ-32 | 生产诊断 MCP Server | 已结论（阶段三；工具外化，见 backlog Q7） |
 | OQ-33 | 会话 JSONL 是否照搬 pi 的 durable storage 契约 | **已结论（被 OQ-34 取代）**。最终未采用 JSONL 契约，改为单库（SQLite）；仍借鉴其“恢复语义”。半截模型流不落盘（失败丢弃尾巴 + 整轮重试）。 | 已结论（取代） |
@@ -125,6 +125,38 @@
 - 额外成本/延迟（每次审计一次 LLM 调用）→ 只在"主 Agent 要提交"或"预算将尽"时触发。
 - "独立上下文"是独立**推理**，不是独立**信息**（证据相同）→ 不要把独立性绝对化。
 - 验证比生成容易 → 结构部分用程序、语义部分用小模型，性价比更高。
+
+### OQ-30 实施记录（首版单次审计，2026-10-04）
+
+**形态**：同一个 Runner 进程 / 同一事件循环内按顺序跑两个独立 pi 会话——诊断会话（有工具、保留调查历史）
+→ 程序冻结草稿与证据快照 → 审计会话（独立 in-memory session、无检索工具）→ 程序按判定对**具体结论**降级。
+Agent 是角色/上下文/权限，Runner 是执行进程：不新增 Worker/队列，两者共享一次 attempt 与总超时。
+
+**已冻结的策略（用户已拍板）**：
+
+1. **审计不主动检索**（`TD_AUDIT_ALLOW_RETRIEVAL=false`，首版）：审计只读冻结证据快照 + 范围/覆盖信息；
+   避免预算/恢复/上下文复杂度，并保持与主诊断的语义独立性。主动检索留待首版验证有效后再评估。
+2. **审计失败不阻断、显式降级**（`TD_AUDIT_FAIL_BLOCKS=false`）：模型报错/超时/未产出 `submit_audit` 时，
+   报告照常提交，但 `completeness→partial` 且 `corrections`/`missingMaterial` 标注「未经独立复核」；
+   置 true 则走 `failRun`（可重试）。
+3. **降级映射**：`contradicted → refuted`；`unsupported`/`undecidable` 把 `supported → candidate`（confidence→low）；
+   已是 candidate 的结论不因弱判定强行降完整度。只有「原标 supported 的结论被降级」或有 `missingEvidence` 才判 partial。
+4. **程序决定收敛**：审计只出 `claimVerdicts[] / missingEvidence[] / stopAdvice`；首版按单次审计执行，
+   不实现补证循环（`stopAdvice=continue` 只记录）。
+
+**版本控制**：`AUDIT_POLICY_VERSION = "1.0.0"`（`src/agent/audit-types.ts`），改动提示词/输出契约/降级规则时递增；
+结果随 `run_events`（`audit_started` / `audit_applied` / `audit_failed`）与 `policyVersion` 落库，禁止跨版本比较判定。
+
+**隔离与预算**：审计会话用 `SessionManager.inMemory()`，**不写 `session_entries`**（不污染主会话、不跨轮）；
+审计器无工具，不占检索额度；其模型调用次数并入本轮 `modelTurns`；共享同一 `AbortSignal`（总超时）。
+跨轮证据：Host 在任务里带 `priorEvidence`（仅审计开启时），Runner 内与本轮工具箱证据按 uid 合并。
+
+**接口/文件**：`EvidenceAuditor`（`src/agent/audit-types.ts`）、`PiEvidenceAuditor`（`src/agent/pi-auditor.ts`）、
+`FakeEvidenceAuditor`（`src/agent/fake-auditor.ts`）、程序控制器（`src/diagnosis/audit.ts`：`buildAuditInput` /
+`selectAuditEvidence` / `runAuditPhase` / `applyAudit` / `applyAuditFailure`）；Host 在 `finalize.ts` 应用；
+两条执行路径（`orchestrator.ts` 内联、`entrypoints/runner.ts` 进程 + `runner-executor.ts`）都接入；协议 v4。
+
+**未做**：有界补证循环、并行专项审计、Supervisor、审计主动检索、审计专用观测 span（当前只记 run_events 与模型轮次）。
 
 ## 观测（Langfuse）（2026-10-04 新增）
 

@@ -10,10 +10,15 @@ import type { ToolExecutionRecord } from "../agent/types.ts";
 import type { DiagnosisConfig, ObservabilityConfig, SourcesConfig } from "../config/index.ts";
 import type { EvidenceItem, EvidenceRef } from "../evidence/types.ts";
 import type { MaterialScope, ReportDraft } from "../domain/types.ts";
+import type { AuditResult } from "../agent/audit-types.ts";
 import type { ObservationEvent } from "../observability/types.ts";
 
-/** 证据持久化协议版本（docs/evidence-uid-design.md §6 / D12）。v3：+observation 观测消息与 RunnerTask.observability。 */
-export const EVIDENCE_PROTOCOL_VERSION = 3;
+/**
+ * 证据持久化协议版本（docs/evidence-uid-design.md §6 / D12）。
+ * v3：+observation 观测消息与 RunnerTask.observability。
+ * v4：+独立审计（RunnerTask.priorEvidence / RunnerResult.audit）。
+ */
+export const EVIDENCE_PROTOCOL_VERSION = 4;
 
 export interface RunnerTaskObservability {
   /** Host 侧观测已启用且初始化成功；false 时 Runner 不产生观测事件。 */
@@ -46,6 +51,8 @@ export interface RunnerTask {
   engine: "fake" | "pi";
   diagnosis: DiagnosisConfig;
   sources: SourcesConfig;
+  /** 审计开启时：本调查既往证据快照（Host 读库），供跨轮引用在 Runner 内解析。 */
+  priorEvidence?: EvidenceRef[];
   /** 观测开关与 scope（v3）：身份由 Host 注入，Runner 不自报。 */
   observability?: RunnerTaskObservability;
 }
@@ -59,6 +66,10 @@ export type RunnerResult =
       toolCalls: number;
       modelTurns: number;
       model?: string;
+      /** 独立审计判定（OQ-30）；未启用审计时缺省。 */
+      audit?: AuditResult;
+      /** 审计失败且不阻断时的原因（failBlocks=false）。 */
+      auditFailure?: string;
     }
   | {
       kind: "reply";
