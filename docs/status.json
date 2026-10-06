@@ -1,7 +1,7 @@
 {
   "version": "0.3.1",
   "tests": {
-    "ts": 256,
+    "ts": 258,
     "go": "adapter"
   },
   "migrations": {
@@ -19,7 +19,7 @@
     "audit_agent": "done_first_version",
     "eval_harness": "mvp_offline",
     "eval_m2": "deferred",
-    "eval_v2": "migrating"
+    "eval_v2": "migrating_m1_done"
   },
   "eval_mvp": {
     "status": "mvp_offline",

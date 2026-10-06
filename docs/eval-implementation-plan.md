@@ -127,8 +127,8 @@
 | # | 任务 | 验收 | 状态 |
 |---|---|---|---|
 | M0 | 建分支 + 恢复 `66d5425` 的 v2 资产（`src/evals/v2`、6 测试、`docs/eval-v2.md`、`eval:v2` 入口、`fixtures/evals/checkout-timeout` + `scripts/init-eval-fixture.mjs`） | 资产在分支上；typecheck 绿；脚本套件可跑 | ✅ 完成（`eval/v2-migrate`）：T7 `SourcePage` 适配 + 恢复 `onPrepared` 钩子；脚本套件 `eng-clarify` 已过 |
-| M1 | runner/脚本引擎适配当前主链路（`runDiagnosisLoop`：审计/补证、协议 v4、证据 UID） | 工程案例多轮跑通，审计阶段可见 | 🔴 进行中：`eng-counter-evidence` 在 r1 产出 `error`（旧脚本假设 vs 新链路） |
-| M2 | 可见性四层 + 覆盖信息 | 四层指标可产出；截断续查有对应指标 | 🔴 进行中：可见性反例断言 `gold 已入库(B 层)` 得 0（T7 分页后的 B 层重建） |
+| M1 | runner/脚本引擎适配当前主链路（`runDiagnosisLoop`：审计/补证、协议 v4、证据 UID） | 工程案例多轮跑通，审计阶段可见 | ✅ 完成：根因是 `extractService` 把日期当服务名（OQ-45，已修）；`eng-clarify`/`eng-counter-evidence`/`eng-truncation` 全通；version 用例为**预期阻断**，`eval-v2-version` 集成测试通过 |
+| M2 | 可见性四层 + 覆盖信息 | 四层指标可产出；截断续查有对应指标 | ✅ 完成：`eval-v2-run` 可见性反例（B 命中、C1 不命中）集成测试通过 |
 | M3 | scorer 3.1.0 按当前口径重验（UID/审计/覆盖） | 正反例测试全绿；旧口径作废声明 | 待办 |
 | M4 | manifest/hash 纳入 audit policy + 覆盖口径；重放逐字段一致 | `replay` 与 `score.json` 一致 | 待办 |
 | M5 | 隔离预检适配当前 sources | 违规 case `blocked`，不进口径 | 待办 |

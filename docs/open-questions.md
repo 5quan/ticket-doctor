@@ -203,3 +203,9 @@ Agent 是角色/上下文/权限，Runner 是执行进程：不新增 Worker/队
 - 测试：`tests/unit/config-sources.test.ts`、`tests/unit/toolbox.test.ts`（服务越权/时间窗收窄/无交集/来源标注）。
 - 后续已补（T7，2026-10-04）：材料源统一返回覆盖信息（`total/truncated/hasMore/nextCursor`），`query_logs/list_files/search_code` 支持 `cursor` 续查、`read_code` 用 `startLine` 续读，空结果显式 `（无结果：…）`；崩溃恢复从 `result_json` 还原覆盖信息。
 - 仍未做（见 backlog M2）：日志过滤缺 environment 与 request/trace id 结构化字段。
+
+## 入站服务名提取（2026-10-05 新增）
+
+| # | 问题 | 结论 | 状态 |
+|---|---|---|---|
+| OQ-45 | `extractService` 会把日期当服务名，污染材料范围 | **已修复**（评测 v2 迁移 M1 时发现）：标注捕获 `服务: xxx` 不要求含字母，`"checkout-service 服务: 2026-09-06 10:01 ..."` 会把 `2026-09-06` 提取为服务名写入 `investigation.service`，使 `MaterialScope.services` 错误。T1（OQ-44）范围约束生效后，`query_logs` 会因 `service ∉ scope.services` 被拒（真实故障会因此查不到日志）。修复：标注捕获必须含字母，否则回退 `xxx-service` 命名匹配；新增 `tests/unit/intake-service-extract.test.ts`。 | 已完成 |
