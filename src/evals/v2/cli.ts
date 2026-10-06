@@ -18,6 +18,7 @@ import { aggregateMetrics, runSuite } from "./runner.ts";
 import { SCORER_VERSION, scoreTrial, listJudgableClaims, type ScorerInput } from "./scorer.ts";
 import { applyReview, judgedOutputsHash, reviewedBindingValid, validateReview } from "./review.ts";
 import { createEvalLangfuse, type TrialMetric } from "./langfuse.ts";
+import { applySyncResult, buildTrialPayload, emptySyncState, shouldSync, type LfSyncState } from "./experiment.ts";
 import type { CaseDescriptorV2, CaseScoreV2, MetricValue, SuiteSummaryV2 } from "./types.ts";
 import type { SuiteManifestV2 } from "./manifest.ts";
 
@@ -294,9 +295,14 @@ async function main(): Promise<void> {
   if (command === "push") {
     const suite = arg("--suite");
     if (!suite) usage();
-    const runDir = join(evalRoot, "runs", suite);
+    const force = process.argv.includes("--force"); // 布尔旗标：出现即 true
+    const runDir = runDirOf(evalRoot, suite);
     if (!existsSync(runDir)) {
       console.error(`[eval:v2] 找不到 suite 运行目录：${runDir}`);
+      process.exit(1);
+    }
+    if (!existsSync(join(runDir, "summary.json")) || !existsSync(join(runDir, "manifest.json"))) {
+      console.error(`[eval:v2] 缺少 manifest/summary（产物不完整，拒绝推送）：${runDir}`);
       process.exit(1);
     }
     const obs = config.observability;
@@ -315,56 +321,68 @@ async function main(): Promise<void> {
       console.error("[eval:v2] 缺少 LANGFUSE_BASE_URL / LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY");
       process.exit(2);
     }
-    const pushed: Record<string, string> = {};
-    for (const caseId of readdirSync(runDir, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name)) {
-      const caseDir = join(runDir, caseId);
-      for (const trialId of readdirSync(caseDir, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name)) {
-        const dir = join(caseDir, trialId);
-        const scorePath = join(dir, "score.json");
-        const outputsPath = join(dir, "outputs.json");
-        if (!existsSync(scorePath) || !existsSync(outputsPath)) continue;
-        const { scorerInput } = JSON.parse(readFileSync(outputsPath, "utf8")) as { scorerInput: ScorerInput };
-        // A2/#6：复核分优先于基础程序分进入推送，但必须通过绑定核验（outputsHash 一致）；
-        // 失效则回退程序分并告警。来源显式入 metadata。
-        const reviewedPath = join(dir, "score.reviewed.json");
-        let score: CaseScoreV2 | null = null;
-        let scoreSource = "program";
-        if (existsSync(reviewedPath)) {
-          const reviewed = JSON.parse(readFileSync(reviewedPath, "utf8")) as CaseScoreV2;
-          if (reviewedBindingValid(reviewed, scorerInput)) {
-            score = reviewed;
-            scoreSource = `review:${reviewed.semanticReview.reviewerType ?? "unknown"}/${reviewed.semanticReview.reviewer ?? "unknown"}`;
-          } else {
-            console.warn(`[eval:v2] ${caseId}/${trialId} 复核分绑定失效（outputsHash 不符），回退程序分`);
-          }
+    // B2：同步状态（runs/<suite>/langfuse-sync.json）——confirmed 跳过、failed 续传、
+    // 重复同步以确定性 traceId/score id 幂等，不产生重复记录。
+    const syncPath = join(runDir, "langfuse-sync.json");
+    const syncState: LfSyncState = existsSync(syncPath)
+      ? (JSON.parse(readFileSync(syncPath, "utf8")) as LfSyncState)
+      : emptySyncState(suite);
+    const summary = JSON.parse(readFileSync(join(runDir, "summary.json"), "utf8")) as SuiteSummaryV2;
+    let confirmed = 0;
+    let skipped = 0;
+    let failed = 0;
+    for (const c of summary.cases) {
+      for (const t of c.trials) {
+        const key = `${c.caseId}/${t.trialId}`;
+        if (!shouldSync(syncState, key, force)) {
+          skipped += 1;
+          continue;
         }
-        if (!score) score = JSON.parse(readFileSync(scorePath, "utf8")) as CaseScoreV2;
-        const metrics = buildMetrics(score);
-        const traceId = await lf.pushTrial({
-          suite,
-          caseId,
-          trialId,
-          engine: score.engine,
-          scorerVersion: score.scorerVersion,
-          input: loadRoundMessages(evalRoot, caseId, scorerInput.caseDesc),
-          output: (score.roundScores ?? []).map((r) => `${r.roundId}:${r.outcome}`).join(", "),
-          metadata: {
-            familyId: score.familyId,
-            split: score.split,
-            sourceTier: score.sourceTier,
-            executionSuccess: score.executionSuccess,
-            hardFailures: score.hardFailures.length,
-            scoreSource,
-          },
-          metrics,
-        });
-        if (traceId) pushed[`${caseId}/${trialId}`] = traceId;
-        console.log(`  ${caseId}/${trialId} → trace ${traceId?.slice(0, 12) ?? "?"}（${metrics.length} 分，${scoreSource === "program" ? "程序分" : "复核分"}）`);
+        const dir = join(runDir, c.caseId, t.trialId);
+        const outputsPath = join(dir, "outputs.json");
+        if (!existsSync(outputsPath)) {
+          failed += 1;
+          applySyncResult(syncState, key, { ok: false, traceId: "", scores: 0, rounds: 0, error: "缺少 outputs.json" });
+          continue;
+        }
+        const { scorerInput } = JSON.parse(readFileSync(outputsPath, "utf8")) as { scorerInput: ScorerInput };
+        // 复核分：存在且绑定核验通过才作为 reviewed 侧车上报（来源单列，不与程序分混同）。
+        const reviewedPath = join(dir, "score.reviewed.json");
+        let reviewed: CaseScoreV2 | null = null;
+        if (existsSync(reviewedPath)) {
+          const candidate = JSON.parse(readFileSync(reviewedPath, "utf8")) as CaseScoreV2;
+          if (reviewedBindingValid(candidate, scorerInput)) reviewed = candidate;
+          else console.warn(`[eval:v2] ${key} 复核分绑定失效（outputsHash 不符），只上报程序分`);
+        }
+        try {
+          const payload = buildTrialPayload({
+            suiteRunId: suite,
+            caseId: c.caseId,
+            trialId: t.trialId,
+            runDir,
+            familyId: c.familyId,
+            split: c.split,
+            sourceTier: t.sourceTier,
+            score: t,
+            reviewed,
+            input: loadRoundMessages(evalRoot, c.caseId, scorerInput.caseDesc),
+          });
+          const traceId = await lf.pushExperimentTrial(payload);
+          applySyncResult(syncState, key, { ok: true, traceId, scores: payload.scores.length, rounds: payload.rounds.length });
+          confirmed += 1;
+          console.log(`  ✅ ${key} → trace ${traceId.slice(0, 12)}（${payload.scores.length} 分 / ${payload.rounds.length} 轮子观测${reviewed ? " + 复核分" : ""}）`);
+        } catch (err) {
+          failed += 1;
+          applySyncResult(syncState, key, { ok: false, traceId: "", scores: 0, rounds: 0, error: err instanceof Error ? err.message : String(err) });
+          console.error(`  ❌ ${key} → ${err instanceof Error ? err.message : err}`);
+        }
       }
     }
-    writeFileSync(join(runDir, "langfuse.json"), JSON.stringify(pushed, null, 2), "utf8");
+    writeFileSync(syncPath, JSON.stringify(syncState, null, 2), "utf8");
     await lf.shutdown();
-    console.log(`[eval:v2] 已推送 ${Object.keys(pushed).length} 个 trial 到 Langfuse（${obs.baseUrl}）；映射：${join(runDir, "langfuse.json")}`);
+    console.log(`[eval:v2] 同步完成：confirmed=${confirmed} skipped(已确认)=${skipped} failed=${failed} → ${syncPath}`);
+    // 同步失败不改诊断结果、不丢本地产物；以非零退出提示续传。
+    if (failed > 0) process.exit(1);
     return;
   }
 

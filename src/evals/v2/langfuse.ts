@@ -3,14 +3,16 @@
 // Langfuse v4（本机 4.50.0，LANGFUSE_MIGRATION_V4_WRITE_MODE=events_only）：
 //   * trace/observation 必须走 OTLP → 复用依赖 `@langfuse/otel` 的 LangfuseSpanProcessor；
 //   * `/api/public/ingestion` 在 events_only 下**只接受 score 事件** → 分数用 score-create 推送；
-//   * traceId 由 OTel 生成，推送时从 span 取，分数以它关联。
+//   * traceId 确定性派生（experiment.ts）：OTLP span 以 NonRecordingSpan 父上下文承载该
+//     traceId，重复同步得到同一 trace（B2 幂等）；分数以它关联，score id 同样确定性。
 //
-// 权威源：本推送只写“程序分/观测”；人工裁决以 Langfuse 为准，本地不停覆盖。
-import { randomUUID } from "node:crypto";
+// 权威源：本推送只写“程序分/观测”；人工裁决以 Langfuse 为准，本地快照只读。
+import { createHash, randomUUID } from "node:crypto";
 import { BasicTracerProvider } from "@opentelemetry/sdk-trace-base";
 import { LangfuseSpanProcessor } from "@langfuse/otel";
-import { ROOT_CONTEXT, SpanStatusCode, trace } from "@opentelemetry/api";
+import { ROOT_CONTEXT, SpanStatusCode, TraceFlags, trace } from "@opentelemetry/api";
 import { createTraceAttributes, LangfuseOtelSpanAttributes as LF } from "@langfuse/tracing";
+import type { TrialExperimentPayload } from "./experiment.ts";
 
 export interface EvalLangfuseConfig {
   baseUrl: string;
@@ -40,6 +42,8 @@ export interface TrialPush {
 
 export interface EvalLangfuse {
   pushTrial(trial: TrialPush): Promise<string | undefined>;
+  /** B1：推送一个 trial 的完整实验载荷（逐轮子观测 + 全量分数）；返回确定性 traceId。 */
+  pushExperimentTrial(payload: TrialExperimentPayload): Promise<string>;
   shutdown(): Promise<void>;
 }
 
@@ -49,6 +53,12 @@ function jsonAttr(value: unknown): string {
   } catch {
     return '"[unserializable]"';
   }
+}
+
+/** 确定性 score id（8-4-4-4-12）：同 (traceId, name) 重复同步幂等（B2）。 */
+export function deterministicScoreId(traceId: string, name: string): string {
+  const h = createHash("sha256").update(`score\u0000${traceId}\u0000${name}`).digest("hex").slice(0, 32);
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`;
 }
 
 export function createEvalLangfuse(config: EvalLangfuseConfig | undefined): EvalLangfuse | undefined {
@@ -117,6 +127,102 @@ export function createEvalLangfuse(config: EvalLangfuseConfig | undefined): Eval
       }
       return traceId;
     },
+
+    // B1：完整实验载荷上报。根 span = trial（确定性 traceId），每个用户轮一个子 span，
+    // 携带正式报告全文/回写/工具返回/审计过程（保留原始时间）；分数走 ingestion（确定性 id）。
+    async pushExperimentTrial(payload: TrialExperimentPayload): Promise<string> {
+      // 以 non-recording 父上下文承载确定性 traceId：真实子 span 继承该 traceId（B2 幂等）。
+      const parentCtx = trace.wrapSpanContext({
+        traceId: payload.traceId,
+        spanId: payload.traceId.slice(0, 16),
+        traceFlags: TraceFlags.SAMPLED,
+      });
+      const ctx = trace.setSpan(ROOT_CONTEXT, parentCtx);
+
+      const span = tracer.startSpan(
+        payload.name,
+        {
+          attributes: {
+            ...createTraceAttributes({ input: payload.input ?? null, output: payload.output ?? null }),
+            [LF.TRACE_NAME]: payload.name,
+            [LF.TRACE_SESSION_ID]: payload.sessionId,
+            [LF.TRACE_METADATA]: jsonAttr({
+              experimentId: payload.experimentId,
+              ...payload.metadata,
+            }),
+          },
+        },
+        ctx,
+      );
+      span.setStatus({ code: SpanStatusCode.OK });
+      span.end();
+
+      for (const round of payload.rounds) {
+        const roundSpan = tracer.startSpan(
+          `round/${round.roundId}`,
+          {
+            attributes: {
+              ...createTraceAttributes({
+                input: null,
+                output: jsonAttr({
+                  outcome: round.outcome,
+                  status: round.status,
+                  report: round.report,
+                  writebackText: round.writebackText,
+                  rawDraftSummary: round.rawDraftSummary,
+                  replyText: round.replyText,
+                  corrections: round.corrections,
+                }),
+              }),
+              [LF.TRACE_METADATA]: jsonAttr({
+                roundId: round.roundId,
+                runId: round.runId,
+                toolCalls: round.toolCalls,
+                auditEvents: round.auditEvents,
+                metrics: round.metrics,
+              }),
+              "eval.round.outcome": round.outcome,
+              "eval.round.run_id": round.runId ?? "",
+            },
+          },
+          ctx,
+        );
+        roundSpan.setStatus({ code: SpanStatusCode.OK });
+        roundSpan.end();
+      }
+      await provider.forceFlush();
+
+      // 分数（ingestion）：确定性 id → 平台侧按 id 幂等，重复同步不产生重复分数。
+      const now = new Date().toISOString();
+      const batch = payload.scores.map((m) => ({
+        id: deterministicScoreId(payload.traceId, m.name),
+        type: "score-create" as const,
+        timestamp: now,
+        body: {
+          traceId: payload.traceId,
+          name: m.name,
+          value: typeof m.value === "boolean" ? (m.value ? 1 : 0) : m.value,
+          dataType: typeof m.value === "boolean" ? "BOOLEAN" : "NUMERIC",
+          ...(m.comment ? { comment: m.comment } : {}),
+        },
+      }));
+      if (batch.length > 0) {
+        const res = await fetch(`${base}/api/public/ingestion`, {
+          method: "POST",
+          headers: { authorization: auth, "content-type": "application/json" },
+          body: JSON.stringify({ batch }),
+        });
+        if (!res.ok && res.status !== 207) {
+          throw new Error(`Langfuse ingestion 失败：HTTP ${res.status}`);
+        }
+        const body = (await res.json()) as { errors?: Array<{ message?: string }> };
+        if (body.errors && body.errors.length > 0) {
+          throw new Error(`Langfuse 分数推送部分失败：${body.errors.map((e) => e.message).join("; ")}`);
+        }
+      }
+      return payload.traceId;
+    },
+
     async shutdown(): Promise<void> {
       await provider.forceFlush().catch(() => {});
       await provider.shutdown().catch(() => {});

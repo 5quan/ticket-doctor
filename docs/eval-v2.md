@@ -99,6 +99,20 @@ npm run eval:v2 -- rescore --suite daily-1 --case <id> --trial t1 --review revie
 - `summary` 在存在 `score.reviewed.json` 时追加复核聚合并写 `summary.reviewed.json`；
   `push` 优先推送复核分并在 metadata 标注 `scoreSource`。
 
+> **2026-10-07 更新（交付二 B1–B2，Langfuse 实验闭环）**：
+> - `push` 重构为**实验载荷同步**：一个 trial = 一个 experiment item（确定性 traceId），
+>   每个用户轮一个子观测（正式报告全文/实际回写/工具返回/审计过程，保留原始时间）；
+>   input 只含公开题面（白名单），truth 侧评价标准标识（requirementId/ruleId）不入上报，
+>   C2 恒 null 不冒充。复核分以 `.reviewed` 后缀侧车并列（绑定核验通过才上报）。
+> - **幂等**：traceId/score id 确定性派生（`sha256(suite|case|trial)`），重复同步得到同一
+>   trace/分数；`langfuse-sync.json` 记录 confirmed/failed/attempts/lastError，confirmed
+>   跳过、failed 续传、`--force` 重推；同步失败不改诊断结果、不丢本地产物（exit 1 提示续传）。
+> - **兼容限制**（v4.50 events_only）：`/api/public/v3/scores` 实测对所有分数返回空——
+>   `confirmed` 语义为"平台已确认受理（2xx 无逐条错误）"，**平台可读性仍需 UI 核对**；
+>   Langfuse Dataset/Annotation 走 UI/后续 SDK（需服务端 dataset API 能力验证后接入）。
+> - 人工复核闭环：复核在 Langfuse 标注队列完成后导出 review 工件 → `rescore --review`
+>   → `summary`（复核聚合）/`push`（.reviewed 侧车）。
+
 - 语义项（claimSupport 等）在人工 rubric 导入前保持 null；provisional 标准的结论只作参考。
 - 评分器标识为独立版本（`SCORER_VERSION=3.2.0`），与旧口径禁止同表对比；改判定语义必须
   bump 并对旧 trace 重评分。3.2.0 变更：回写代理改组间 AND；claimSupport 缺测口径改为

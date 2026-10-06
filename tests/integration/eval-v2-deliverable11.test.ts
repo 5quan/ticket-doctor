@@ -378,7 +378,7 @@ test("#4 freezeCheck=false / git unknown → 门禁失败（修复前：门禁�
     // 正常 manifest → 门禁通过（基线）
     const summaryAll = readJson(join(root, "runs", "d11-f", "summary.json")) as Parameters<typeof evaluateGate>[0]["summary"];
     const ok1 = evaluateGate({ summary: summaryAll, manifest: manifest as never, maxHard: 0 });
-    assert.equal(ok1.ok, true, ok1.error);
+    assert.equal(ok1.ok, true, ok1.error ?? "");
 
     // 漂移：freezeCheck=false → 失败
     const drifted = structuredClone(manifest) as typeof manifest;

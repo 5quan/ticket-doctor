@@ -141,3 +141,36 @@ junction 需 Windows 管理员/开发者模式；不可读文件/目录两个用
 - `trials.json` 只在 1.1 之后的运行存在；旧 suite 的 replay 显式拒绝并提示重跑（不兼容静默降级）。
 - 脚本审计耗尽的报告仍会发布（默认放行内容），但硬失败保证其无法通过 `--gate on`；是否改为阻断发布属审计策略（AUDIT_POLICY_VERSION）范畴，本交付不动业务策略。
 - 仓库指纹的 content-fallback 不含历史提交（只有当前工作树内容），对非 git 目录已够用；git 仓库始终走 git-tree 指纹。
+
+
+---
+
+# 交付二：Langfuse 实验与复核闭环（B1–B2，2026-10-07）
+
+## B1 实验（experiment.ts + langfuse.ts pushExperimentTrial）
+- 一个 experiment item = 一次完整 case trial；根 span `eval/<case>`（确定性 traceId），每个用户轮
+  一个子 span `round/<roundId>`：正式报告全文 JSON、实际回写文本、初稿摘要对照、工具返回（头部）、
+  审计决定/失败/应用事件（真实 occurredAt）。
+- 白名单：input 只含公开题面；实验载荷**不携带** truth 侧标识（requirementId/ruleId/locatorId，
+  反例测试锁定）；hardFailure 只上报 code（message 可能内嵌 ruleId）；C2 恒 null。
+- 复核分以 `.reviewed` 后缀侧车上报，不与程序分混同；未复核为 null 的程序语义项不上报（不冒充）。
+
+## B2 可靠同步
+- 确定性幂等：traceId = `sha256("trial"|suite|case|trial)[:32]`；score id 同规则（8-4-4-4-12）。
+  同一 trial 重复同步得到同一 trace 与分数（平台按 id 幂等），反例测试锁定。
+- 同步状态 `runs/<suite>/langfuse-sync.json`（`prediagnosis-lf-sync-v1`）：confirmed（2xx 受理）/
+  failed（原因留档）/attempts 累计；confirmed 跳过、failed 续传、`--force` 重推；失败 exit 1 但
+  不改诊断结果、不丢本地产物。
+- 复核闭环：Langfuse 标注队列（平台侧）→ 导出 review 工件 → `rescore --review` → `summary`
+  复核聚合 → `push` 侧车；模型裁判分单列（reviewerType）。
+
+## 实测
+- `push --suite d11-e2e`：17/17 confirmed（含 2 轮子观测的 eng-audit-loop、eng-clarify/t1 附加复核分侧车）。
+- 再跑一次：`confirmed=0 skipped=17`（幂等跳过）；`--force` 重推 17（同 traceId/score id）。
+- `tests/unit/eval-v2-experiment.test.ts` 5 例全过（载荷结构/防泄漏/状态机/确定性 id/复核侧车）。
+- 全量 276 tests：274 通过 + 1 平台跳过 + docs:check 同步（271→276）。
+
+## 剩余限制
+- v3 scores 读取接口实测恒空（events_only）：confirmed ≠ 已读回，平台可读性需 UI 核对；
+  Dataset/Annotation API 需服务端能力验证后再接（`@langfuse/client` 实验接口暂缓，原因同）。
+- 工具返回只上报头部 600 字符（控制体积）；完整返回在本地 trace.jsonl。
