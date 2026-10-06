@@ -98,4 +98,30 @@
 - 口径：`scorerVersion=3.1.0`、`split=development`、`sourceTier=reproduced_history`。**这是工程/程序指标基线，不是质量结论**（语义未复核）。
 - 已推 Langfuse（`npm run eval:v2 -- push --suite rcaeval-ob5-pi`）：5 条 trace + 每条 9 个分数（UI 核对）。
 - gold 强弱不一：f3 是“根因服务最高频日志”（弱 locator，度量“是否读到根因服务日志”），f4 是真实 `NullPointerException`（强 locator，故障签名）。代码级 gold 仍属 **M8c**。
-- 下一步：**M8b** 对这 5 例人工复核语义（`rescore --review`）→ 冻结首个“开源派生基线”（M9）；并扩到 3 族 6–10 轨迹。
+- 下一步：**M8b** 对这 5 例复核语义（`rescore --review`）→ 冻结首个“开源派生基线”（M9）；并扩到 3 族 6–10 轨迹。
+
+### 7.1 语义复核（**AI 模型裁判，非人工**）
+
+对这 5 例逐例判定并导入（`rescore --suite rcaeval-ob5-pi --case … --review review.json`）：
+
+| case | 判定 | 理由（简） |
+|---|---|---|
+| f4_1 / f4_2 | `supported` | 精确定位 adservice 请求路径对 null 集合调 `Collection.toArray()` 触发 NPE，与 RCAEval f4 一致，有 SEVERE 栈证据 |
+| f3_1 / f3_2 / f3_3 | `plausible_candidate` | 识别到 adservice 重启（JVM 优雅关闭→拉起）；服务级根因正确，但 F3 代码故障在日志不可见，机制属推断 |
+
+- 结果：**claimSupport 5/5 = 100%**；`semanticReview.imported=true`；**硬失败不变**（review 不覆盖确定性失败）。
+- **口径**：`reviewer=model-judge:pi`——这是 **AI 复核，不是人工裁决**。按权威源契约，模型分与人工分应**分来源记录**；发布正式质量基线（M9）仍建议至少补 1 次人工复核。
+
+### 7.2 跨系统扩展（2026-10-05）
+
+再导 RE3-TT（Train Ticket，Spring/45 服务）与 RE3-SS（Sock Shop）各 3 例；`--engine fake` 6/6 加载执行通过；
+`--engine pi` 跨系统 2 例（`re3tt_ts-auth-service_f1_1`、`re3ss_carts_f1_1`）各 1 次：
+
+| 指标 | 结果 |
+|---|---|
+| recall.A/B/C1/D | 2/2 = 100% |
+| executionSuccess | 2/2 = 100% |
+| hardFailures | 0 |
+
+- **gold 质量警示**：TT/SS 的 `f1` 故障在根因服务窗口内**没有 ERROR 行**，自动 gold 落到了 INFO 样板行 → 此时 recall 只是“读到了该服务日志”，**不能当故障定位正确性**。
+- 结论：自动派生 gold 仅适合“材料可达性”；**故障签名/代码级 gold 必须人工或 M8c 补全**。
