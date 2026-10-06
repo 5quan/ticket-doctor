@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { test } from "node:test";
-import { DiagnosisToolbox } from "../../src/agent/toolbox.ts";
+import { DiagnosisToolbox, ToolScopeViolation } from "../../src/agent/toolbox.ts";
 import { MemoryEvidenceSink } from "../../src/evidence/memory-sink.ts";
 import { GitCodeSource, MultiRepoCodeSource } from "../../src/sources/code.ts";
 import type { LogSource } from "../../src/sources/logs.ts";
@@ -128,6 +128,64 @@ test("search_code 预览条数有界，未预览的命中也登记证据", async
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+function toolboxWithScope(scope: MaterialScope, logs: LogSource): DiagnosisToolbox {
+  return new DiagnosisToolbox({
+    logs,
+    sink: new MemoryEvidenceSink(),
+    scope,
+    maxToolCalls: 12,
+    maxToolResultChars: 8_000,
+    maxEvidenceChars: 4_000,
+    signal: new AbortController().signal,
+  });
+}
+
+test("query_logs 拒绝本次调查范围外的服务（fail-closed）", async () => {
+  const logs: LogSource = { name: "stub", async query() { return []; } };
+  const toolbox = toolboxWithScope({ services: ["svc-a"], repos: [] }, logs);
+  await assert.rejects(
+    () => toolbox.queryLogs({ service: "svc-b", from: 0, to: 1_000, keywords: [] }),
+    (err: unknown) => err instanceof ToolScopeViolation && /不在本次调查范围内/.test((err as Error).message),
+  );
+});
+
+test("query_logs 把请求时间窗收窄到本次调查窗，不把模型窗口直接交给日志源", async () => {
+  let seen: { from: number; to: number } | undefined;
+  const logs: LogSource = {
+    name: "stub",
+    async query(intent) {
+      seen = { from: intent.from, to: intent.to };
+      return [];
+    },
+  };
+  const toolbox = toolboxWithScope({ services: ["svc"], repos: [], timeWindow: { from: 1_000, to: 2_000 } }, logs);
+  const out = await toolbox.queryLogs({ service: "svc", from: 0, to: 9_999, keywords: [] });
+  assert.deepEqual(seen, { from: 1_000, to: 2_000 });
+  assert.match(out, /没有匹配的日志条目/);
+});
+
+test("query_logs 请求窗与调查窗无交集时拒绝", async () => {
+  const logs: LogSource = { name: "stub", async query() { return []; } };
+  const toolbox = toolboxWithScope({ services: ["svc"], repos: [], timeWindow: { from: 1_000, to: 2_000 } }, logs);
+  await assert.rejects(
+    () => toolbox.queryLogs({ service: "svc", from: 5_000, to: 6_000, keywords: [] }),
+    /无交集/,
+  );
+});
+
+test("query_logs 结果标注实际生效的时间窗", async () => {
+  const logs: LogSource = {
+    name: "stub",
+    async query() {
+      return [{ time: 1_500, level: "ERROR", message: "boom" }];
+    },
+  };
+  const toolbox = toolboxWithScope({ services: ["svc"], repos: [], timeWindow: { from: 1_000, to: 2_000 } }, logs);
+  const out = await toolbox.queryLogs({ service: "svc", from: 0, to: 9_999, keywords: [] });
+  assert.match(out, /1970-01-01T00:00:01\.000Z/); // 实际生效的收窄后起点
+  assert.match(out, /已按本次调查时间窗收窄/);
 });
 
 test("search_code 输出仍受总量预算截断", async () => {

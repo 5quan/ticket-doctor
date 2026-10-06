@@ -17,6 +17,10 @@
 > `docs/langfuse-observability-implementation-plan.md`，部署与避坑见 `deploy/langfuse/` 与
 > `docs/self-host-langfuse-runbook.md`）。旧评测体系（v1/v2）已整体移除、另行立项，
 > roadmap 中的 M2/M3 条目已作相应标注。生产 Host 以 systemd（`ticket-doctor-host`）运行并已开启观测。
+>
+> **2026-10-04 更新（检索范围 P0）**：`query_logs` 不再把模型的 service/timeWindow 直交给日志源
+> （强制本轮 `scope.services` + 时间窗收窄，越界抛 `ToolScopeViolation`）；`TD_ALLOWED_REPOS` 落实为硬白名单
+> （`resolveSources` 解析 + `prepareDiagnosis` 兜底过滤）。见 OQ-44；遗留覆盖信息/日志过滤维度见 backlog T7/M2。
 
 ---
 
@@ -25,7 +29,7 @@
 | 项 | 值 |
 |---|---|
 | 版本 / 分支 | `0.3.1` / `main` |
-| 测试 | TS 141（`npm test`，数字以 docs/status.json 为准）+ Go adapter（`npm run test:go`）+ `typecheck` 全绿 |
+| 测试 | TS 150（`npm test`，数字以 docs/status.json 为准）+ Go adapter（`npm run test:go`）+ `typecheck` 全绿 |
 | 迁移 | `001` … `006_evidence_uid.sql` |
 | 运行 | `npm run host`（生产，systemd `ticket-doctor-host`）/ `npm run demo`（离线；可开观测做验证） |
 | 部署 | `docker-compose.yml` + `Dockerfile` + `adapters/go/Dockerfile`（已构建并冒烟） |

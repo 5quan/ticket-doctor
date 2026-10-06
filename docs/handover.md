@@ -89,7 +89,7 @@ npm run worker           # 只跑 worker
 
 ## 三、问题与讨论
 
-- 所有提出过的问题、结论与状态，统一记录在 `docs/open-questions.md`（OQ-1 ~ OQ-43）。
+- 所有提出过的问题、结论与状态，统一记录在 `docs/open-questions.md`（OQ-1 ~ OQ-44）。
 - 本轮已解决（示例）：只读价值定位、并发能力、pi 会话持久化含义、信息爆炸处理、路径压缩、
   工具分层照搬、交互/机械回复、发生时间与版本按输入锚定。
 - 仍待探讨：独立上下文审计 Agent（OQ-30）、图片处理（OQ-27）、上下文跨轮复用（证据跨轮已完成，OQ-38）。
@@ -140,6 +140,7 @@ npm run worker           # 只跑 worker
 - 阶段 3：Go 接入适配器（飞书 Webhook + 签名/解密 + 门控单点化 + `-help`；多平台接口 OQ-37）；**长连接 S3 已实现**（官方 Go SDK 锁 v3.12.0，`ADAPTER_MODE=ws`；真机人工验证待有凭据，OQ-40）。
 - 阶段 5：故障注入 + Host 强杀重启 + docker-compose 整链路验证。
 - 证据：两阶段提交 + 稳定 UID + 报告 v1/v2（OQ-38）；工具 6 个（含 `list_files`、`search_code` 有界预览）。
+- 检索范围：`query_logs` 在工具入口强制本轮 `service` + 时间窗；`TD_ALLOWED_REPOS` 成硬白名单（OQ-44）。
 - 评测：旧 v1/v2 harness 已移除、另行立项（历史口径见 `docs/eval-design.md`；冻结基线见 `docs/status.json#eval`）。
 
 **最高优先**：S4 弃用 Host 内直连 → 独立审计 Agent（OQ-30）→ 评测 M2/M3；S3 真机人工验证待有飞书凭据时执行。

@@ -52,14 +52,20 @@ export async function prepareDiagnosis(config: AppConfig, params: PrepareParams)
     occurredAt !== undefined ? config.diagnosis.defaultTimeWindowMs : config.diagnosis.fallbackTimeWindowMs;
   const from = anchor - windowMs;
   const to = anchor + 60 * 60 * 1000;
-  const repositories: RepositoryRef[] = config.sources.repos.map((r) => ({
+  // 仓库授权：allowedRepos 是硬边界（与日志的 allowedServices 同语义）。未授权的仓库一律不进代码源，
+  // 避免模型用 repoId 越权读取。config 层已过滤一次，这里再兜底一次（编程式配置/评测直接注入时同样受约束）。
+  const allowedRepoIds = new Set(config.sources.allowedRepos);
+  const authorizedRepos = config.sources.repos.filter((r) => allowedRepoIds.has(r.repoId));
+  const deniedRepos = config.sources.repos.filter((r) => !allowedRepoIds.has(r.repoId)).map((r) => r.repoId);
+
+  const repositories: RepositoryRef[] = authorizedRepos.map((r) => ({
     repoId: r.repoId,
     // 显式 rev 优先（评测钉 expectedSha / 部署方已知版本）；否则按发生时间钉版本；
     // 都没有则回退当前 HEAD（在报告标注）。
     ...(r.rev ? { rev: r.rev } : { ...(occurredAt !== undefined ? { at: occurredAt } : {}) }),
   }));
 
-  const repoDirs = new Map(config.sources.repos.map((r) => [r.repoId, r.dir]));
+  const repoDirs = new Map(authorizedRepos.map((r) => [r.repoId, r.dir]));
   const { source: codeSource, missing: codeMissing } = await buildCodeSource(repositories, repoDirs);
   // 解析后的实际版本（含按时间钉的 SHA），供模型上下文使用。
   const resolvedRepos: RepositoryRef[] = codeSource
@@ -86,6 +92,9 @@ export async function prepareDiagnosis(config: AppConfig, params: PrepareParams)
   };
 
   const missingMaterial = [...codeMissing];
+  if (deniedRepos.length > 0) {
+    missingMaterial.push(`仓库 ${deniedRepos.join("、")} 不在授权范围内，已排除`);
+  }
   if (occurredAt === undefined) {
     missingMaterial.push(
       `未从输入获取具体发生时间，已按上报时间回溯 ${Math.round(config.diagnosis.fallbackTimeWindowMs / 3_600_000)} 小时检索（可能遗漏）`,

@@ -81,8 +81,12 @@ export interface SourcesConfig {
    *   * 非空数组   —— 服务白名单，越权直接报错。
    */
   allowedServices: string[] | undefined;
+  /**
+   * 部署级仓库硬白名单（与 allowedServices 同语义）：列表外的 repoId 一律不可检索。
+   * 未显式设 TD_ALLOWED_REPOS 时，默认授权 TD_REPOS 声明的全部仓库。
+   */
   allowedRepos: string[];
-  /** repoId → 本地仓库路径。默认把 allowedRepos 全部指向 repoDir。rev 为可选显式版本钉定。 */
+  /** repoId → 本地仓库路径（已按 allowedRepos 过滤）。rev 为可选显式版本钉定。 */
   repos: Array<{ repoId: string; dir: string; rev?: string }>;
 }
 
@@ -129,9 +133,15 @@ function list(name: string, fallback: string[]): string[] {
   return raw.split(",").map((s) => s.trim()).filter(Boolean);
 }
 
-/** 解析 TD_REPOS="app:/path/a,backend:/path/b"；缺省把 allowedRepos 指向 repoDir。 */
-function parseRepos(raw: string | undefined, allowedRepos: string[], repoDir: string): Array<{ repoId: string; dir: string }> {
-  if (!raw) return allowedRepos.map((repoId) => ({ repoId, dir: repoDir }));
+/** 逗号分隔的去空白列表；未设置或空串 → 空数组。 */
+function splitList(raw: string | undefined): string[] {
+  if (raw === undefined || raw === "") return [];
+  return raw.split(",").map((s) => s.trim()).filter(Boolean);
+}
+
+/** 解析 TD_REPOS="app:/path/a,backend:/path/b"；返回显式声明的仓库（可能为空）。 */
+function parseReposRaw(raw: string | undefined): Array<{ repoId: string; dir: string }> {
+  if (!raw) return [];
   const repos: Array<{ repoId: string; dir: string }> = [];
   for (const part of raw.split(",")) {
     const idx = part.indexOf(":");
@@ -140,8 +150,36 @@ function parseRepos(raw: string | undefined, allowedRepos: string[], repoDir: st
   }
   return repos;
 }
-// 说明：TD_REPOS 环境变量不携带 rev；rev 只经编程式配置注入（评测钉 expectedSha、
-// 部署方已知版本时），避免在 env 里塞 40 位 SHA。
+
+/**
+ * 材料源授权解析（纯函数，便于单测；不在运行期读 process.env）。
+ * 仓库授权语义与 allowedServices 对齐：
+ *   * 显式设置 TD_ALLOWED_REPOS —— 硬白名单；TD_REPOS 中不在白名单的仓库一律排除。
+ *   * 未设置 —— 默认授权 TD_REPOS 声明的全部仓库；TD_REPOS 也没有时回退 ["app"]。
+ * 此前 parseRepos 只在 TD_REPOS 缺省时才用 allowedRepos 兜底，显式 TD_REPOS 可越过
+ * allowedRepos 读取未授权仓库（检索范围约束缺口）。
+ * 说明：TD_REPOS 不携带 rev；rev 只经编程式配置注入（评测钉 expectedSha、部署方已知版本时）。
+ */
+export function resolveSources(env: Record<string, string | undefined>): SourcesConfig {
+  const repoDir = env.TD_REPO_DIR ?? PROJECT_ROOT;
+  const explicitRepos = parseReposRaw(env.TD_REPOS);
+  const allowedRepos =
+    env.TD_ALLOWED_REPOS === undefined
+      ? explicitRepos.length > 0
+        ? explicitRepos.map((r) => r.repoId)
+        : ["app"]
+      : splitList(env.TD_ALLOWED_REPOS);
+  const candidates =
+    explicitRepos.length > 0 ? explicitRepos : allowedRepos.map((repoId) => ({ repoId, dir: repoDir }));
+  const allowed = new Set(allowedRepos);
+  return {
+    logDir: env.TD_LOG_DIR ?? join(PROJECT_ROOT, "fixtures", "samples"),
+    repoDir,
+    allowedServices: env.TD_ALLOWED_SERVICES === undefined ? undefined : splitList(env.TD_ALLOWED_SERVICES),
+    allowedRepos,
+    repos: candidates.filter((r) => allowed.has(r.repoId)),
+  };
+}
 
 export function loadConfig(opts: { envFile?: string } = {}): AppConfig {
   loadDotEnv(opts.envFile ?? join(PROJECT_ROOT, ".env"));
@@ -186,17 +224,7 @@ export function loadConfig(opts: { envFile?: string } = {}): AppConfig {
       sseReplayLimit: num("TD_SSE_REPLAY_LIMIT", 1000),
       feishuDirect: process.env.TD_FEISHU_DIRECT !== "false",
     },
-    sources: {
-      logDir: process.env.TD_LOG_DIR ?? join(PROJECT_ROOT, "fixtures", "samples"),
-      repoDir: process.env.TD_REPO_DIR ?? PROJECT_ROOT,
-      allowedServices: process.env.TD_ALLOWED_SERVICES === undefined ? undefined : list("TD_ALLOWED_SERVICES", []),
-      allowedRepos: list("TD_ALLOWED_REPOS", ["app"]),
-      repos: parseRepos(
-        process.env.TD_REPOS,
-        list("TD_ALLOWED_REPOS", ["app"]),
-        process.env.TD_REPO_DIR ?? PROJECT_ROOT,
-      ),
-    },
+    sources: resolveSources(process.env),
     delivery: {
       maxAttempts: num("TD_DELIVERY_MAX_ATTEMPTS", 3),
       baseBackoffMs: num("TD_DELIVERY_BACKOFF_MS", 3_000),

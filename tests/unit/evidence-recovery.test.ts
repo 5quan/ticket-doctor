@@ -93,7 +93,7 @@ test("buildSavedToolResults：已提交批次重建模型可见文本，且只�
   assert.equal(saved.isError, false);
   assert.equal(saved.toolName, "query_logs");
   assert.match(saved.text, /\[E1\] /, "重建文本带短号（与工具返回同源渲染）");
-  assert.match(saved.text, /命中 1 条日志：/);
+  assert.match(saved.text, /命中 1 条日志（stub）：/);
   assert.match(saved.text, /boom/);
 
   // 无未决调用的会话 → 空映射

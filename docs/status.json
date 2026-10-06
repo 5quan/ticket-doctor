@@ -1,7 +1,7 @@
 {
   "version": "0.3.1",
   "tests": {
-    "ts": 141,
+    "ts": 150,
     "go": "adapter"
   },
   "migrations": {

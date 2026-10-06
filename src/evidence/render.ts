@@ -30,7 +30,9 @@ function renderQueryLogs(items: EvidenceItem[], refs: EvidenceRef[], budget: num
     (ref, i) =>
       `[${ref.evidenceId}] ${iso(items[i]!.time ?? 0)}\t${items[i]!.level ?? ""}\t${items[i]!.excerpt}`,
   );
-  return assemble(`命中 ${items.length} 条日志：`, lines, budget);
+  // 把来源/实际生效的时间窗带回给模型：请求窗被调查范围收窄时必须可见，否则模型误以为查了更大范围。
+  const provenance = items[0]?.source ? `（${items[0].source}）` : "";
+  return assemble(`命中 ${items.length} 条日志${provenance}：`, lines, budget);
 }
 
 function renderListFiles(items: EvidenceItem[], refs: EvidenceRef[], budget: number): string {

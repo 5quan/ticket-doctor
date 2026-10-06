@@ -148,3 +148,16 @@
   （条目经 stdout FIFO 先于终态 result 到达）。见提交 df308a2。
 - 实测：第一轮落库 2 → 19 条；修复后第二轮首次调用上下文 6,987 → 34,145 字符，
   包含第一轮问题、E# 证据与全部助手轮次。修复前产生的旧 trace 不会回填，属既成数据。
+
+## 检索范围与权限（2026-10-04 新增）
+
+| # | 问题 | 结论 | 状态 |
+|---|---|---|---|
+| OQ-44 | 静态服务/仓库白名单能否代替每次调查的范围约束？ | 不能。检索必须两层：部署级授权（`allowedServices`/`allowedRepos`）+ 每次调查的 `MaterialScope`。此前 `query_logs` 把模型传入的 service/timeWindow 直接交给日志源（`DiagnosisToolbox.scope` 只存不用），`allowedRepos` 也只在 `TD_REPOS` 缺省时兜底、显式 `TD_REPOS` 可越过——两处都违背“约束在工具入口”的原则。 | 已结论（已修复） |
+
+### OQ-44 修复记录（2026-10-04）
+
+- `query_logs`：工具入口强制 `service ∈ scope.services`（scope 为空才退回日志源白名单），并把请求时间窗**收窄**到 `scope.timeWindow`；与本轮调查窗无交集直接拒绝（`ToolScopeViolation`，与空结果/查询失败区分）。实际生效的时间窗回写进证据来源并渲染给模型。
+- 仓库：`resolveSources` 让 `TD_ALLOWED_REPOS` 成为**硬白名单**（显式 `TD_REPOS` 也不得越权）；未显式设置时默认授权 `TD_REPOS` 声明的全部仓库。`prepareDiagnosis` 再兜底过滤一次，未授权仓库记入 `missingMaterial`。
+- 测试：`tests/unit/config-sources.test.ts`、`tests/unit/toolbox.test.ts`（服务越权/时间窗收窄/无交集/来源标注）。
+- 仍未做（见 backlog T7/M2）：工具返回缺少完整覆盖信息（是否截断、是否还有更多、续查位置），“返回 20 条”≠“只有 20 条”；空结果/失败/权限拒绝尚未结构化；日志过滤缺 environment 与 request/trace id。

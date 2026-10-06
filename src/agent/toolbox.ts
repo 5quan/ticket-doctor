@@ -17,6 +17,9 @@ import type { CodeListArgs, CodeReadArgs, CodeSearchArgs, LogQueryArgs, Toolbox 
 
 export class ToolBudgetExceeded extends Error {}
 
+/** 工具请求越出本次调查的授权范围（服务 / 时间窗）。与空结果、查询失败区分开（fail-closed）。 */
+export class ToolScopeViolation extends Error {}
+
 export interface ToolboxDeps {
   logs: LogSource;
   code?: MultiRepoCodeSource;
@@ -81,12 +84,44 @@ export class DiagnosisToolbox implements Toolbox {
     return refs;
   }
 
+  /** 每轮调查的服务边界：scope.services 非空时只允许查这些服务（部署级白名单由 LogSource 兜底）。 */
+  private assertServiceInScope(service: string): void {
+    const allowed = this.deps.scope.services;
+    if (allowed.length > 0 && !allowed.includes(service)) {
+      throw new ToolScopeViolation(
+        `query_logs：服务 ${service} 不在本次调查范围内（允许：${allowed.join("、")}）`,
+      );
+    }
+  }
+
+  /**
+   * 时间窗边界：把模型传入的窗口收窄到本次调查的 timeWindow；与调查窗无交集则拒绝。
+   * 绝不把模型原始时间窗直接交给日志源（即使部署级授权更宽）。
+   */
+  private clampToScopeWindow(from: number, to: number): { from: number; to: number; clamped: boolean } {
+    const win = this.deps.scope.timeWindow;
+    if (!win) return { from, to, clamped: false };
+    const clampedFrom = Math.max(from, win.from);
+    const clampedTo = Math.min(to, win.to);
+    if (clampedFrom > clampedTo) {
+      throw new ToolScopeViolation(
+        `query_logs：请求时间窗 [${iso(from)}~${iso(to)}] 与本次调查时间窗 [${iso(win.from)}~${iso(win.to)}] 无交集`,
+      );
+    }
+    return { from: clampedFrom, to: clampedTo, clamped: clampedFrom !== from || clampedTo !== to };
+  }
+
   async queryLogs(args: LogQueryArgs, toolCallId?: string): Promise<string> {
     this.spend();
-    const intent = { service: args.service, from: args.from, to: args.to, keywords: args.keywords };
+    const service = args.service.trim();
+    this.assertServiceInScope(service);
+    const window = this.clampToScopeWindow(args.from, args.to);
+    const intent = { service, from: window.from, to: window.to, keywords: args.keywords };
     const entries = await this.deps.logs.query(intent, this.deps.signal);
     if (entries.length === 0) return "（时间窗内没有匹配的日志条目）";
-    const provenance = `${this.deps.logs.name} service=${args.service} window=[${iso(args.from)}~${iso(args.to)}] keywords=[${args.keywords.join(",")}]`;
+    const provenance =
+      `${this.deps.logs.name} service=${service} window=[${iso(window.from)}~${iso(window.to)}]` +
+      ` keywords=[${args.keywords.join(",")}]${window.clamped ? "（已按本次调查时间窗收窄）" : ""}`;
     const items = entries.map((e) =>
       this.truncateItem({
         kind: "log",

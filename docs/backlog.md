@@ -19,11 +19,12 @@
 | # | 问题 | 现状 / 决策 | 待探讨点 | 状态 | 优先级 |
 |---|---|---|---|---|---|
 | T1 | 工具使用范围和效果待优化，不确定是否最优解 | 当前 6 个：`query_logs / list_files / search_code / read_code / request_info / submit_report` | 是否需要更多材料工具（如按 traceId 查、查部署记录、查历史相似 Bug）；哪些工具实际被模型高频使用、哪些形同虚设 | 待探讨 | P1 |
-| T2 | 访问路径和权限需要探讨 | 工具在代码里做白名单与路径校验；pi 内置工具被全部关闭 | 权限边界到底划在哪：按服务/环境/仓库/群聊？是否需要审批？是否需要按人授权？ | 待探讨 | P1 |
+| T2 | 访问路径和权限需要探讨 | ✅ 已落实每次调查的范围约束（OQ-44）：`query_logs` 强制本轮 `service`、时间窗收窄到 `scope.timeWindow`；`TD_ALLOWED_REPOS` 成硬白名单、`prepareDiagnosis` 过滤未授权仓库。工具在代码里做白名单与路径校验；pi 内置工具全关 | 剩余：按环境/群聊/人授权、是否需要审批 | 进行中 | P1 |
 | T3 | **每个工具的信息都需要能够保存下来** | ✅ 已落：每次工具调用的入参、耗时、成败、输出规模写入 `tool_executions`（单库）；模型会话条目在 `session_entries` | 留存期与脱敏另议（S1） | 已完成 | P0 |
 | T4 | pi 内置 `read` 是否应该开放 | 当前 `noTools:"builtin"` 全关；用 `read_code` 代替 | 见文末“关于 pi 内置 read” | 待探讨 | P2 |
 | T5 | 工具缺少“路径层” | ✅ 已补 `list_files`（钉死 SHA 上 `git ls-tree -r --name-only`，glob 过滤 + 路径清单证据）；✅ `search_code` 已改“有界预览 + 路径清单”（清单 ≤20 文件 + 前 8 处预览，见 OQ-36） | 预览条数/清单上限按真实使用再调 | 已完成 | P1 |
 | T6 | 证据不足时 @ 相关人员补证 | `request_info` 只向触发者追问 | 支持在飞书话题 @ 指定人员补充业务背景/文档，作为补证渠道（注意权限与 scope） | 待办 | P2 |
+| T7 | 工具返回缺少完整覆盖信息 | 源层静默切片：logs `slice(0,20)`、grep 命中 ≥50 截断、`ls-tree` ≤200、`read` ≤200 行，都不报“还有更多”，更无续查位置；“返回 20 条”≠“只有 20 条” | 返回统一带 `truncated/hasMore/nextCursor/total` + 结构化 status（空结果/查询失败/权限拒绝分开） | 待办 | P1 |
 
 ## 三、可观测性与审计
 
@@ -56,6 +57,7 @@
 | # | 问题 | 现状 | 建议 | 状态 | 优先级 |
 |---|---|---|---|---|---|
 | M1 | 真实日志平台未接入 | 只有本地文件 `FileLogSource` | 按端口新增 SLS/ELK 适配器，不动编排 | 待办（明确不急） | P2 |
+| M2 | 日志过滤维度不足 | `LogQueryIntent` 只有 `service/from/to/keywords`，无 environment、无 request/trace id | 增加 environment 与 request/trace id 结构化过滤（优先按请求 ID、服务、环境、时间） | 待办 | P2 |
 
 ## 七、可靠性与调度
 
