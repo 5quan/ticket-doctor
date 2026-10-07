@@ -83,8 +83,20 @@ npm run eval:v2 -- compare --baseline baseline-v0-eng-1 --candidate lf-loop-1
 - **分数 API 回读恒空**（本机 4.50.0 events_only）：score-create 受理后不可经 API 读回；
   需要程序化读分时，走本地 `score.json`/`langfuse-sync.json`（本地是权威源）。升级
   Langfuse 后用 `datasets verify` 复测。
+- **官方 SDK 原生实验（`dataset.run`）在本 build 不可直接使用**：events_only 下
+  `/api/public/ingestion` 拒收一切 trace/observation 事件（服务端 `ingestion.ts` 明确
+  "only accepts score events"），SDK 实验的常规上报路径会被整批拒收。本分支的
+  OTLP + `langfuse.experiment.*` span 属性方案正是其等价替代，且已端到端验证。
+  平台升级前，编排循环留在项目端是**被迫的最优解**，不是偏好。
+- **Code Evaluator 在本机未启用**：自托管需显式设 `LANGFUSE_CODE_EVAL_DISPATCHER`
+  （缺省 = 整体禁用）。可选形态：`aws-lambda`（无网络出站、云上默认 2s）或
+  `insecure-local`（TS-only、在 worker 进程内直跑，官方声明非安全边界）。
+  即便启用，也只适合轻量确定性检查；rubric 主体留在项目端 scorer 不变。
 - **模型裁判**：Langfuse 托管 judge 需要平台侧读分/评估器能力，本机 build 受限；
   裁判先在项目端实现（review `reviewerType=model`），产出仍走 rescore/push 通道。
-- **Code Evaluator**：沙箱（stdlib/2s/无网络/5.5MB）适合轻量确定性检查，可消费
+- **Code Evaluator 沙箱**（云上：stdlib/2s/无网络/5.5MB）：适合轻量确定性检查，可消费
   `ctx.experiment`（item 的 expectedOutput/metadata）；当前 expectedOutput=null，
   若未来把"允许结论"等公开标签放 item，需先过一次泄漏评审再改。
+- **切换到官方 `dataset.run` 驱动的触发条件**（满足其一再议）：平台升级到分数可读的
+  版本；或需要 UI/webhook 触发实验、多团队共享案例集成为硬需求。届时本地
+  runner/scorer/review 代码全部复用，只换循环与案例来源。
