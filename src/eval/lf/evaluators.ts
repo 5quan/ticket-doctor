@@ -61,11 +61,14 @@ export function runIntegrityEvaluator(params: EvalParams): Evaluation[] {
 
 /**
  * P0 预期阻断负例（plan §9）：allowedOutcomes 含 blocked 的轮次必须真的取证前阻断，
- * 且**未调用模型、未继续取证**，阻断原因指向版本/范围一致性。仅该负例携带信号。
+ * 且**未调用模型、未继续取证**；判定基于**结构化 SHA mismatch**（scopeChecks 的
+ * check=expected vs resolvedSha，并与 dataset metadata.materials 的 expectedSha 对齐），
+ * 不依赖错误文本关键词。仅该负例携带信号。
  */
 export function expectedBlockedEvaluator(params: EvalParams): Evaluation[] {
   const out = asOutput(params.output);
   const expected = (params.expectedOutput as { rounds?: Array<{ roundId: string; allowedOutcomes?: string[] }> } | null)?.rounds ?? [];
+  const materials = (params.metadata as { materials?: Array<{ repoId: string; expectedSha: string | null }> } | null)?.materials ?? [];
   const blockedRounds = expected.filter((r) => (r.allowedOutcomes ?? []).includes("blocked"));
   if (blockedRounds.length === 0) {
     return [{ name: "expected_blocked", value: 1, dataType: "BOOLEAN", comment: "本案例无预期阻断轮（该指标对本案例无信号）" }];
@@ -92,10 +95,39 @@ export function expectedBlockedEvaluator(params: EvalParams): Evaluation[] {
       ok = false;
       notes.push(`${er.roundId} 阻断前调用工具 ${actual.toolCalls} 次`);
     }
-    const reason = `${actual.error ?? ""}`;
-    if (!/版本|范围|阻断|一致性|隔离|scope|mismatch/i.test(reason)) {
+    const checks = actual.scopeChecks ?? [];
+    const mismatches = checks.filter((c) => c.check === "mismatch");
+    if (mismatches.length === 0) {
       ok = false;
-      notes.push(`${er.roundId} 阻断原因不含版本/范围关键词：${reason.slice(0, 80)}`);
+      notes.push(`${er.roundId} 无结构化 SHA mismatch（实际：${checks.map((c) => `${c.repoId}:${c.check}`).join(",") || "无 scope 核对"}）`);
+    }
+    for (const m of mismatches) {
+      if (m.resolvedScanOk === false) {
+        ok = false;
+        notes.push(`${er.roundId}/${m.repoId} 解析树隔离扫描失败`);
+      }
+      const declared = materials.find((x) => x.repoId === m.repoId);
+      if (!declared) {
+        ok = false;
+        notes.push(`${er.roundId} mismatch 仓库 ${m.repoId} 不在 dataset 材料清单`);
+        continue;
+      }
+      if (!declared.expectedSha) {
+        ok = false;
+        notes.push(`${er.roundId}/${m.repoId} 材料未声明 expectedSha`);
+        continue;
+      }
+      if (m.expected !== declared.expectedSha) {
+        ok = false;
+        notes.push(`${er.roundId}/${m.repoId} 期望 SHA 不一致：scopeCheck=${m.expected ?? "null"} dataset=${declared.expectedSha}`);
+      }
+      if (!m.resolvedSha) {
+        ok = false;
+        notes.push(`${er.roundId}/${m.repoId} mismatch 缺 resolvedSha`);
+      } else if (m.resolvedSha === declared.expectedSha) {
+        ok = false;
+        notes.push(`${er.roundId}/${m.repoId} resolvedSha 等于 expected，不应判 mismatch`);
+      }
     }
   }
   return [
@@ -103,7 +135,9 @@ export function expectedBlockedEvaluator(params: EvalParams): Evaluation[] {
       name: "expected_blocked",
       value: bool(ok),
       dataType: "BOOLEAN",
-      comment: ok ? `预期阻断 ${blockedRounds.map((r) => r.roundId).join(",")} 正确（未调用模型/未继续取证）` : notes.join("; ").slice(0, 450),
+      comment: ok
+        ? `预期阻断 ${blockedRounds.map((r) => r.roundId).join(",")} 结构化 SHA mismatch 正确，未调用模型/工具`
+        : notes.join("; ").slice(0, 450),
     },
   ];
 }
@@ -200,35 +234,41 @@ export const smokeEvaluators: Evaluator[] = [
 
 /**
  * plan §5：验证目标提示词版本确实进入模型请求。
- * 优先用**实际模型请求**（effective context 捕获）比对；无捕获时才回退到引擎自报；否则不冒充通过。
+ * 输出 **CATEGORICAL** 状态，明确区分：
+ *   - actual_request_verified：从实际模型请求的 effective context 捕获并匹配目标
+ *   - config_only：未捕获实际请求，仅引擎自报配置一致（不视为通过）
+ *   - not_called：该案例预期阻断/未调用模型（无请求可验）
+ *   - mismatch：捕获到实际请求但与目标不符，或未验证
  */
+export type PromptInjectionState = "actual_request_verified" | "config_only" | "not_called" | "mismatch";
+
 export function promptInjectionEvaluator(params: EvalParams): Evaluation[] {
   const out = asOutput(params.output);
   const p = out.prompt;
+  const expected = (params.expectedOutput as { rounds?: Array<{ allowedOutcomes?: string[] }> } | null)?.rounds ?? [];
+  const blockedExpected = expected.some((r) => (r.allowedOutcomes ?? []).includes("blocked"));
+  const modelCalled = out.rounds.some((r) => r.engineCalls > 0);
+
+  let state: PromptInjectionState;
+  let detail: string;
   if (p.effectiveVerified) {
-    const truncatedNote = p.effectiveTruncated ? "（请求上下文被截断，按前缀比对）" : "";
-    return [
-      {
-        name: "prompt_injection",
-        value: bool(p.effectiveMatches === true),
-        dataType: "BOOLEAN",
-        comment: p.effectiveMatches
-          ? `实际模型请求已包含目标提示词：${p.name}@v${p.version} hash=${p.hash.slice(0, 12)}${truncatedNote}`
-          : `实际模型请求的系统提示词与目标不一致：${p.name}@v${p.version} hash=${p.hash.slice(0, 12)}${truncatedNote}`,
-      },
-    ];
+    const truncatedNote = p.effectiveTruncated ? "（请求上下文被截断，按包含比对）" : "";
+    state = p.effectiveMatches === true ? "actual_request_verified" : "mismatch";
+    detail =
+      state === "actual_request_verified"
+        ? `实际模型请求已包含目标提示词：${p.name}@v${p.version} hash=${p.hash.slice(0, 12)}${truncatedNote}`
+        : `实际模型请求的系统提示词与目标不一致：${p.name}@v${p.version} hash=${p.hash.slice(0, 12)}${truncatedNote}`;
+  } else if (!modelCalled && blockedExpected) {
+    state = "not_called";
+    detail = "预期阻断/未调用模型：无请求可验证（非回退通过）";
+  } else if (p.injectedVerified && p.injectedMatches === true) {
+    state = "config_only";
+    detail = `仅配置一致（未捕获实际请求）：${p.name}@v${p.version} hash=${p.hash.slice(0, 12)}`;
+  } else {
+    state = "mismatch";
+    detail = p.injectedVerified
+      ? `引擎实际系统提示词与目标不一致：${p.name}@v${p.version} hash=${p.hash.slice(0, 12)}`
+      : "未验证注入（scripted/fake 引擎不暴露系统提示词）";
   }
-  if (!p.injectedVerified) {
-    return [{ name: "prompt_injection", value: 0, dataType: "BOOLEAN", comment: "未验证注入（scripted/fake 引擎不暴露系统提示词）——不视为通过" }];
-  }
-  return [
-    {
-      name: "prompt_injection",
-      value: bool(p.injectedMatches === true),
-      dataType: "BOOLEAN",
-      comment: p.injectedMatches
-        ? `注入生效（引擎自报）：${p.name}@v${p.version} hash=${p.hash.slice(0, 12)}`
-        : `引擎实际系统提示词与目标不一致：${p.name}@v${p.version} hash=${p.hash.slice(0, 12)}`,
-    },
-  ];
+  return [{ name: "prompt_injection", value: state, dataType: "CATEGORICAL", comment: detail }];
 }

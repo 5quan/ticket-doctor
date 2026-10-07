@@ -40,11 +40,11 @@
     "dataset": "ticket-doctor-smoke-v1",
     "datasetVersion": "2026-10-07T14:35:00.000Z",
     "prompt": { "name": "ticket-doctor-diagnosis", "baseline": 1, "candidate": 2 },
-    "experiments": { "baseline": "baseline-v1-r2", "candidate": "candidate-v2-r2" },
+    "experiments": { "baseline": "baseline-v1-r3", "candidate": "candidate-v2-r3" },
     "annotationQueue": "ticket-doctor-prediagnosis-review",
-    "annotation": { "scoreConfig": "prediagnosis_quality（NUMERIC 0–2）", "items": 20, "completed": 1 },
+    "annotation": { "scoreConfig": "prediagnosis_quality（NUMERIC 0–2）", "items": 30, "completed": 0, "note": "队列已就绪待真人复核；此前的 API 联通测试分已删除，不计作人工复核。" },
     "cases": { "synthetic": 5, "real": 0 },
-    "note": "原生 Langfuse 实验：5 合成案例 × 基线/候选提示词。逐案例读回预期指标（v3/scores + fields=details,subject,annotation），缺分数即判失败；input.question 为权威首轮问题；材料 hash 覆盖 materialLog；预期阻断单独校验（未调模型/未继续取证）；prompt_injection 比对实际模型请求。语义质量仅 1 条已人工标注（source=ANNOTATION），其余 unscored；不作真实工单质量结论。"
+    "note": "原生 Langfuse 实验：5 合成案例 × 基线/候选提示词（各自一次）。逐案例读回预期指标（v3/scores + fields=details,subject,annotation），按 dataType 校验必需值与 subject 归属，缺即失败；input.question 为权威首轮问题；材料 hash 覆盖 materialView 日志；预期阻断按结构化 SHA mismatch 校验（未调模型/未继续取证）；prompt_injection 输出分类状态（actual_request_verified/config_only/not_called/mismatch）并读回 generation 原生 prompt name/version。语义质量尚无真人评分（unscored），不作真实工单质量结论。"
   },
   "eval": {
     "status": "removed",

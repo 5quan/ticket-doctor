@@ -101,7 +101,7 @@ function round(overrides: Partial<CaseTaskOutput["rounds"][number]> = {}): CaseT
 function output(rounds: CaseTaskOutput["rounds"], promptOverride: Partial<CaseTaskOutput["prompt"]> = {}): CaseTaskOutput {
   return { protocolVersion: SMOKE_PROTOCOL, caseId: "c", scenario: "s", prompt: { name: "p", version: 1, hash: "h", injectedVerified: true, injectedMatches: true, effectiveVerified: false, effectiveMatches: null, effectiveTruncated: false, ...promptOverride }, engine: "scripted", auditEngine: null, rounds, wallMs: 123 };
 }
-function byName(evals: { name: string; value: number | string | boolean; comment?: string }[], name: string) {
+function byName(evals: { name: string; value: number | string | boolean; comment?: string; dataType?: string }[], name: string) {
   return evals.find((e) => e.name === name)!;
 }
 
@@ -149,28 +149,38 @@ test("cost：工具调用/耗时/token 汇总，usage 缺失显式标注", () =>
   assert.match(String(byName(evals, "total_tokens").comment), /缺失/);
 });
 
-test("prompt_injection：实际模型请求优先；不匹配=0；无捕获才回退引擎自报/不冒充通过", () => {
+test("prompt_injection：区分实际请求/仅配置/未调用模型/不匹配", () => {
   const effective = promptInjectionEvaluator({ input: {}, output: output([round()], { effectiveVerified: true, effectiveMatches: true }) });
-  assert.equal(byName(effective, "prompt_injection").value, 1);
-  assert.match(String(byName(effective, "prompt_injection").comment), /实际模型请求/);
+  assert.equal(byName(effective, "prompt_injection").value, "actual_request_verified");
+  assert.equal(byName(effective, "prompt_injection").dataType, "CATEGORICAL");
   const effectiveMismatch = promptInjectionEvaluator({ input: {}, output: output([round()], { effectiveVerified: true, effectiveMatches: false }) });
-  assert.equal(byName(effectiveMismatch, "prompt_injection").value, 0);
-  const engineOnly = promptInjectionEvaluator({ input: {}, output: output([round()], { injectedVerified: true, injectedMatches: true }) });
-  assert.equal(byName(engineOnly, "prompt_injection").value, 1);
-  assert.match(String(byName(engineOnly, "prompt_injection").comment), /引擎自报/);
-  const unverified = promptInjectionEvaluator({ input: {}, output: output([round()], { injectedVerified: false, injectedMatches: null }) });
-  assert.equal(byName(unverified, "prompt_injection").value, 0);
-  assert.match(String(byName(unverified, "prompt_injection").comment), /未验证/);
+  assert.equal(byName(effectiveMismatch, "prompt_injection").value, "mismatch");
+  // 有模型调用但未捕获实际请求 → 仅配置一致（不算通过）
+  const configOnly = promptInjectionEvaluator({ input: {}, output: output([round({ engineCalls: 2 })], { injectedVerified: true, injectedMatches: true }) });
+  assert.equal(byName(configOnly, "prompt_injection").value, "config_only");
+  const unverified = promptInjectionEvaluator({ input: {}, output: output([round({ engineCalls: 2 })], { injectedVerified: false, injectedMatches: null }) });
+  assert.equal(byName(unverified, "prompt_injection").value, "mismatch");
+  // 预期阻断/未调用模型 → not_called（无请求可验）
+  const notCalled = promptInjectionEvaluator({ input: {}, expectedOutput: { rounds: [{ roundId: "r1", allowedOutcomes: ["blocked"] }] }, output: output([round({ roundId: "r1", outcome: "blocked", blocked: true, status: "failed", engineCalls: 0, citations: [], writebackText: null })]) });
+  assert.equal(byName(notCalled, "prompt_injection").value, "not_called");
 });
 
-test("expected_blocked：预期阻断且未调用模型/未继续取证=1；调用模型或原因不符=0；无预期阻断不参与", () => {
+test("expected_blocked：结构化 SHA mismatch + 未调模型/工具=1；无 mismatch/调用模型/期望不符=0", () => {
+  const sha = "a".repeat(40);
   const expected = { rounds: [{ roundId: "r1", allowedOutcomes: ["blocked"] }] };
-  const good = expectedBlockedEvaluator({ input: {}, expectedOutput: expected, output: output([round({ roundId: "r1", outcome: "blocked", blocked: true, status: "failed", engineCalls: 0, toolCalls: 0, citations: [], writebackText: null, error: "版本一致性阻断（模型取证前）：repo app mismatch" })]) });
+  const metadata = { materials: [{ repoId: "app", expectedSha: sha }] };
+  const mismatchCheck = [{ roundId: "r1", repoId: "app", expected: sha, resolvedSha: "b".repeat(40), check: "mismatch" as const, resolvedScanOk: true }];
+  const good = expectedBlockedEvaluator({ input: {}, expectedOutput: expected, metadata, output: output([round({ roundId: "r1", outcome: "blocked", blocked: true, status: "failed", engineCalls: 0, toolCalls: 0, citations: [], writebackText: null, scopeChecks: mismatchCheck })]) });
   assert.equal(byName(good, "expected_blocked").value, 1);
-  const calledModel = expectedBlockedEvaluator({ input: {}, expectedOutput: expected, output: output([round({ roundId: "r1", outcome: "blocked", blocked: true, engineCalls: 1, toolCalls: 0, error: "版本一致性阻断" })]) });
+  const calledModel = expectedBlockedEvaluator({ input: {}, expectedOutput: expected, metadata, output: output([round({ roundId: "r1", outcome: "blocked", blocked: true, engineCalls: 1, toolCalls: 0, scopeChecks: mismatchCheck })]) });
   assert.equal(byName(calledModel, "expected_blocked").value, 0);
-  const badReason = expectedBlockedEvaluator({ input: {}, expectedOutput: expected, output: output([round({ roundId: "r1", outcome: "blocked", blocked: true, engineCalls: 0, toolCalls: 0, error: "随便什么原因" })]) });
-  assert.equal(byName(badReason, "expected_blocked").value, 0);
+  const noMismatch = expectedBlockedEvaluator({ input: {}, expectedOutput: expected, metadata, output: output([round({ roundId: "r1", outcome: "blocked", blocked: true, engineCalls: 0, toolCalls: 0, scopeChecks: [] })]) });
+  assert.equal(byName(noMismatch, "expected_blocked").value, 0);
+  // 阻断原因文本含“阻断”但结构化 check=ok → 不得分
+  const keywordOnly = expectedBlockedEvaluator({ input: {}, expectedOutput: expected, metadata, output: output([round({ roundId: "r1", outcome: "blocked", blocked: true, engineCalls: 0, toolCalls: 0, error: "版本一致性阻断", scopeChecks: [{ roundId: "r1", repoId: "app", expected: sha, resolvedSha: sha, check: "ok", resolvedScanOk: true }] })]) });
+  assert.equal(byName(keywordOnly, "expected_blocked").value, 0);
+  const wrongDeclared = expectedBlockedEvaluator({ input: {}, expectedOutput: expected, metadata: { materials: [{ repoId: "app", expectedSha: "c".repeat(40) }] }, output: output([round({ roundId: "r1", outcome: "blocked", blocked: true, engineCalls: 0, toolCalls: 0, scopeChecks: mismatchCheck })]) });
+  assert.equal(byName(wrongDeclared, "expected_blocked").value, 0);
   const notApplicable = expectedBlockedEvaluator({ input: {}, expectedOutput: { rounds: [{ roundId: "r1", allowedOutcomes: ["report"] }] }, output: output([round({ roundId: "r1" })]) });
   assert.equal(byName(notApplicable, "expected_blocked").value, 1);
 });
@@ -365,34 +375,48 @@ test("review：幂等建立 0–2 分评分配置与队列，trace 幂等入队"
 
 // ---------- verify：读回实验/items/观测，scores 恒空显式告警 ----------
 
-test("verifyExperiment：逐案例校验预期分数并读回；缺分数即失败（不归为平台限制）", async () => {
+test("verifyExperiment：逐案例校验预期分数/类型/归属/原生 prompt 关联；缺分数或错归属即失败", async () => {
   const cfg = { baseUrl: "http://lf.local", publicKey: "pk", secretKey: "sk" };
   const originalFetch = globalThis.fetch;
-  const makeMock = (withScores: boolean) =>
+  const scoreDefs: Record<string, { value: number | string | boolean; dataType: string }> = {
+    run_integrity: { value: true, dataType: "BOOLEAN" },
+    citation_validity: { value: 1, dataType: "NUMERIC" },
+    version_visibility: { value: true, dataType: "BOOLEAN" },
+    expected_blocked: { value: true, dataType: "BOOLEAN" },
+    prompt_injection: { value: "actual_request_verified", dataType: "CATEGORICAL" },
+    tool_calls: { value: 3, dataType: "NUMERIC" },
+    wall_ms: { value: 100, dataType: "NUMERIC" },
+    total_tokens: { value: 50, dataType: "NUMERIC" },
+  };
+  const makeMock = (mode: "good" | "no_scores" | "bad_subject") =>
     (async (input: string | URL | Request) => {
       const url = String(input);
       const json = (data: unknown) => new Response(JSON.stringify(data), { status: 200, headers: { "content-type": "application/json" } });
       if (url.includes("/api/public/experiments")) return json({ data: [{ id: "exp1", name: "run-a" }] });
       if (url.includes("/api/public/experiment-items")) return json({ data: [{ id: "item1", traceId: "trace1" }] });
-      if (url.includes("/api/public/v2/observations")) return json({ data: [{ id: "obs1", traceId: "trace1" }] });
+      if (url.includes("/api/public/v2/observations")) return json({ data: [{ id: "obs1", traceId: "trace1", type: "GENERATION", promptName: "p", promptVersion: 1 }] });
       if (url.includes("/api/public/v3/scores")) {
-        return json({ data: withScores ? EXPECTED_SCORE_NAMES.map((name) => ({ id: `s-${name}`, name, value: name === "total_tokens" ? 1234 : 1, source: "API", dataType: "BOOLEAN" })) : [] });
+        if (mode === "no_scores") return json({ data: [] });
+        const subject = mode === "bad_subject" ? { kind: "observation", id: "obs1", traceId: "OTHER" } : { kind: "observation", id: "obs1", traceId: "trace1" };
+        return json({ data: Object.entries(scoreDefs).map(([name, d]) => ({ id: `s-${name}`, name, value: d.value, dataType: d.dataType, source: "API", subject })) });
       }
       return json({});
     }) as typeof fetch;
   try {
-    globalThis.fetch = makeMock(true);
-    const report = await verifyExperiment(cfg, { datasetId: "ds1", runName: "run-a", expectTraces: ["trace1"] }, { attempts: 1, delayMs: 0 });
-    assert.equal(report.experimentFound, true);
-    assert.equal(report.itemCount, 1);
-    assert.equal(report.observationsForSample, 1);
+    globalThis.fetch = makeMock("good");
+    const report = await verifyExperiment(cfg, { datasetId: "ds1", runName: "run-a", expectTraces: ["trace1"], expectedPrompt: { name: "p", version: 1 } }, { attempts: 1, delayMs: 0 });
     assert.equal(report.problems.length, 0, report.problems.join("; "));
     assert.equal(report.scoreDetails.length, EXPECTED_SCORE_NAMES.length);
-    assert.ok(report.scoreDetails.every((s) => s.traceId === "trace1"));
+    assert.equal(report.promptAssociations[0]!.associated.length, 1);
+    assert.equal(report.promptAssociations[0]!.associated[0]!.name, "p");
 
-    globalThis.fetch = makeMock(false);
+    globalThis.fetch = makeMock("no_scores");
     const missing = await verifyExperiment(cfg, { datasetId: "ds1", runName: "run-a", expectTraces: ["trace1"] }, { attempts: 1, delayMs: 0 });
     assert.ok(missing.problems.some((p) => /缺分数/.test(p)), "分数缺失必须判失败");
+
+    globalThis.fetch = makeMock("bad_subject");
+    const badSubject = await verifyExperiment(cfg, { datasetId: "ds1", runName: "run-a", expectTraces: ["trace1"] }, { attempts: 1, delayMs: 0 });
+    assert.ok(badSubject.problems.some((p) => /subject\.traceId/.test(p)), "错误归属必须判失败");
   } finally {
     globalThis.fetch = originalFetch;
   }

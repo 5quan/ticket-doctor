@@ -301,12 +301,14 @@ async function cmdVerify(): Promise<number> {
   let datasetId = arg("dataset-id") ?? null;
   let runName = arg("run-name") ?? null;
   let expectTraces: string[] = [];
+  let expectedPrompt: { name: string; version: number } | undefined;
   const manifestFile = manifestArg ? (isAbsolute(manifestArg) ? manifestArg : resolve(ROOT, manifestArg)) : manifestPath(arg("experiment", "ticket-doctor-smoke"));
   try {
-    const m = JSON.parse(readFileSync(manifestFile, "utf8")) as { datasetId?: string | null; runName?: string; traceIds?: string[] };
+    const m = JSON.parse(readFileSync(manifestFile, "utf8")) as { datasetId?: string | null; runName?: string; traceIds?: string[]; prompt?: { name?: string; version?: number } };
     datasetId = datasetId ?? m.datasetId ?? null;
     runName = runName ?? m.runName ?? null;
     expectTraces = m.traceIds ?? [];
+    if (m.prompt?.name && typeof m.prompt.version === "number") expectedPrompt = { name: m.prompt.name, version: m.prompt.version };
   } catch (err) {
     if (manifestArg) {
       console.error(`❌ 无法读取 manifest ${manifestFile}：${err instanceof Error ? err.message : err}`);
@@ -317,7 +319,7 @@ async function cmdVerify(): Promise<number> {
     console.error("需要 --dataset-id 与 --run-name（或 --manifest <file>）。");
     return 2;
   }
-  const report = await verifyExperiment(cfg, { datasetId: datasetId ?? "", runName: runName ?? "", expectTraces });
+  const report = await verifyExperiment(cfg, { datasetId: datasetId ?? "", runName: runName ?? "", expectTraces, ...(expectedPrompt ? { expectedPrompt } : {}) });
   const ok = printVerify(report);
   return ok ? 0 : 1;
 }

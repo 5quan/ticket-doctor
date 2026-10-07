@@ -48,8 +48,10 @@
 > 官方 SDK evaluator（运行完整性/引用有效性/版本可见性/预期阻断/提示词注入/成本）→ 原生人工复核（0–2 分）。
 > 命令：`eval:lf:preflight|seed|run|verify|review`。已装 Langfuse agent skill（`/root/.agents/skills/langfuse`）。
 > 复验修正：`input.question` 权威驱动首轮；材料 hash 覆盖 materialView 日志；逐案例读回预期分数（v3/scores +
-> `fields=details,subject,annotation`）缺失即失败；预期阻断单独校验（未调模型/未继续取证）；`prompt_injection` 比对**实际模型请求**。
-> 真实两轮实验（`baseline-v1-r2` / `candidate-v2-r2`）已跑通并读回；**语义质量仅 1 条已标注，其余 unscored，不作质量结论**。详见该方案文档。
+> `fields=details,subject,annotation`）缺失即失败、按 dataType 校验值与 `subject` 归属；预期阻断按**结构化 SHA mismatch**
+> 校验；`prompt_injection` 四态（actual_request_verified/config_only/not_called/mismatch）并回读 generation 原生 prompt name/version。
+> 真实两轮实验（`baseline-v1-r3` / `candidate-v2-r3`）已跑通并严格读回（原生关联 27/27、34/34）。
+> **人工复核：队列 30 条全 PENDING（先前 API 联通测试分已删），需真人评分；语义质量 unscored，不作质量结论。**详见该方案文档。
 
 ---
 
