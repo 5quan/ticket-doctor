@@ -40,6 +40,15 @@
 > 范围仅诊断核心，不含持久化/投递。**Langfuse 能做评测/实验/人工标注**：首期本地执行+评分是缩小范围，
 > 接入形态（本地执行 + Langfuse 实验账本/复核，权威源二选一）见 `docs/eval-implementation-plan.md` §0.1 与 E8。
 > 后续 E1–E9 工作单同文件；**真实案例准入前不发布质量结论**。
+>
+> **2026-10-07 更新（Langfuse 原生离线评测，第一阶段完成）**：新增 `codex/langfuse-eval` 分支与
+> `docs/langfuse-eval-implementation-plan.md`（唯一事实源）。把诊断链路接入 **Langfuse 原生实验**：
+> Dataset 版本（`ticket-doctor-smoke-v1`，5 条 synthetic 工程案例）+ 提示词版本（`ticket-doctor-diagnosis` v1 基线 / v2 候选）
+> → 真实 pi Agent 多轮调查 → 过程全部挂到实验 item trace（`joinActiveContext` + 全局 OTel context manager）→
+> 官方 SDK evaluator（运行完整性/引用有效性/版本可见性/提示词注入/成本）→ 原生人工复核（0–2 分，队列已建）。
+> 命令：`eval:lf:preflight|seed|run|verify|review`。真实两轮实验已在 Langfuse 4.50.0 跑通并读回；
+> **语义质量未人工复核，不作质量结论**。配套修复 `extractService` 日期当服务名；`@langfuse/*` 锁 `5.13.1`，
+> 新增 `@opentelemetry/context-async-hooks`。详见该方案文档。
 
 ---
 
@@ -48,7 +57,7 @@
 | 项 | 值 |
 |---|---|
 | 版本 / 分支 | `0.3.1` / `main` |
-| 测试 | TS 193（`npm test`，数字以 docs/status.json 为准）+ Go adapter（`npm run test:go`）+ `typecheck` 全绿 |
+| 测试 | TS 207（`npm test`，数字以 docs/status.json 为准）+ Go adapter（`npm run test:go`）+ `typecheck` 全绿 |
 | 迁移 | `001` … `006_evidence_uid.sql` |
 | 运行 | `npm run host`（生产，systemd `ticket-doctor-host`）/ `npm run demo`（离线；可开观测做验证） |
 | 部署 | `docker-compose.yml` + `Dockerfile` + `adapters/go/Dockerfile`（已构建并冒烟） |
@@ -139,7 +148,7 @@ ct-004 代码证据漏检），交阶段二 rules / 审计 Agent，不是打分 
 4. 按任务读专项：
    - 接入/长连接 → `docs/adapter-longconn-design.md`、`docs/feishu-trigger-design.md`、`adapters/go/README.md`
    - 证据 → `docs/evidence-uid-design.md`（已实现）
-   - 评测 → `docs/eval-design.md`、`docs/evolve-protocol.md`
+   - 评测 → `docs/eval-design.md`、`docs/evolve-protocol.md`；Langfuse 原生评测 → `docs/langfuse-eval-implementation-plan.md`
    - 会话/持久化 → `docs/interface.md §8`、`docs/session-log-design.md`
    - 并发 → `docs/concurrency.md`
 

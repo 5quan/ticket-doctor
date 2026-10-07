@@ -1,7 +1,7 @@
 {
   "version": "0.3.1",
   "tests": {
-    "ts": 193,
+    "ts": 207,
     "go": "adapter"
   },
   "migrations": {
@@ -30,6 +30,19 @@
     "cases": { "synthetic": 3, "real": 0 },
     "exploratory": "pi 审计关/开、3 个合成 case、各 1 次；语义未复核，非基线",
     "note": "离线 MVP：复用正式诊断链路，只评材料/引用；语义正确性未人工复核=unscored。持久化/投递/调查隔离不在其内。接入 Langfuse 用于实验/人工复核见 plan E8（权威源二选一）。"
+  },
+  "eval_langfuse": {
+    "status": "phase1_done",
+    "plan": "docs/langfuse-eval-implementation-plan.md",
+    "cli": "npm run eval:lf:preflight / eval:lf:seed / eval:lf:run / eval:lf:verify / eval:lf:review",
+    "serverVersion": "4.50.0",
+    "dataset": "ticket-doctor-smoke-v1",
+    "datasetVersion": "2026-10-07T13:05:00.000Z",
+    "prompt": { "name": "ticket-doctor-diagnosis", "baseline": 1, "candidate": 2 },
+    "experiments": { "baseline": "baseline-v1", "candidate": "candidate-v2" },
+    "annotationQueue": "ticket-doctor-prediagnosis-review",
+    "cases": { "synthetic": 5, "real": 0 },
+    "note": "原生 Langfuse 实验：5 合成案例 × 基线/候选提示词各一次；确定性 P0 评分 + 原生人工复核（0–2 分，未复核 unscored）。分数低不影响评测功能验收；合成数据不得表述为真实工单质量提升。events_only v4：scores/experiments 读接口有索引延迟，verify 已轮询。"
   },
   "eval": {
     "status": "removed",

@@ -245,6 +245,11 @@ export class PiDiagnosisEngine implements DiagnosisEngine {
     this.opts = opts;
   }
 
+  /** 实际生效的系统提示词（评测注入验证用；生产不调用，行为不变）。 */
+  getSystemPrompt(): string {
+    return this.opts.systemPrompt ?? SYSTEM_PROMPT;
+  }
+
   async run(
     input: DiagnosisInput,
     toolbox: Toolbox,
@@ -269,7 +274,7 @@ export class PiDiagnosisEngine implements DiagnosisEngine {
       getPrompts: () => ({ prompts: [], diagnostics: [] }),
       getThemes: () => ({ themes: [], diagnostics: [] }),
       getAgentsFiles: () => ({ agentsFiles: [] }),
-      getSystemPrompt: () => this.opts.systemPrompt ?? SYSTEM_PROMPT,
+      getSystemPrompt: () => this.getSystemPrompt(),
       getSystemPromptSource: () => undefined,
       getAppendSystemPrompt: () => [],
       getAppendSystemPromptSources: () => [],

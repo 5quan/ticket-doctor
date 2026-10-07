@@ -42,8 +42,10 @@ function titleOf(text: string): string {
 
 /** 从正文粗提服务名：支持“服务: xxx”标注，或形如 xxx-service 的命名。 */
 export function extractService(text: string): string | undefined {
-  const labelled = text.match(/(?:服务(?:名)?|service)\s*[：:=]\s*([A-Za-z0-9._-]{2,100})/i);
-  if (labelled) return labelled[1];
+  const labelled = text.match(/(?:服务(?:名)?|service)\s*[：:=]\s*([A-Za-z0-9][A-Za-z0-9._-]{1,99})/i);
+  // 标注捕获必须含字母：否则 "checkout-service 服务: 2026-09-06 10:01 ..."
+  // 会把日期当成服务名，污染 scope.services，被 query_logs 范围约束拒绝。
+  if (labelled && /[A-Za-z]/.test(labelled[1]!)) return labelled[1];
   const named = text.match(/\b([A-Za-z0-9][A-Za-z0-9._-]{1,99}-(?:service|server|api))\b/i);
   return named ? named[1] : undefined;
 }

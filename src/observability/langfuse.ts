@@ -10,13 +10,14 @@
 import { BasicTracerProvider } from "@opentelemetry/sdk-trace-base";
 import type { SpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { LangfuseSpanProcessor } from "@langfuse/otel";
-import { ROOT_CONTEXT, SpanStatusCode, trace, type Span } from "@opentelemetry/api";
+import { ROOT_CONTEXT, SpanStatusCode, context, trace, type Attributes, type Context, type Span } from "@opentelemetry/api";
 import {
   createObservationAttributes,
   createTraceAttributes,
-  LangfuseOtelSpanAttributes as LF,
   type ObservationLevel,
 } from "@langfuse/tracing";
+// plan §2：枚举在 5.13 归属 @langfuse/core，显式从此导入（tracing 仅为向后兼容的再导出）。
+import { LangfuseOtelSpanAttributes as LF } from "@langfuse/core";
 import type { ObservabilityConfig } from "../config/index.ts";
 import type { DiagnosisReport } from "../domain/types.ts";
 import type { ObservationEvent, ObservationStatus } from "./types.ts";
@@ -65,6 +66,8 @@ interface AttemptRecord {
   auditAgents: Map<string, Span>;
   /** agent 节点是否已由 phase_end 关闭。 */
   agentEnded: boolean;
+  /** 子节点的上下文基座：普通模式 = ROOT_CONTEXT；评测模式 = 实验 task 的 active context。 */
+  base: Context;
 }
 
 export interface ObservationRecorder {
@@ -102,6 +105,11 @@ export function createLangfuseRecorder(
   config: ObservabilityConfig,
   /** 测试注入：替换 LangfuseSpanProcessor（内存 spy processor 验证 span 结构，不发网络请求）。 */
   processorOverride?: SpanProcessor,
+  /** 评测接入（plan §6）：joinActiveContext=true 时，attempt 根 span 挂到调用时刻的
+   * active context（Langfuse SDK 实验 item 根 span）下，整条调查成为实验 trace 的子节点；
+   * 缺省 false = 生产行为不变（自有根 span，显式父子）。
+   * prompt 提供时，仅“主诊断 generation”关联原生 prompt 字段；审计/压缩调用不关联（plan §5）。 */
+  opts?: { joinActiveContext?: boolean; prompt?: { name: string; version: number } },
 ): ObservationRecorder | undefined {
   if (!config.enabled) return undefined;
   const missing = [
@@ -136,7 +144,17 @@ export function createLangfuseRecorder(
     console.warn(`[ticket-doctor] 观测采集异常（已忽略，不影响业务）：${message}`, err instanceof Error ? err.message : err);
   };
 
-  const childCtx = (parent: Span) => trace.setSpan(ROOT_CONTEXT, parent);
+  const childCtx = (parent: Span, base: Context = ROOT_CONTEXT) => trace.setSpan(base, parent);
+  /** 评测模式：捕获调用时刻的 active context（Langfuse SDK 实验 item 根 span 所在 context）。 */
+  const activeBase = (): Context => {
+    if (!opts?.joinActiveContext) return ROOT_CONTEXT;
+    try {
+      const ctx = context.active();
+      return trace.getSpan(ctx) ? ctx : ROOT_CONTEXT;
+    } catch {
+      return ROOT_CONTEXT;
+    }
+  };
 
   /** model/tool 事件的父节点：诊断挂在 attempt agent，审计挂在对应 audit agent。 */
   const resolveParent = (
@@ -155,11 +173,12 @@ export function createLangfuseRecorder(
     parent: Span,
     attrs: Record<string, unknown>,
     timestamp?: number,
+    base: Context = ROOT_CONTEXT,
   ): Span =>
     tracer.startSpan(
       name,
       { attributes: createObservationAttributes(type, attrs), ...(timestamp ? { startTime: timestamp } : {}) },
-      childCtx(parent),
+      childCtx(parent, base),
     );
 
   const endWithStatus = (span: Span, status: ObservationStatus, message?: string): void => {
@@ -176,26 +195,35 @@ export function createLangfuseRecorder(
       try {
         const k = identityKey(identity);
         if (registry.has(k)) return undefined;
-        const root = tracer.startSpan("diagnose-turn", {
-          attributes: {
-            ...createTraceAttributes({ input: meta.question }),
-            [LF.TRACE_NAME]: "diagnose-turn",
-            [LF.TRACE_SESSION_ID]: identity.investigationId,
-            [LF.TRACE_METADATA]: jsonAttr({
-              runId: identity.runId,
-              attemptId: identity.attemptId,
-              generation: identity.generation,
-              service: meta.service ?? null,
-              environment: meta.environment ?? null,
-            }),
-            [LF.ENVIRONMENT]: config.environment,
-            ...(config.release ? { [LF.RELEASE]: config.release } : {}),
-          },
-        });
+        const base = activeBase();
+        // 评测模式（joinActiveContext）：trace 级的 input/name/metadata 归实验 item 根 span 所有，
+        // 本节点只带 observation 级信息——否则多轮 `diagnose-turn` 会互相覆盖实验根的名称/输入/metadata（plan §6）。
+        const rootScope = {
+          runId: identity.runId,
+          attemptId: identity.attemptId,
+          generation: identity.generation,
+          service: meta.service ?? null,
+          environment: meta.environment ?? null,
+        };
+        const rootAttrs: Attributes = opts?.joinActiveContext
+          ? {
+              ...createObservationAttributes("span", { input: meta.question, metadata: rootScope }),
+              [LF.ENVIRONMENT]: config.environment,
+              ...(config.release ? { [LF.RELEASE]: config.release } : {}),
+            }
+          : {
+              ...createTraceAttributes({ input: meta.question }),
+              [LF.TRACE_NAME]: "diagnose-turn",
+              [LF.TRACE_SESSION_ID]: identity.investigationId,
+              [LF.TRACE_METADATA]: jsonAttr(rootScope),
+              [LF.ENVIRONMENT]: config.environment,
+              ...(config.release ? { [LF.RELEASE]: config.release } : {}),
+            };
+        const root = tracer.startSpan("diagnose-turn", { attributes: rootAttrs }, base);
         const agent = startObservation("diagnosis-attempt", "agent", root, {
           metadata: { attemptId: identity.attemptId, generation: identity.generation, engine: meta.engine, service: meta.service ?? null },
-        });
-        registry.set(k, { root, agent, children: new Map(), auditAgents: new Map(), agentEnded: false });
+        }, undefined, base);
+        registry.set(k, { root, agent, children: new Map(), auditAgents: new Map(), agentEnded: false, base });
         return k;
       } catch (err) {
         warnThrottled("beginAttempt", err);
@@ -217,6 +245,8 @@ export function createLangfuseRecorder(
                 "agent",
                 rec.root,
                 { input: event.input ?? null, metadata: event.metadata },
+                undefined,
+                rec.base,
               );
               rec.auditAgents.set(event.logicalObservationId, span);
               return;
@@ -270,6 +300,11 @@ export function createLangfuseRecorder(
                 input: event.input ?? null,
                 model: event.model,
                 modelParameters: {},
+                // plan §5：仅主诊断 generation 关联原生 prompt；审计（parent=audit agent）
+                // 与压缩（callPurpose=compaction）不关联，避免错误归到诊断提示词。
+                ...(opts?.prompt && parent === rec.agent && event.callPurpose === "diagnosis"
+                  ? { prompt: { name: opts.prompt.name, version: opts.prompt.version, isFallback: false } }
+                  : {}),
                 metadata: {
                   callPurpose: event.callPurpose,
                   captureLevel: event.captureLevel,
@@ -282,6 +317,7 @@ export function createLangfuseRecorder(
                 // generation 的总时延 / usage / 输出内容不受影响，均为可靠值。
               },
               Date.parse(event.timestamp),
+              rec.base,
             );
             rec.children.set(event.logicalObservationId, span);
             return;
@@ -326,6 +362,7 @@ export function createLangfuseRecorder(
               parent,
               { input: event.input ?? null, metadata: { toolCallId: event.toolCallId, ...(event.metadata ?? {}) } },
               Date.parse(event.timestamp),
+              rec.base,
             );
             rec.children.set(event.logicalObservationId, span);
             return;
@@ -370,6 +407,7 @@ export function createLangfuseRecorder(
             metadata: { policyVersion: data.policyVersion, auditRounds: data.auditRounds ?? 0 },
           },
           data.startedAt,
+          rec.base,
         );
         span.end();
       } catch (err) {
@@ -391,6 +429,7 @@ export function createLangfuseRecorder(
             metadata: { durationMs: Date.now() - data.startedAt },
           },
           data.startedAt,
+          rec.base,
         );
         span.end();
       } catch (err) {
@@ -431,7 +470,12 @@ export function createLangfuseRecorder(
           rec.agent.end();
           rec.agentEnded = true;
         }
-        rec.root.setAttributes(createTraceAttributes({ output: outcome }));
+        // 评测模式下 output 只挂 observation，避免覆盖实验根 span 的 trace output。
+        rec.root.setAttributes(
+          opts?.joinActiveContext
+            ? createObservationAttributes("span", { output: outcome })
+            : createTraceAttributes({ output: outcome }),
+        );
         rec.root.setStatus(
           outcome.status === "ok"
             ? { code: SpanStatusCode.OK }
