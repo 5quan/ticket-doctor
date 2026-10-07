@@ -15,7 +15,18 @@ export interface CaseTaskOutput {
   protocolVersion: string;
   caseId: string;
   scenario: string;
-  prompt: { name: string; version: number; hash: string; injectedVerified: boolean; injectedMatches: boolean | null };
+  prompt: {
+    name: string;
+    version: number;
+    hash: string;
+    /** 引擎自报系统提示词与目标一致（执行前配置）。 */
+    injectedVerified: boolean;
+    injectedMatches: boolean | null;
+    /** 从实际模型请求（effective context）捕获的系统提示词是否与目标一致（plan §5 实证）。 */
+    effectiveVerified: boolean;
+    effectiveMatches: boolean | null;
+    effectiveTruncated: boolean;
+  };
   engine: string;
   auditEngine: string | null;
   rounds: Array<{
@@ -59,7 +70,7 @@ export function makeTicketDoctorTask(opts: EvalTaskOptions): (item: { input: unk
     protocolVersion: SMOKE_PROTOCOL,
     caseId,
     scenario,
-    prompt: { name: opts.prompt.name, version: opts.prompt.version, hash: opts.prompt.hash, injectedVerified: false, injectedMatches: null },
+    prompt: { name: opts.prompt.name, version: opts.prompt.version, hash: opts.prompt.hash, injectedVerified: false, injectedMatches: null, effectiveVerified: false, effectiveMatches: null, effectiveTruncated: false },
     engine: opts.engine,
     auditEngine: null,
     rounds: [],
@@ -69,6 +80,8 @@ export function makeTicketDoctorTask(opts: EvalTaskOptions): (item: { input: unk
     const meta = (item.metadata ?? {}) as { caseId?: string; scenario?: string; caseHash?: string };
     const caseId = meta.caseId ?? (item.input as { caseId?: string } | null)?.caseId ?? "unknown-case";
     const scenario = meta.scenario ?? "";
+    // plan §4：input 是数据集的**权威首轮问题**（在 Langfuse 修改会实际改变 Agent 收到的问题）。
+    const firstRoundQuestion = (item.input as { question?: string } | null)?.question;
     try {
       const entry = catalog.find((c) => c.caseId === caseId);
       if (!entry) throw new Error(`dataset item 引用的案例不在本地冻结材料中：${caseId}（先 eval:lf:seed）`);
@@ -88,6 +101,7 @@ export function makeTicketDoctorTask(opts: EvalTaskOptions): (item: { input: unk
         engine: opts.engine,
         baseConfig: opts.baseConfig,
         systemPrompt: opts.prompt.compiled,
+        ...(firstRoundQuestion ? { firstRoundQuestion } : {}),
         outDir: join(opts.outDir, caseId),
         // plan §6：接入 SDK task 的父 context——executeRun 在 task 的 async 链内同步调用
         // beginAttempt，active context 即实验 item 根 span 的 context。
@@ -98,7 +112,7 @@ export function makeTicketDoctorTask(opts: EvalTaskOptions): (item: { input: unk
         protocolVersion: SMOKE_PROTOCOL,
         caseId: result.caseId,
         scenario,
-        prompt: { name: opts.prompt.name, version: opts.prompt.version, hash: opts.prompt.hash, injectedVerified: result.injectedPrompt.verified, injectedMatches: result.injectedPrompt.matches },
+        prompt: { name: opts.prompt.name, version: opts.prompt.version, hash: opts.prompt.hash, injectedVerified: result.injectedPrompt.verified, injectedMatches: result.injectedPrompt.matches, effectiveVerified: result.injectedPrompt.effectiveVerified, effectiveMatches: result.injectedPrompt.effectiveMatches, effectiveTruncated: result.injectedPrompt.effectiveTruncated },
         engine: result.engine,
         auditEngine: result.auditEngine,
         rounds: result.rounds.map((r) => ({

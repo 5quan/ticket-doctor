@@ -45,10 +45,11 @@
 > `docs/langfuse-eval-implementation-plan.md`（唯一事实源）。把诊断链路接入 **Langfuse 原生实验**：
 > Dataset 版本（`ticket-doctor-smoke-v1`，5 条 synthetic 工程案例）+ 提示词版本（`ticket-doctor-diagnosis` v1 基线 / v2 候选）
 > → 真实 pi Agent 多轮调查 → 过程全部挂到实验 item trace（`joinActiveContext` + 全局 OTel context manager）→
-> 官方 SDK evaluator（运行完整性/引用有效性/版本可见性/提示词注入/成本）→ 原生人工复核（0–2 分，队列已建）。
-> 命令：`eval:lf:preflight|seed|run|verify|review`。真实两轮实验已在 Langfuse 4.50.0 跑通并读回；
-> **语义质量未人工复核，不作质量结论**。配套修复 `extractService` 日期当服务名；`@langfuse/*` 锁 `5.13.1`，
-> 新增 `@opentelemetry/context-async-hooks`。详见该方案文档。
+> 官方 SDK evaluator（运行完整性/引用有效性/版本可见性/预期阻断/提示词注入/成本）→ 原生人工复核（0–2 分）。
+> 命令：`eval:lf:preflight|seed|run|verify|review`。已装 Langfuse agent skill（`/root/.agents/skills/langfuse`）。
+> 复验修正：`input.question` 权威驱动首轮；材料 hash 覆盖 materialView 日志；逐案例读回预期分数（v3/scores +
+> `fields=details,subject,annotation`）缺失即失败；预期阻断单独校验（未调模型/未继续取证）；`prompt_injection` 比对**实际模型请求**。
+> 真实两轮实验（`baseline-v1-r2` / `candidate-v2-r2`）已跑通并读回；**语义质量仅 1 条已标注，其余 unscored，不作质量结论**。详见该方案文档。
 
 ---
 
@@ -57,7 +58,7 @@
 | 项 | 值 |
 |---|---|
 | 版本 / 分支 | `0.3.1` / `main` |
-| 测试 | TS 207（`npm test`，数字以 docs/status.json 为准）+ Go adapter（`npm run test:go`）+ `typecheck` 全绿 |
+| 测试 | TS 212（`npm test`，数字以 docs/status.json 为准）+ Go adapter（`npm run test:go`）+ `typecheck` 全绿 |
 | 迁移 | `001` … `006_evidence_uid.sql` |
 | 运行 | `npm run host`（生产，systemd `ticket-doctor-host`）/ `npm run demo`（离线；可开观测做验证） |
 | 部署 | `docker-compose.yml` + `Dockerfile` + `adapters/go/Dockerfile`（已构建并冒烟） |

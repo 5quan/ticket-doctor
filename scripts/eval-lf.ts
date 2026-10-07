@@ -19,7 +19,7 @@ import { smokeEvaluators } from "../src/eval/lf/evaluators.ts";
 import { setupEvalOtel } from "../src/eval/lf/otel.ts";
 import { createLangfuseRecorder } from "../src/observability/langfuse.ts";
 import { printVerify, verifyExperiment } from "../src/eval/lf/verify.ts";
-import { addTracesToAnnotationQueue, ensureAnnotationSetup } from "../src/eval/lf/review.ts";
+import { addTracesToAnnotationQueue, ensureAnnotationSetup, recordQueueAnnotation } from "../src/eval/lf/review.ts";
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const EVAL_ROOT_DEFAULT = join(ROOT, "data", "eval-v2");
@@ -70,6 +70,7 @@ function usage(): void {
              [--max-cases <n>] [--max-rounds <n>] [--budget <说明>] [--eval-root <dir>] [--out <dir>] [--dry-run]
   eval:lf:verify [--manifest <file>] [--dataset <name>] [--dataset-id <id>] [--run-name <name>] [--expect-trace <id>...]
   eval:lf:review [--manifest <file>] [--trace <id>...] [--queue <name>] [--score-config <name>]
+                [--annotate-trace <id> --value 0|1|2 --comment <理由>]
 
   --engine pi（真实模型）必须显式提供 --budget（运行预算说明），否则拒绝发起真实调用。`);
 }
@@ -341,11 +342,36 @@ async function cmdReview(): Promise<number> {
     if (process.argv[i] === "--trace" && process.argv[i + 1]) traceIds.push(...process.argv[i + 1]!.split(",").map((s) => s.trim()).filter(Boolean));
   }
   traceIds = [...new Set(traceIds)];
-  if (traceIds.length === 0) {
+  if (traceIds.length === 0 && !arg("annotate-trace")) {
     console.error("需要 --manifest <file> 或 --trace <id>（没有可加入标注队列的 trace）。");
     return 2;
   }
   const setup = await ensureAnnotationSetup(lf, arg("score-config"), arg("queue"));
+
+  // 标注模式：--annotate-trace <id> --value <0|1|2> --comment <理由>
+  const annotateTrace = arg("annotate-trace");
+  if (annotateTrace) {
+    const value = Number(arg("value"));
+    if (![0, 1, 2].includes(value)) {
+      console.error("❌ --value 必须是 0/1/2（plan §7 人工评分档位）。");
+      return 2;
+    }
+    const comment = arg("comment") ?? "";
+    const recorded = await recordQueueAnnotation(lf, {
+      queueId: setup.queueId,
+      scoreConfigId: setup.scoreConfigId,
+      traceId: annotateTrace,
+      value,
+      comment,
+      ...(arg("score-config") ? { scoreConfigName: arg("score-config")! } : {}),
+    });
+    console.log(`[eval:lf] 标注已记录：scoreId=${recorded.scoreId} trace=${annotateTrace.slice(0, 12)} value=${value}`);
+    console.log(`[eval:lf] 队列项 ${recorded.queueItemId ?? "?"} 标记完成：${recorded.queueCompleted ? "是" : "否（未在队列中找到该 trace）"}`);
+    for (const r of recorded.readback) console.log(`[eval:lf] 读回：${r.name}=${r.value}（来源 ${r.source ?? "?"}；${r.comment ?? "无理由"}）`);
+    if (recorded.readback.length === 0) console.log("[eval:lf] v1 scores 未返回，请用 eval:lf:verify 或 UI 核对（v3/scores 不含 comment）。");
+    return 0;
+  }
+
   const added = await addTracesToAnnotationQueue(lf, setup.queueId, traceIds);
   console.log(`[eval:lf] 评分配置 ${arg("score-config", "prediagnosis_quality")} id=${setup.scoreConfigId}${setup.scoreConfigCreated ? "（新建）" : "（已存在）"}`);
   console.log(`[eval:lf] 标注队列 id=${setup.queueId}${setup.queueCreated ? "（新建）" : "（已存在）"}：新增 ${added.added.length}，跳过已存在 ${added.skipped.length}`);

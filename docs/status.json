@@ -1,7 +1,7 @@
 {
   "version": "0.3.1",
   "tests": {
-    "ts": 207,
+    "ts": 212,
     "go": "adapter"
   },
   "migrations": {
@@ -35,14 +35,16 @@
     "status": "phase1_done",
     "plan": "docs/langfuse-eval-implementation-plan.md",
     "cli": "npm run eval:lf:preflight / eval:lf:seed / eval:lf:run / eval:lf:verify / eval:lf:review",
+    "skill": "langfuse agent skill installed at /root/.agents/skills/langfuse（源 github.com/langfuse/skills）",
     "serverVersion": "4.50.0",
     "dataset": "ticket-doctor-smoke-v1",
-    "datasetVersion": "2026-10-07T13:05:00.000Z",
+    "datasetVersion": "2026-10-07T14:35:00.000Z",
     "prompt": { "name": "ticket-doctor-diagnosis", "baseline": 1, "candidate": 2 },
-    "experiments": { "baseline": "baseline-v1", "candidate": "candidate-v2" },
+    "experiments": { "baseline": "baseline-v1-r2", "candidate": "candidate-v2-r2" },
     "annotationQueue": "ticket-doctor-prediagnosis-review",
+    "annotation": { "scoreConfig": "prediagnosis_quality（NUMERIC 0–2）", "items": 20, "completed": 1 },
     "cases": { "synthetic": 5, "real": 0 },
-    "note": "原生 Langfuse 实验：5 合成案例 × 基线/候选提示词各一次；确定性 P0 评分 + 原生人工复核（0–2 分，未复核 unscored）。分数低不影响评测功能验收；合成数据不得表述为真实工单质量提升。events_only v4：scores/experiments 读接口有索引延迟，verify 已轮询。"
+    "note": "原生 Langfuse 实验：5 合成案例 × 基线/候选提示词。逐案例读回预期指标（v3/scores + fields=details,subject,annotation），缺分数即判失败；input.question 为权威首轮问题；材料 hash 覆盖 materialLog；预期阻断单独校验（未调模型/未继续取证）；prompt_injection 比对实际模型请求。语义质量仅 1 条已人工标注（source=ANNOTATION），其余 unscored；不作真实工单质量结论。"
   },
   "eval": {
     "status": "removed",

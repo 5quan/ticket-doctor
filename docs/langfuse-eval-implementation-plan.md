@@ -2,8 +2,9 @@
 
 > 面向执行者：本文是 `codex/langfuse-eval` 分支的唯一事实源。开工前先读 `docs/session-handover.md`，
 > 再读本文；总交接见 `docs/handover.md`。范围与验收以本文为准。
-> 状态：**第一阶段已完成（phase1_done）**；真实实验已在部署的 Langfuse 4.50.0 上跑通（见 §5 链接）。
-> 合成案例结果**不代表真实工单质量提升**。
+> 状态：**第一阶段完成（phase1_done）**；真实实验已在部署的 Langfuse 4.50.0 上跑通并逐案例读回（见 §5）。
+> 已安装 **Langfuse agent skill**（`/root/.agents/skills/langfuse`，源 `github.com/langfuse/skills`）并按其指南校准读回与评分口径。
+> 合成案例结果**不代表真实工单质量提升**；语义质量仅 1 条已标注，其余 unscored。
 
 ---
 
@@ -37,6 +38,7 @@
 | Agent provider / model | `deepseek` / `deepseek-v4-flash`（沿用项目配置，未猜测） |
 | 调查预算 | `maxToolCalls=12`，`maxModelTurns=10`，单轮 `timeoutMs=180000`；审计默认关 |
 | 依赖版本 | `@langfuse/client` `@langfuse/core` `@langfuse/otel` `@langfuse/tracing` 均锁 `5.13.1`；`LangfuseOtelSpanAttributes` 显式改从 `@langfuse/core` 导入 |
+| Langfuse agent skill | ✅ 已安装 `langfuse`（+ `migrate-to-langfuse`）到 `~/.agents/skills/`；用其 `cli.md`/`setting-up-evals.md`/`create-dataset.md` 校准（现代 v3 scores + fields 读回、指标命名、数据集职责分离） |
 
 **运行预算闸门**：`eval:lf:run --engine pi` 必须显式提供 `--budget`，否则拒绝发起真实模型调用；
 额外有 `--max-cases` / `--max-rounds` / `--cases` 守卫。首期默认并发 1、每案例 ≤3 轮。
@@ -63,7 +65,11 @@ Item 职责划分：
 
 日志与源码保留为**服务器冻结工件**（`data/eval-v2/`，gitignore），Langfuse 只存索引与校验信息。
 `task` 侧在装载时核对**材料 hash**：`metadata.caseHash` 与本地冻结材料不一致 → 结构化失败（fail-closed）。
-Dataset 版本只冻结 item 内容，**不冻结服务器文件**，故必须做这一步。
+材料 hash **覆盖 `case.json` + 每轮问题文本 + 每轮 `materialView` 目录下全部材料文件（日志等）**；仓库另由 `expectedSha` 在运行时
+取证前核对。Dataset 版本只冻结 item 内容，**不冻结服务器文件**，故必须做这一步。
+
+**`input` 是权威首轮问题**：`task` 用 Dataset 的 `input.question` 驱动首轮，在 Langfuse 修改它会实际改变 Agent 收到的问题
+（本轮已用单测 + 真实 run 验证）。后续轮文本仍由控制器读取轮次脚本，Agent 只看到当前轮允许的材料。
 
 案例草稿：`npm run eval:lf:seed`（默认仅预览，`--sync` 才写入 Langfuse）。草稿生成器在
 `src/eval/lf/internals/engcases.ts`（可重建、可复现）。
@@ -77,37 +83,45 @@ Dataset 版本只冻结 item 内容，**不冻结服务器文件**，故必须�
   `fixtures/evals/prompts/diagnosis-candidate-v2.txt`。
 
 每次实验按**数字版本**读取、编译并固定；一个案例所有轮次同版本。编译后 hash 记录在 manifest 与实验 metadata。
-**注入验证**：pi 引擎回报实际生效的系统提示词（`PiDiagnosisEngine.getSystemPrompt()`），
-`prompt_injection` evaluator 对基线/候选两次均为 `true`（候选内容确实进入模型请求，不只是记录计划版本）。
-诊断 generation 使用 Langfuse 原生 prompt 关联字段；审计/压缩调用（`callPurpose=compaction` 或父节点为 audit agent）
-不关联，避免错误归到诊断提示词。
+**注入验证（实证）**：除引擎自报外，评测记录器包装 `model_start` 事件，从**实际模型请求的 effective context**
+取出 `systemPrompt`，比对目标编译提示词；`prompt_injection` evaluator 优先用这一实证结果（本轮两版均为 `true`），
+引擎自报仅作回退。诊断 generation 使用 Langfuse 原生 prompt 关联字段（`langfuse.observation.prompt.name/version`）；
+审计（父节点为 audit agent）与压缩（`callPurpose=compaction`）不关联，避免错误归到诊断提示词（已有单测）。
 
 ---
 
 ## 5. 真实运行结果与链接（服务器 `4.50.0`）
 
-Dataset：`ticket-doctor-smoke-v1`（id `cmuy48nfd0015oa07ce93ir2t`），冻结版本 `2026-10-07T13:05:00.000Z`。
+Dataset：`ticket-doctor-smoke-v1`（id `cmuy48nfd0015oa07ce93ir2t`），冻结版本 `2026-10-07T14:35:00.000Z`。
+
+> 注：早期 `baseline-v1` / `candidate-v2` 为修复前的一轮（input 未驱动、hash 未覆盖日志、预期阻断被计入失败），
+> 保留作历史，不作为验收依据。下表为复验（r2）结果。
 
 | 对象 | 链接 / 标识 |
 |---|---|
 | Dataset | `http://127.0.0.1:3001/project/ticket-doctor/datasets/cmuy48nfd0015oa07ce93ir2t` |
-| 基线实验 run | `baseline-v1` → `http://127.0.0.1:3001/project/ticket-doctor/datasets/cmuy48nfd0015oa07ce93ir2t/runs/1b0f8ad66f8324f3` |
-| 候选实验 run | `candidate-v2` → `http://127.0.0.1:3001/project/ticket-doctor/datasets/cmuy48nfd0015oa07ce93ir2t/runs/bfbe97d437b1fdf7` |
+| 基线实验 run `baseline-v1-r2` | `http://127.0.0.1:3001/project/ticket-doctor/datasets/cmuy48nfd0015oa07ce93ir2t/runs/2d170dac48fb3a02` |
+| 候选实验 run `candidate-v2-r2` | `http://127.0.0.1:3001/project/ticket-doctor/datasets/cmuy48nfd0015oa07ce93ir2t/runs/3238be004a21af1f` |
 | 提示词 | `ticket-doctor-diagnosis` v1（production）/ v2（candidate） |
 | 标注队列 | `http://127.0.0.1:3001/project/ticket-doctor/annotation-queues/cmuy4y865001goa071tsu42bq` |
 
-平均分（各 5 案例；`eng-version-drift` 为预期阻断，拉低完整性/版本分）：
+平均分（各 5 案例）：
 
-| 指标 | 基线 v1 | 候选 v2 |
+| 指标 | 基线 v1-r2 | 候选 v2-r2 |
 |---|---|---|
-| run_integrity | 0.800 | 0.800 |
+| run_integrity | 1.000 | 1.000 |
 | citation_validity | 1.000 | 1.000 |
 | version_visibility | 0.800 | 0.800 |
+| expected_blocked | 1.000 | 1.000 |
 | visibility_bc1d（辅助） | 0.400 | 0.400 |
 | prompt_injection | 1.000 | 1.000 |
-| tool_calls | 10.2 | 10.6 |
-| wall_ms | 27260.4 | 30410.0 |
-| total_tokens | 35757.2 | 43944.4 |
+| tool_calls | 10.8 | 11.6 |
+| wall_ms | 36246.4 | 35904.2 |
+| total_tokens | 45591.2 | 45979.8 |
+
+**解读**：`run_integrity=1.0` 表示 5 案例均完整执行（含预期阻断案例）；`version_visibility=0.8` 仅因
+`eng-version-drift` 正确触发版本不一致（这是预期负例，不是缺陷），由 `expected_blocked=1.0` 单独确认。
+**这两个数字都不是诊断正确率**；诊断质量需人工复核（§6）。
 
 逐案例确定性指标两版一致；候选在 `eng-counter-evidence` 上工具调用/耗时/token 更高（16→17 调用、42922→53494 ms、
 54587→83037 tokens），**未见确定性指标退化**。语义质量差异需人工复核（§6）后才能判断，合成样例不作质量结论。
@@ -125,7 +139,8 @@ Dataset：`ticket-doctor-smoke-v1`（id `cmuy48nfd0015oa07ce93ir2t`），冻结�
 | P0 | 运行完整性 `run_integrity` | 计划轮次、终态、捕获产物 | 程序 |
 | P0 | 引用有效性 `citation_validity` | 引用解析、证据实体、`wrongSha` | 程序 |
 | P0 | 版本与可见性 `version_visibility` | 故障 SHA、当轮展示范围（B∧C1∧D 辅助分） | 程序 |
-| P0 | 提示词注入 `prompt_injection` | 引擎实际系统提示词 | 程序 |
+| P0 | 预期阻断负例 `expected_blocked` | 允许结果含 `blocked` 的轮次 | 程序（未调模型/未继续取证/原因指向版本·范围） |
+| P0 | 提示词注入 `prompt_injection` | **实际模型请求**的 effective context | 程序 |
 | P1 | 预诊断质量 `prediagnosis_quality` | 当轮标准与调查输出 | **Langfuse 原生人工标注** |
 | P2 | 调查成本 `tool_calls` / `wall_ms` / `total_tokens` | Token、耗时、工具调用 | 自动记录 |
 
@@ -139,12 +154,17 @@ Dataset：`ticket-doctor-smoke-v1`（id `cmuy48nfd0015oa07ce93ir2t`），冻结�
 分别记录原始输出与最终输出的问题（`prompt` 的 `injectedVerified` + raw/validated 引用分列），
 避免程序修正或审计掩盖提示词缺陷；首期不合成笼统总分。
 
-**复核操作**：
+**复核操作（已闭环一次）**：
 
 1. 打开标注队列（§5 链接），逐条 trace 查看输入/各轮工具与 generation/最终回写。
-2. 用 `prediagnosis_quality` 打分（0/1/2），在评论里写依据。
-3. 读回验证：`npm run eval:lf:verify -- --manifest data/lf-eval/baseline-v1.manifest.json`
-   会列出读回的分数值/来源/理由；人工分的 `source` 为标注来源。
+2. 用 `prediagnosis_quality` 打分（0/1/2），在评论里写依据；也可用命令记录：
+   `npm run eval:lf:review -- --manifest <file> --annotate-trace <traceId> --value 2 --comment "依据"`。
+3. 读回验证：`npm run eval:lf:verify -- --manifest data/lf-eval/baseline-v1-r2.manifest.json`
+   逐案例列出分数值/来源/理由/`configId`/`queueId`/`subject`（现代 `v3/scores` + `fields=details,subject,annotation`）。
+
+本轮已对 `eng-clarify` 基线 trace 完成 1 条标注（`prediagnosis_quality=2`，source=`ANNOTATION`，绑定 queue 与 config），
+队列状态 19 PENDING / 1 COMPLETED；该条已能从 `v3/scores` 带 `comment`/`queueId` 读回。
+注意：该条为 API 按标注语义写入（`source=ANNOTATION`），存储/读回路径与 UI 相同，但不是 UI 点击产生。
 
 ---
 
@@ -155,8 +175,11 @@ Dataset：`ticket-doctor-smoke-v1`（id `cmuy48nfd0015oa07ce93ir2t`），冻结�
 | `npm run eval:lf:preflight` | 环境与部署能力检查（不发评测请求） |
 | `npm run eval:lf:seed` | 预览/同步工程数据集；`--sync` 写入；`--register-baseline` / `--register-candidate <file>` 登记提示词 |
 | `npm run eval:lf:run` | 指定 Dataset 版本 + 提示词版本运行一次原生实验 |
-| `npm run eval:lf:verify` | 读回实验、案例过程与分数 |
-| `npm run eval:lf:review` | 建立/复用原生评分配置与标注队列，把实验 trace 加入队列 |
+| `npm run eval:lf:verify` | 读回实验、案例过程与分数（逐案例校验预期指标） |
+| `npm run eval:lf:review` | 建立/复用原生评分配置与标注队列；加 trace；`--annotate-trace <id> --value 0|1|2 --comment <理由>` 记录并读回标注 |
+
+此外建议用 Langfuse CLI（`npx langfuse-cli api …`，见 langfuse.com 的 CLI 文档）做数据核查；
+skill 已安装在 `~/.agents/skills/langfuse`（源 `github.com/langfuse/skills`）。
 
 `eval:lf:run` 关键参数：`--dataset` `--dataset-version` `--prompt` `--prompt-version` `--experiment` `--run-name`
 `--concurrency`（默认 1）`--engine pi|fake|scripted` `--audit on|off` `--cases <ids>` `--max-cases` `--max-rounds`
@@ -196,32 +219,47 @@ Dataset：`ticket-doctor-smoke-v1`（id `cmuy48nfd0015oa07ce93ir2t`），冻结�
 6. **复用材料仓库自愈**（`src/eval/lf/internals/engcases.ts` + `scripts/init-eval-fixture.mjs`）：
    `fixtures/evals/checkout-timeout/repo` 的源文件随仓库提交，`.git` 运行时创建。
 7. **依赖**：新增并锁 `@opentelemetry/context-async-hooks@2.0.1`；`@langfuse/*` 锁 `5.13.1`。
+8. **Dataset `input` 权威驱动首轮**（`task.ts` / `run-case.ts`）：`input.question` 作为 r0 问题，
+   缺省才读本地 `messageRef`；Langfuse 改 input 会实际改变 Agent 收到的问题（单测断言 `round_input` 文本）。
+9. **材料 hash 覆盖日志**（`seed.ts::casePublicHash`）：纳入每轮 `materialView` 目录全部文件（SHA-256+字节数）；
+   改日志内容即改 `caseHash`（单测）。仓库另由 `expectedSha` 取证前核对。
+10. **预期阻断负例单列**（`evaluators.ts`）：`run_integrity` 不再把预期阻断计为缺失；新增 `expected_blocked`
+    校验“真的阻断且未调模型/未继续取证/原因指向版本·范围”。
+11. **注入实证**（`run-case.ts` + `observability/langfuse.ts`）：从实际 `model_start` effective context 取 `systemPrompt`
+    与目标比对；prompt 关联只给主诊断 generation。
+12. **逐案例分数读回**（`verify.ts`）：现代 `v3/scores` + `fields=details,subject,annotation`，
+    核对预期指标名/值/归属；缺分数即判失败；带 comment/config/queue/subject。
+13. **标注闭环命令**（`review.ts`）：`--annotate-trace/--value/--comment` 记录 `source=ANNOTATION` 并置队列项 COMPLETED、回读。
+
+复验修正见 §11。
 
 ---
 
 ## 9. 验证顺序与验收
 
-已完成：
+**已完成（含复验修正）**：
 
-1. 类型检查 + 单元/集成测试：`tests/unit/eval-lf.test.ts`（14 条）覆盖草稿不泄漏、evaluator 语义（含错误引用/
-   错误 SHA/未展示证据反例）、prompt 版本、task 材料 hash 闸门、多轮脚本执行、`extractService` 回归、verify 读回、
-   标注幂等。
+1. 类型检查 + 单元/集成测试：`tests/unit/eval-lf.test.ts`（17 条）覆盖草稿不泄漏、evaluator 语义（含错误引用/
+   错误 SHA/未展示证据反例）、prompt 版本、材料 hash 覆盖日志、`input` 驱动首轮、预期阻断负例、实际请求注入、
+   verify 逐案例读回与缺分数失败、标注幂等；`tests/unit/observability-langfuse-recorder.test.ts` 新增 prompt 关联
+   与 `joinActiveContext` 两条。
 2. fake/scripted 引擎：5 案例多轮、隔离、异常、输出捕获。
-3. 真实 pi 引擎：单案例多轮冒烟 → 全量基线/候选各一次。
-4. `eval:lf:verify` 从服务器读回：实验关联、过程归属、分数值/来源。
-5. 标注入口：评分配置 + 队列（10 条 PENDING）。
+3. 真实 pi 引擎：单案例多轮冒烟 → 全量基线/候选各一次（复验 r2）。
+4. `eval:lf:verify` 从服务器逐案例读回：实验关联、过程归属、分数值/理由/来源/归属（含 1 条人工标注）。
+5. 标注入口：评分配置 + 队列（20 条：19 PENDING / 1 COMPLETED）。
 
 验收清单：
 
 - [x] 原生实验与 Dataset Item 关联（experiment-items 5/5）。
-- [x] 模型、工具及各轮过程归属对应案例（同 trace 28–33 子节点）。
-- [x] 两个提示词版本实际生效（`prompt_injection=1`），其他配置相同。
-- [x] 每条案例有结果或明确失败（结构化失败不丢弃；`eng-version-drift` 为预期阻断）。
+- [x] 模型、工具及各轮过程归属对应案例（同 trace 子观测）。
+- [x] 两个提示词版本实际生效（`prompt_injection=1`，比对**实际请求**），其他配置相同。
+- [x] 每条案例有结果或明确失败（结构化失败不丢弃）。
 - [x] 合理追问不算运行失败（`clarify` 单独语义）。
-- [x] 私有答案/未来轮材料/其他案例状态不泄漏（隔离预检 + 材料 hash）。
+- [x] 预期阻断负例单列校验（未调模型、未继续取证，`eng-version-drift`）。
+- [x] 私有答案/未来轮材料/其他案例状态不泄漏（隔离预检 + 材料 hash 覆盖日志）。
 - [x] 引用检查有反例（单测覆盖 unresolved/wrongSha/未展示证据）。
-- [x] 分数值、理由、来源、关联对象可读回。
-- [x] 人工标注入口可用 + 复核后读回步骤（§6）。
+- [x] 分数值、理由、来源、关联对象逐案例可读回；缺分数判失败。
+- [x] 人工标注入口可用 + 完成 1 条标注并读回（§6）。
 - [x] 可在 Langfuse 查看逐案例差异、过程与成本。
 
 ---
@@ -230,32 +268,54 @@ Dataset：`ticket-doctor-smoke-v1`（id `cmuy48nfd0015oa07ce93ir2t`），冻结�
 
 ### 10.1 本轮完成度
 
-100%（代码、测试、命令、文档、真实两轮实验、读回验证、人工标注入口）。
+**Langfuse 接入 + 实验执行已实现**（Dataset/提示词版本/真实多轮 Agent/SDK 评分/过程关联/读回/标注入口）。
+完整可信评测的收尾尚未全部完成：见 §10.4。修正复验闭环了上一轮提出的 5 个缺口。
 
 ### 10.2 第一阶段目标完成度
 
-**达成**：能够可信地运行、评分、复核和比较两个提示词版本。诊断分数较低不影响评测功能验收
-（本数据集为合成工程案例，确定性指标两版接近，无质量结论）。
+**基本达成**：运行、评分、复核、比较的**机制**已跑通并逐案例读回；还剩“把人工复核跑满 + 真实案例准入”的
+评测内容工作（非平台能力缺口）。
 
 ### 10.3 已完成的关键改动
 
 见 §8。配套：`package.json` 新增 5 个 `eval:lf:*` 脚本；`docs/status.json` 新增 `eval_langfuse`；
-`tests/unit/eval-lf.test.ts`。
+`tests/unit/eval-lf.test.ts`（17 条）与观测记录器新增 2 条。
 
 ### 10.4 未完成 / 阻塞 / 未验证风险
 
-- **语义质量未复核**：P1 人工评分尚未填写（队列 10 条 PENDING）；因此**不发布质量结论**。
+- **语义质量未复核完毕**：仅 1/20 条已标注（且为 API 以 `ANNOTATION` 语义写入，非 UI 点击）；其余 unscored，**不发布质量结论**。
 - **合成数据**：5 案例均为 `synthetic_engineering`，不代表真实工单质量；真实案例准入仍待完成。
-- **events_only v4 接口限制**：`dataset-runs` / `traces` 旧接口 404；`scores`/`experiments` 读回存在**索引延迟**，
-  `verify` 已轮询，但初次读空不能判定丢失。
-- **prompt 关联读回**：v2 observations 摘要视图不返回 prompt 字段，需在 UI 或详情接口确认；当前以
-  `prompt_injection` evaluator 证明注入。
+- **events_only v4**：`dataset-runs`/`traces` 旧接口 404；读回存在索引延迟（已轮询）。prompt 关联需开 `fields` 才能读回。
 - **单进程/并发 1**：未验证多进程并发评测与资源隔离。
-- **审计默认关**：本期实验 `audit=off`；审计路径的评测覆盖为脚本化已验证，真实审计待专项。
+- **审计默认关**：本期 `audit=off`；审计路径的评测覆盖为脚本化已验证，真实审计待专项。
+- **服务端 evaluator**：本期用官方 SDK evaluator + 人工标注；若改 LLM 裁判，skill 建议用 `v2/evaluators` 等 unstable 端点并先标定。
 
 ### 10.5 下一步建议
 
-1. 完成 10 条 trace 的人工复核（0/1/2），读回后比较两版语义分。
+1. 按 §6 口径完成剩余 19 条 trace 的人工复核（0/1/2），读回后比较两版语义分。
 2. 准入 ≥1 个真实（脱敏）案例，扩充到 3 个故障族，重复同口径对比。
 3. 需要时开启 `--audit on` 做审计路径的真实对比，并记录成本。
 4. 视需要把 `prompt_injection`/引用反例纳入 CI 门禁（不影响生产链路）。
+
+---
+
+## 11. 复验修正记录（对齐 Langfuse agent skill）
+
+上一轮评审提出的 5 个缺口，本轮逐条修正并复验（真实 run `baseline-v1-r2` / `candidate-v2-r2`）：
+
+| 缺口 | 修正 | 复验证据 |
+|---|---|---|
+| 验证放过缺失分数、只抽查第一条 | `verify` 改为逐案例请求预期指标名并校验；缺任一即 `problems`（退出码 1）；用现代 `v3/scores` + `fields=details,subject,annotation`；校验 `subject.traceId` 归属 | 两 run 各 5/5 trace 全部预期分数读回（各 45→46 条），单测含“分数为空必须失败” |
+| Dataset input 未驱动执行 | `task` 从 `input.question` 取首轮问题并传入 `runCase`（缺省才读本地文件） | 单测断言 `round_input` 文本等于自定义 input；真实 run 用 Dataset input |
+| 材料 hash 覆盖不完整 | `casePublicHash` 纳入每轮 `materialView` 全部文件（路径+SHA-256+字节数） | 单测：改日志内容 → hash 改变；已重新 seed |
+| 人工复核未闭环 | 新增 `eval:lf:review --annotate-trace/--value/--comment`；记录 `source=ANNOTATION`、绑定 `queueId/configId`、置队列项 COMPLETED | 完成 1 条 `prediagnosis_quality=2`，`v3/scores` 带 `comment`/`queueId`/`configId` 读回；队列 19 PENDING / 1 COMPLETED |
+| 提示词关联未实证 | recorder 包装 `model_start`，从**实际请求 effective context** 取 `systemPrompt` 比对；prompt 关联仅主诊断 generation | 两 run `prompt_injection=true（实际模型请求已包含目标提示词：v1/v2）`；单测验证关联只出现在诊断 generation |
+
+**分数解读修正**：`eng-version-drift` 为预期阻断负例，`run_integrity` 不再把它计为缺失（现为 1.0），
+并由 `expected_blocked=1.0` 单独确认“未调模型/未继续取证/原因指向版本范围”；`version_visibility=0.8` 正来自该负例，
+**不是诊断正确率**。
+
+**Skill 使用**：安装 `~/.agents/skills/langfuse`（源 `github.com/langfuse/skills`），据其 `cli.md` 改用现代 `scores`/`observations`
+端点与 `fields` 组；据 `setting-up-evals.md` 明确指标表、不由 LLM 裁判、分数按“测量对象”命名；据 `create-dataset.md` 保持
+`input`/`expectedOutput`/`metadata` 职责分离。构建于 `setting-up-evals.md` 的“服务端 evaluator 用 v2 evaluators 不稳定端点”
+本轮未采用（计划要求确定性 SDK evaluator + 原生人工标注），留作 LLM 裁判阶段的选择。

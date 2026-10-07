@@ -1,6 +1,6 @@
 // Langfuse 原生评测模块：数据集草稿不泄漏、evaluator 语义、prompt 版本、task 材料 hash 闸门、
 // 多轮脚本执行、verify 读回。全部离线（无凭据、无网络）；真实实验由 eval:lf:run 在服务器执行。
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import assert from "node:assert/strict";
 import { dirname, join } from "node:path";
@@ -10,12 +10,13 @@ import type { LangfuseClient } from "@langfuse/client";
 import { loadConfig } from "../../src/config/index.ts";
 import { extractService } from "../../src/intake/router.ts";
 import { buildSmokePayloads, casePublicHash, SMOKE_DATASET, SMOKE_PROTOCOL } from "../../src/eval/lf/seed.ts";
-import { loadCatalog } from "../../src/eval/lf/internals/load.ts";
-import { citationValidityEvaluator, costEvaluator, promptInjectionEvaluator, runIntegrityEvaluator, versionVisibilityEvaluator } from "../../src/eval/lf/evaluators.ts";
+import { loadCatalog, loadCase } from "../../src/eval/lf/internals/load.ts";
+import { listFilesRecursive } from "../../src/eval/lf/internals/hash.ts";
+import { citationValidityEvaluator, costEvaluator, expectedBlockedEvaluator, promptInjectionEvaluator, runIntegrityEvaluator, versionVisibilityEvaluator } from "../../src/eval/lf/evaluators.ts";
 import { compileHash, ensureBaselinePrompt, getPromptVersion, registerCandidatePrompt } from "../../src/eval/lf/prompt.ts";
 import { makeTicketDoctorTask } from "../../src/eval/lf/task.ts";
 import { addTracesToAnnotationQueue, ensureAnnotationSetup } from "../../src/eval/lf/review.ts";
-import { verifyExperiment } from "../../src/eval/lf/verify.ts";
+import { EXPECTED_SCORE_NAMES, verifyExperiment } from "../../src/eval/lf/verify.ts";
 import { runCase } from "../../src/eval/lf/run-case.ts";
 import type { CaseTaskOutput } from "../../src/eval/lf/task.ts";
 import { buildSystemPrompt } from "../../src/agent/pi-engine.ts";
@@ -50,19 +51,30 @@ test("smoke 数据集：5 条合成案例草稿，input 不泄漏私有标准与
   assert.ok(!clarifyR1.allowedOutcomes.includes("report"));
 });
 
-test("材料 hash 是确定性的，且与 case.json 内容绑定", () => {
+test("材料 hash 覆盖 materialView 日志内容：改动日志会改变 caseHash", () => {
   const catalog = loadCatalog(EVAL_ROOT);
-  const entry = catalog.cases.find((c) => c.caseId === "eng-clarify")!;
-  // 通过 task 侧同源函数再算一次，应与草稿中的 metadata.caseHash 一致（验证明细）
-  const payloads = buildSmokePayloads(ROOT, EVAL_ROOT);
-  const p = payloads.find((x) => x.metadata.caseId === "eng-clarify")!;
-  const caseDesc = {
-    caseId: "eng-clarify",
-    rounds: p.expectedOutput.rounds.map((r) => ({ roundId: r.roundId, messageRef: `${r.roundId}-message.txt` })),
-  } as never;
-  // casePublicHash 只依赖磁盘文件，这里直接验证它稳定（两次相同）。
-  assert.equal(casePublicHash(EVAL_ROOT, caseDesc), casePublicHash(EVAL_ROOT, caseDesc));
-  assert.ok(entry.publicDir.includes("eng-clarify"));
+  const entry = catalog.cases.find((c) => c.caseId === "eng-truncation")!;
+  const caseDesc = loadCase(EVAL_ROOT, entry, ROOT);
+  const h1 = casePublicHash(EVAL_ROOT, caseDesc);
+  // 找一个 materialView 下的日志文件（eng-truncation 的 round-1 必有日志）。
+  let logPath: string | undefined;
+  for (const r of caseDesc.rounds) {
+    const viewDir = join(EVAL_ROOT, entry.publicDir, r.materialView);
+    const files = listFilesRecursive(viewDir);
+    if (files.length > 0) {
+      logPath = join(viewDir, files[0]!.path);
+      break;
+    }
+  }
+  assert.ok(logPath, "预期案例含 materialView 日志文件");
+  const original = readFileSync(logPath, "utf8");
+  try {
+    writeFileSync(logPath, `${original}\n# hash-probe\n`, "utf8");
+    assert.notEqual(casePublicHash(EVAL_ROOT, caseDesc), h1);
+  } finally {
+    writeFileSync(logPath, original, "utf8");
+  }
+  assert.equal(casePublicHash(EVAL_ROOT, caseDesc), h1);
 });
 
 // ---------- evaluator 语义 ----------
@@ -86,8 +98,8 @@ function round(overrides: Partial<CaseTaskOutput["rounds"][number]> = {}): CaseT
     ...overrides,
   };
 }
-function output(rounds: CaseTaskOutput["rounds"]): CaseTaskOutput {
-  return { protocolVersion: SMOKE_PROTOCOL, caseId: "c", scenario: "s", prompt: { name: "p", version: 1, hash: "h", injectedVerified: true, injectedMatches: true }, engine: "scripted", auditEngine: null, rounds, wallMs: 123 };
+function output(rounds: CaseTaskOutput["rounds"], promptOverride: Partial<CaseTaskOutput["prompt"]> = {}): CaseTaskOutput {
+  return { protocolVersion: SMOKE_PROTOCOL, caseId: "c", scenario: "s", prompt: { name: "p", version: 1, hash: "h", injectedVerified: true, injectedMatches: true, effectiveVerified: false, effectiveMatches: null, effectiveTruncated: false, ...promptOverride }, engine: "scripted", auditEngine: null, rounds, wallMs: 123 };
 }
 function byName(evals: { name: string; value: number | string | boolean; comment?: string }[], name: string) {
   return evals.find((e) => e.name === name)!;
@@ -137,14 +149,38 @@ test("cost：工具调用/耗时/token 汇总，usage 缺失显式标注", () =>
   assert.match(String(byName(evals, "total_tokens").comment), /缺失/);
 });
 
-test("prompt_injection：pi 注入匹配=1，不匹配=0，未验证不冒充通过", () => {
-  const verified = promptInjectionEvaluator({ input: {}, output: { ...output([round()]), prompt: { name: "p", version: 2, hash: "abc", injectedVerified: true, injectedMatches: true } } });
-  assert.equal(byName(verified, "prompt_injection").value, 1);
-  const mismatch = promptInjectionEvaluator({ input: {}, output: { ...output([round()]), prompt: { name: "p", version: 2, hash: "abc", injectedVerified: true, injectedMatches: false } } });
-  assert.equal(byName(mismatch, "prompt_injection").value, 0);
-  const unverified = promptInjectionEvaluator({ input: {}, output: { ...output([round()]), prompt: { name: "p", version: 2, hash: "abc", injectedVerified: false, injectedMatches: null } } });
+test("prompt_injection：实际模型请求优先；不匹配=0；无捕获才回退引擎自报/不冒充通过", () => {
+  const effective = promptInjectionEvaluator({ input: {}, output: output([round()], { effectiveVerified: true, effectiveMatches: true }) });
+  assert.equal(byName(effective, "prompt_injection").value, 1);
+  assert.match(String(byName(effective, "prompt_injection").comment), /实际模型请求/);
+  const effectiveMismatch = promptInjectionEvaluator({ input: {}, output: output([round()], { effectiveVerified: true, effectiveMatches: false }) });
+  assert.equal(byName(effectiveMismatch, "prompt_injection").value, 0);
+  const engineOnly = promptInjectionEvaluator({ input: {}, output: output([round()], { injectedVerified: true, injectedMatches: true }) });
+  assert.equal(byName(engineOnly, "prompt_injection").value, 1);
+  assert.match(String(byName(engineOnly, "prompt_injection").comment), /引擎自报/);
+  const unverified = promptInjectionEvaluator({ input: {}, output: output([round()], { injectedVerified: false, injectedMatches: null }) });
   assert.equal(byName(unverified, "prompt_injection").value, 0);
   assert.match(String(byName(unverified, "prompt_injection").comment), /未验证/);
+});
+
+test("expected_blocked：预期阻断且未调用模型/未继续取证=1；调用模型或原因不符=0；无预期阻断不参与", () => {
+  const expected = { rounds: [{ roundId: "r1", allowedOutcomes: ["blocked"] }] };
+  const good = expectedBlockedEvaluator({ input: {}, expectedOutput: expected, output: output([round({ roundId: "r1", outcome: "blocked", blocked: true, status: "failed", engineCalls: 0, toolCalls: 0, citations: [], writebackText: null, error: "版本一致性阻断（模型取证前）：repo app mismatch" })]) });
+  assert.equal(byName(good, "expected_blocked").value, 1);
+  const calledModel = expectedBlockedEvaluator({ input: {}, expectedOutput: expected, output: output([round({ roundId: "r1", outcome: "blocked", blocked: true, engineCalls: 1, toolCalls: 0, error: "版本一致性阻断" })]) });
+  assert.equal(byName(calledModel, "expected_blocked").value, 0);
+  const badReason = expectedBlockedEvaluator({ input: {}, expectedOutput: expected, output: output([round({ roundId: "r1", outcome: "blocked", blocked: true, engineCalls: 0, toolCalls: 0, error: "随便什么原因" })]) });
+  assert.equal(byName(badReason, "expected_blocked").value, 0);
+  const notApplicable = expectedBlockedEvaluator({ input: {}, expectedOutput: { rounds: [{ roundId: "r1", allowedOutcomes: ["report"] }] }, output: output([round({ roundId: "r1" })]) });
+  assert.equal(byName(notApplicable, "expected_blocked").value, 1);
+});
+
+test("run_integrity：预期阻断不算运行缺失；非预期阻断才算失败", () => {
+  const expected = { rounds: [{ roundId: "r1", allowedOutcomes: ["blocked"] }] };
+  const expectedBlock = runIntegrityEvaluator({ input: {}, expectedOutput: expected, output: output([round({ roundId: "r1", outcome: "blocked", blocked: true, status: "failed", engineCalls: 0, citations: [], writebackText: null, error: "版本一致性阻断" })]) });
+  assert.equal(byName(expectedBlock, "run_integrity").value, 1);
+  const unexpected = runIntegrityEvaluator({ input: {}, expectedOutput: { rounds: [{ roundId: "r1", allowedOutcomes: ["report"] }] }, output: output([round({ roundId: "r1", outcome: "blocked", blocked: true, status: "failed", engineCalls: 0 })]) });
+  assert.equal(byName(unexpected, "run_integrity").value, 0);
 });
 
 // ---------- prompt 版本：读取/登记/注入候选 ----------
@@ -250,6 +286,30 @@ test("runCase（scripted）：多轮续接同一调查，隔离预检通过，�
   assert.equal(result.rounds[0]!.usage.totalTokens, 0);
 });
 
+test("runCase：数据集 input.question 权威驱动首轮（修改 input 即改变 Agent 收到的问题）", async () => {
+  const config = loadConfig();
+  const catalog = loadCatalog(EVAL_ROOT);
+  const entry = catalog.cases.find((c) => c.caseId === "eng-truncation")!;
+  const outDir = mkdtempSync(join(tmpdir(), "td-lf-input-"));
+  const custom = "自定义首轮问题：big-service 2026-09-06 10:00 变慢（来自数据集 input.question）";
+  await runCase({
+    projectRoot: ROOT,
+    evalRoot: EVAL_ROOT,
+    entry,
+    engine: "scripted",
+    baseConfig: { ...config, diagnosis: { ...config.diagnosis, audit: { ...config.diagnosis.audit, enabled: false } } },
+    firstRoundQuestion: custom,
+    outDir,
+  });
+  const tracePath = join(outDir, "eng-truncation", "trace.jsonl");
+  const events = readFileSync(tracePath, "utf8")
+    .split("\n")
+    .filter(Boolean)
+    .map((l) => JSON.parse(l) as { eventType: string; payload?: { text?: string } });
+  const roundInput = events.find((e) => e.eventType === "round_input");
+  assert.equal(roundInput?.payload?.text, custom);
+});
+
 // ---------- extractService：日期不得被当成服务名（污染 scope 的回归） ----------
 
 test("extractService：服务标注为日期时回退到 xxx-service，不把日期当服务", () => {
@@ -305,29 +365,37 @@ test("review：幂等建立 0–2 分评分配置与队列，trace 幂等入队"
 
 // ---------- verify：读回实验/items/观测，scores 恒空显式告警 ----------
 
-test("verifyExperiment：关联实验/items/观测，scores 空只告警不误判丢失", async () => {
+test("verifyExperiment：逐案例校验预期分数并读回；缺分数即失败（不归为平台限制）", async () => {
   const cfg = { baseUrl: "http://lf.local", publicKey: "pk", secretKey: "sk" };
   const originalFetch = globalThis.fetch;
-  const urls: string[] = [];
-  globalThis.fetch = (async (input: string | URL | Request) => {
-    const url = String(input);
-    urls.push(url);
-    const json = (data: unknown) => new Response(JSON.stringify(data), { status: 200, headers: { "content-type": "application/json" } });
-    if (url.includes("/api/public/experiments")) return json({ data: [{ id: "exp1", name: "run-a" }] });
-    if (url.includes("/api/public/experiment-items")) return json({ data: [{ id: "item1", traceId: "trace1" }] });
-    if (url.includes("/api/public/v2/observations")) return json({ data: [{ id: "obs1", traceId: "trace1" }] });
-    if (url.includes("/api/public/v3/scores")) return json({ data: [] });
-    return json({});
-  }) as typeof fetch;
+  const makeMock = (withScores: boolean) =>
+    (async (input: string | URL | Request) => {
+      const url = String(input);
+      const json = (data: unknown) => new Response(JSON.stringify(data), { status: 200, headers: { "content-type": "application/json" } });
+      if (url.includes("/api/public/experiments")) return json({ data: [{ id: "exp1", name: "run-a" }] });
+      if (url.includes("/api/public/experiment-items")) return json({ data: [{ id: "item1", traceId: "trace1" }] });
+      if (url.includes("/api/public/v2/observations")) return json({ data: [{ id: "obs1", traceId: "trace1" }] });
+      if (url.includes("/api/public/v3/scores")) {
+        return json({ data: withScores ? EXPECTED_SCORE_NAMES.map((name) => ({ id: `s-${name}`, name, value: name === "total_tokens" ? 1234 : 1, source: "API", dataType: "BOOLEAN" })) : [] });
+      }
+      return json({});
+    }) as typeof fetch;
   try {
-    const report = await verifyExperiment(cfg, { datasetId: "ds1", runName: "run-a", expectTraces: ["trace1"] });
+    globalThis.fetch = makeMock(true);
+    const report = await verifyExperiment(cfg, { datasetId: "ds1", runName: "run-a", expectTraces: ["trace1"] }, { attempts: 1, delayMs: 0 });
     assert.equal(report.experimentFound, true);
     assert.equal(report.itemCount, 1);
     assert.equal(report.observationsForSample, 1);
-    assert.equal(report.problems.length, 0);
-    assert.ok(report.warnings.some((w) => /events_only/.test(w)));
-    assert.ok(urls.some((u) => u.includes("/api/public/experiment-items")));
+    assert.equal(report.problems.length, 0, report.problems.join("; "));
+    assert.equal(report.scoreDetails.length, EXPECTED_SCORE_NAMES.length);
+    assert.ok(report.scoreDetails.every((s) => s.traceId === "trace1"));
+
+    globalThis.fetch = makeMock(false);
+    const missing = await verifyExperiment(cfg, { datasetId: "ds1", runName: "run-a", expectTraces: ["trace1"] }, { attempts: 1, delayMs: 0 });
+    assert.ok(missing.problems.some((p) => /缺分数/.test(p)), "分数缺失必须判失败");
   } finally {
     globalThis.fetch = originalFetch;
   }
 });
+
+// ---------- 多轮脚本执行：状态续接 + 材料隔离 + 输出捕获 ----------

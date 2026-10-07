@@ -2,8 +2,9 @@
 // 不发任何网络请求（观测方案 §11：导出器只把目标 observation 发给 Langfuse；这里验证结构与门控）。
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { Span } from "@opentelemetry/api";
-import type { ReadableSpan, SpanProcessor } from "@opentelemetry/sdk-trace-base";
+import { context, trace, type Span } from "@opentelemetry/api";
+import { BasicTracerProvider, type ReadableSpan, type SpanProcessor } from "@opentelemetry/sdk-trace-base";
+import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
 import { createLangfuseRecorder } from "../../src/observability/langfuse.ts";
 import type { ObservationEvent } from "../../src/observability/types.ts";
 
@@ -269,4 +270,73 @@ test("attempt 异常路径：残留子观测收敛为 ERROR，root status=ERROR"
   assert.equal(root.status.code, 2);
   const rootAttrs = root.attributes as Record<string, unknown>;
   assert.ok((rootAttrs["langfuse.trace.output"] as string).includes("boom"));
+});
+
+function modelStartPurpose(id: string, callPurpose: "diagnosis" | "compaction"): ObservationEvent {
+  return {
+    schemaVersion: 1,
+    eventId: `ev-${id}`,
+    seq: 1,
+    timestamp: new Date().toISOString(),
+    kind: "model_start",
+    logicalObservationId: id,
+    parentLogicalId: scopeId("k"),
+    model: "deepseek-v4-flash",
+    provider: "deepseek",
+    callPurpose,
+    captureLevel: "effective_context",
+    input: { text: `purpose=${callPurpose}`, truncated: false, originalBytes: 20 },
+  };
+}
+
+test("诊断 generation 关联原生 prompt；压缩/审计 generation 不关联", () => {
+  const { processor, ended } = spyProcessor();
+  const recorder = createLangfuseRecorder(CONFIG, processor, { prompt: { name: "ticket-doctor-diagnosis", version: 2 } })!;
+  recorder.beginAttempt(IDENTITY, { question: "q", engine: "pi" });
+  // 主诊断 generation（parent=attempt scopeId）应带 prompt 关联
+  recorder.record(modelStartPurpose("gen-diag", "diagnosis"), IDENTITY);
+  recorder.record(modelEnd("gen-diag"), IDENTITY);
+  // 压缩调用（callPurpose=compaction）不得关联诊断提示词
+  recorder.record(modelStartPurpose("gen-compact", "compaction"), IDENTITY);
+  recorder.record(modelEnd("gen-compact"), IDENTITY);
+  recorder.endAttempt(IDENTITY, { status: "ok", kind: "report" });
+  const gens = ended.filter((s) => s.name === "model-request");
+  assert.equal(gens.length, 2);
+  for (const gen of gens) {
+    const attrs = gen.attributes as Record<string, unknown>;
+    const isDiag = String(gen.attributes["langfuse.observation.input"] ?? "").includes("diagnosis");
+    if (isDiag) {
+      assert.equal(attrs["langfuse.observation.prompt.name"], "ticket-doctor-diagnosis");
+      assert.equal(attrs["langfuse.observation.prompt.version"], 2);
+    } else {
+      assert.equal(attrs["langfuse.observation.prompt.name"], undefined, "压缩调用不得关联诊断提示词");
+    }
+  }
+});
+
+test("评测模式 joinActiveContext：attempt 根挂在实验 item span 下，且不覆盖 trace 级 name/input", async () => {
+  context.setGlobalContextManager(new AsyncLocalStorageContextManager());
+  const { processor, ended } = spyProcessor();
+  const recorder = createLangfuseRecorder(CONFIG, processor, { joinActiveContext: true })!;
+  // 用独立 provider 模拟 SDK 的实验 item 根 span。
+  const experimentProvider = new BasicTracerProvider();
+  const experimentSpan = experimentProvider.getTracer("langfuse-sdk").startSpan("experiment-item-run");
+  const ctx = trace.setSpan(context.active(), experimentSpan);
+  context.with(ctx, () => {
+    recorder.beginAttempt(IDENTITY, { question: "q", engine: "pi" });
+    recorder.record(modelStart("gen-1"), IDENTITY);
+    recorder.record(modelEnd("gen-1"), IDENTITY);
+    recorder.endAttempt(IDENTITY, { status: "ok", kind: "report" });
+  });
+  experimentSpan.end();
+  await experimentProvider.shutdown();
+
+  const root = ended.find((s) => s.name === "diagnose-turn")!;
+  assert.equal(root.spanContext().traceId, experimentSpan.spanContext().traceId);
+  assert.equal(root.parentSpanContext?.spanId, experimentSpan.spanContext().spanId, "attempt 根必须是实验 item 的子节点");
+  const rootAttrs = root.attributes as Record<string, unknown>;
+  assert.equal(rootAttrs["langfuse.trace.name"], undefined, "评测模式不得在子节点写 trace 级 name");
+  assert.equal(rootAttrs["langfuse.trace.input"], undefined, "评测模式不得在子节点写 trace 级 input");
+  assert.ok(typeof rootAttrs["langfuse.observation.input"] === "string", "改挂 observation 级 input");
+  assert.equal((root.attributes as Record<string, unknown>)["langfuse.trace.metadata"], undefined);
 });

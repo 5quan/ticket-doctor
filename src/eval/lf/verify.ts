@@ -11,6 +11,9 @@ export interface ScoreDetail {
   source: string | null;
   comment: string | null;
   dataType: string | null;
+  configId: string | null;
+  queueId: string | null;
+  subject: { kind: string; id: string; traceId?: string } | null;
 }
 
 export interface VerifyReport {
@@ -54,10 +57,47 @@ async function poll<T>(fn: () => Promise<T>, ok: (value: T) => boolean, attempts
   return last;
 }
 
+/** 每条案例都必须能读回的确定性分数（visibility_bc1d 条件生成，不作必需）。 */
+export const EXPECTED_SCORE_NAMES = [
+  "run_integrity",
+  "citation_validity",
+  "version_visibility",
+  "expected_blocked",
+  "prompt_injection",
+  "tool_calls",
+  "wall_ms",
+  "total_tokens",
+] as const;
+
+/** 这三项为 0 说明实验/注入/负例校验存在实际问题（不归为平台限制）。 */
+const MUST_BE_TRUE = ["run_integrity", "expected_blocked", "prompt_injection"] as const;
+
+async function fetchScores(
+  cfg: LfClientConfig,
+  traceId: string,
+  attempts: number,
+  delayMs: number,
+): Promise<Array<{ id: string; name?: string; value?: number | string; source?: string; comment?: string | null; dataType?: string; configId?: string | null; queueId?: string | null; subject?: { kind?: string; id?: string; traceId?: string } | null }>> {
+  // fields=details,subject,annotation：plan §9 要求读回“值/理由/来源/关联对象”（skill 推荐用现代 v3 + fields）。
+  const res = await poll(
+    async () =>
+      (await call(cfg, "GET", `/api/public/v3/scores?traceId=${encodeURIComponent(traceId)}&fields=details,subject,annotation&limit=100`)).json as {
+        data?: Array<Record<string, unknown>>;
+      } | null,
+    (j) => (j?.data ?? []).length > 0,
+    attempts,
+    delayMs,
+  );
+  return (res?.data ?? []) as Array<{ id: string; name?: string; value?: number | string; source?: string; comment?: string | null; dataType?: string; configId?: string | null; queueId?: string | null; subject?: { kind?: string; id?: string; traceId?: string } | null }>;
+}
+
 export async function verifyExperiment(
   cfg: LfClientConfig,
   args: { datasetId: string; runName: string; expectTraces: string[] },
+  opts: { attempts?: number; delayMs?: number } = {},
 ): Promise<VerifyReport> {
+  const attempts = opts.attempts ?? 6;
+  const delayMs = opts.delayMs ?? 2500;
   const report: VerifyReport = {
     experimentFound: false,
     experimentName: null,
@@ -75,6 +115,8 @@ export async function verifyExperiment(
       data?: Array<{ id: string; name: string | null }>;
     } | null,
     (j) => (j?.data ?? []).some((e) => e.name === args.runName),
+    attempts,
+    delayMs,
   );
   const experiment = experiments?.data?.find((e) => e.name === args.runName);
   if (!experiment) {
@@ -89,6 +131,8 @@ export async function verifyExperiment(
       data?: Array<{ id: string; traceId: string }>;
     } | null,
     (j) => (j?.data ?? []).length > 0,
+    attempts,
+    delayMs,
   );
   const rows = items?.data ?? [];
   report.itemCount = rows.length;
@@ -99,43 +143,71 @@ export async function verifyExperiment(
     if (!linked.has(t)) report.problems.push(`trace ${t.slice(0, 12)} 未关联到实验`);
   }
 
-  const sample = rows[0]?.traceId ?? args.expectTraces[0];
-  if (sample) {
-    const obs = await poll(
-      async () => (await call(cfg, "GET", `/api/public/v2/observations?traceId=${encodeURIComponent(sample)}&limit=100`)).json as {
-        data?: Array<{ id: string; traceId: string }>;
-      } | null,
-      (j) => (j?.data ?? []).some((o) => o.traceId === sample),
-    );
-    report.observationsForSample = (obs?.data ?? []).filter((o) => o.traceId === sample).length;
-    if (report.observationsForSample === 0) report.problems.push(`样本 trace ${sample.slice(0, 12)} 无子观测（过程未归属）`);
-
-    const scores = (await call(cfg, "GET", `/api/public/v3/scores?traceId=${encodeURIComponent(sample)}&limit=100`)).json as {
-      data?: Array<{ id: string; name?: string; value?: number | string; source?: string; comment?: string | null; dataType?: string }>;
-    } | null;
-    report.scoresForSample = (scores?.data ?? []).length;
-    report.scoreDetails = (scores?.data ?? []).map((s) => ({
-      traceId: sample,
-      name: s.name ?? "?",
-      value: s.value ?? 0,
-      source: s.source ?? null,
-      comment: s.comment ?? null,
-      dataType: s.dataType ?? null,
-    }));
-    if (report.scoresForSample === 0) {
-      report.warnings.push("v3/scores 对样本返回空——events_only 已知限制：写入 2xx 但读 API 恒空，请在 UI 分数面板核对（不能据此判定丢失）");
+  // 分数读回（plan §9）：逐条案例核对预期指标、值与归属；缺失即失败，不归为平台限制。
+  const targets = args.expectTraces.length > 0 ? args.expectTraces : rows.map((r) => r.traceId);
+  for (const traceId of targets) {
+    const scores = await fetchScores(cfg, traceId, attempts, delayMs);
+    const names = new Set(scores.map((s) => s.name ?? ""));
+    const missing = EXPECTED_SCORE_NAMES.filter((n) => !names.has(n));
+    if (missing.length > 0) {
+      report.problems.push(`trace ${traceId.slice(0, 12)} 缺分数：${missing.join(",")}（v3/scores 读回，非平台限制）`);
+    }
+    for (const s of scores) {
+      const value = s.value ?? 0;
+      if ((MUST_BE_TRUE as readonly string[]).includes(s.name ?? "") && !value) {
+        report.problems.push(`trace ${traceId.slice(0, 12)} 的 ${s.name}=${String(value)}（应为通过）`);
+      }
+      // 归属校验：分数的 subject.traceId 必须等于被查 trace（防错挂）。
+      const subjectTrace = s.subject?.traceId;
+      if (subjectTrace && subjectTrace !== traceId) {
+        report.problems.push(`trace ${traceId.slice(0, 12)} 的 ${s.name} 归属错误：subject.traceId=${subjectTrace.slice(0, 12)}`);
+      }
+      report.scoreDetails.push({
+        traceId,
+        name: s.name ?? "?",
+        value,
+        source: s.source ?? null,
+        comment: s.comment ?? null,
+        dataType: s.dataType ?? null,
+        configId: s.configId ?? null,
+        queueId: s.queueId ?? null,
+        subject: s.subject ? { kind: s.subject.kind ?? "?", id: s.subject.id ?? "?", ...(s.subject.traceId ? { traceId: s.subject.traceId } : {}) } : null,
+      });
     }
   }
+  report.scoresForSample = report.scoreDetails.length;
+
+  // 过程归属抽查：每条目标 trace 必须有子观测（不只查第一条）。
+  for (const traceId of targets) {
+    const obs = await poll(
+      async () => (await call(cfg, "GET", `/api/public/v2/observations?traceId=${encodeURIComponent(traceId)}&limit=100`)).json as {
+        data?: Array<{ id: string; traceId: string }>;
+      } | null,
+      (j) => (j?.data ?? []).some((o) => o.traceId === traceId),
+      attempts,
+      delayMs,
+    );
+    const count = (obs?.data ?? []).filter((o) => o.traceId === traceId).length;
+    if (report.observationsForSample === 0) report.observationsForSample = count;
+    if (count === 0) report.problems.push(`trace ${traceId.slice(0, 12)} 无子观测（过程未归属）`);
+  }
+  if (targets.length === 0) report.problems.push("没有可校验的 trace（manifest 与 experiment-items 均为空）");
   return report;
 }
 
 export function printVerify(r: VerifyReport): boolean {
   console.log(`${r.experimentFound ? "✅" : "❌"} 实验找到：${r.experimentName ?? "无"}`);
   console.log(`${r.itemCount > 0 ? "✅" : "❌"} experiment-items=${r.itemCount}`);
-  console.log(`${r.problems.length === 0 ? "✅" : "❌"} 预期 trace 全部关联`);
-  console.log(`${r.observationsForSample > 0 ? "✅" : "❌"} 样本观测回读=${r.observationsForSample}（v2/observations）`);
-  console.log(`⚠ 分数读回=${r.scoresForSample}（v3/scores；恒空为平台限制，UI 为准）`);
-  for (const s of r.scoreDetails) console.log(`   · ${s.name}=${s.value}${s.source ? `（来源 ${s.source}` : "（来源 ?"}${s.comment ? `；${s.comment.slice(0, 80)}` : ""}）`);
+  console.log(`${r.problems.length === 0 ? "✅" : "❌"} 预期 trace 全部关联且分数可见`);
+  console.log(`${r.observationsForSample > 0 ? "✅" : "❌"} 观测回读（首条 trace）=${r.observationsForSample}（v2/observations）`);
+  console.log(`${r.scoreDetails.length > 0 ? "✅" : "❌"} 分数读回（v3/scores，逐案例）=${r.scoreDetails.length}`);
+  for (const s of r.scoreDetails) {
+    const source = s.source ? `来源 ${s.source}` : "来源 ?";
+    const ann = s.queueId ? `；queue=${s.queueId.slice(0, 8)}` : "";
+    const cfg = s.configId ? `；config=${s.configId.slice(0, 8)}` : "";
+    const comment = s.comment ? `；${s.comment.replace(/\s+/g, " ").slice(0, 90)}` : "";
+    console.log(`   · [${s.traceId.slice(0, 8)}] ${s.name}=${s.value}（${source}${ann}${cfg}${comment}）`);
+  }
   for (const p of r.problems) console.error(`  ❌ ${p}`);
   for (const w of r.warnings) console.warn(`  ⚠ ${w}`);
   return r.problems.length === 0;

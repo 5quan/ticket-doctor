@@ -64,7 +64,56 @@ export interface QueueAddResult {
   added: string[];
   skipped: string[];
 }
+/** 记一条人工标注（source=ANNOTATION，绑定 queueId/configId）并把队列项置 COMPLETED，然后读回。 */
+export interface AnnotationRecordResult {
+  scoreId: string;
+  queueItemId: string | null;
+  queueCompleted: boolean;
+  readback: Array<{ name: string; value: number | string; source: string | null; comment: string | null }>;
+}
 
+export async function recordQueueAnnotation(
+  lf: LangfuseClient,
+  args: { queueId: string; scoreConfigId: string; traceId: string; value: number; comment: string; scoreConfigName?: string },
+): Promise<AnnotationRecordResult> {
+  const created = (await lf.api.scores.create({
+    traceId: args.traceId,
+    name: args.scoreConfigName ?? QUALITY_SCORE_CONFIG,
+    value: args.value,
+    configId: args.scoreConfigId,
+    queueId: args.queueId,
+    source: "ANNOTATION",
+    comment: args.comment,
+  })) as unknown as { id: string };
+
+  let queueItemId: string | null = null;
+  let queueCompleted = false;
+  const items = (await lf.api.annotationQueues.listQueueItems(args.queueId, { limit: 100 })) as unknown as {
+    data: Array<{ id: string; objectId: string }>;
+  };
+  const item = items.data.find((i) => i.objectId === args.traceId);
+  if (item) {
+    queueItemId = item.id;
+    await lf.api.annotationQueues.updateQueueItem(args.queueId, item.id, { status: "COMPLETED" });
+    queueCompleted = true;
+  }
+
+  // 读回：现代 v3 scores + fields 组（skill 推荐），可拿回 comment/config/queue 归属。
+  // 写入后存在索引延迟，轮询几次。
+  let readback: AnnotationRecordResult["readback"] = [];
+  for (let attempt = 0; attempt < 6 && readback.length === 0; attempt++) {
+    if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 2500));
+    try {
+      const scores = (await lf.api.scoresV3.getManyV3({ traceId: args.traceId, source: "ANNOTATION", fields: "details,subject,annotation", limit: 100 })) as unknown as {
+        data: Array<{ name?: string; value?: number | string; source?: string; comment?: string | null; configId?: string | null; queueId?: string | null }>;
+      };
+      readback = (scores.data ?? []).map((s) => ({ name: s.name ?? "?", value: s.value ?? "", source: s.source ?? null, comment: s.comment ?? null }));
+    } catch {
+      readback = [];
+    }
+  }
+  return { scoreId: created.id, queueItemId, queueCompleted, readback };
+}
 /** 把实验 trace 加入标注队列（幂等：已在队列中的 trace 跳过）。 */
 export async function addTracesToAnnotationQueue(lf: LangfuseClient, queueId: string, traceIds: string[]): Promise<QueueAddResult> {
   const existing = new Set<string>();

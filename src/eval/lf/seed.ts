@@ -12,6 +12,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadCatalog, loadCase, loadRoundMessage, loadTruth, type CatalogEntry } from "./internals/load.ts";
 import { materializeEngineeringCases } from "./internals/engcases.ts";
+import { listFilesRecursive } from "./internals/hash.ts";
 import { validatePairing } from "./internals/schema.ts";
 import type { CaseDescriptorV2, TruthFileV2 } from "./internals/types.ts";
 
@@ -62,9 +63,21 @@ export function smokeItemId(caseId: string): string {
   return createHash("sha256").update(`smoke-item\u0000${caseId}`).digest("hex").slice(0, 32);
 }
 
+/**
+ * 材料 hash（plan §4）：Dataset 版本只冻结 item，不冻结服务器文件——这里覆盖
+ * case.json + 每轮问题文本 + **每轮 materialView 目录下全部材料文件**（日志等）。
+ * 仓库材料另由 expectedSha 在运行时核对前版本（onPrepared）；此处不扫 .git。
+ */
 export function casePublicHash(evalRoot: string, caseDesc: CaseDescriptorV2): string {
   const caseDir = join(evalRoot, "public", caseDesc.caseId);
-  const parts = [readFileSync(join(caseDir, "case.json"), "utf8"), ...caseDesc.rounds.map((r) => (existsSync(join(caseDir, r.messageRef)) ? readFileSync(join(caseDir, r.messageRef), "utf8") : `[missing:${r.roundId}]`))];
+  const parts: string[] = [readFileSync(join(caseDir, "case.json"), "utf8")];
+  for (const r of caseDesc.rounds) {
+    parts.push(existsSync(join(caseDir, r.messageRef)) ? readFileSync(join(caseDir, r.messageRef), "utf8") : `[missing:${r.roundId}]`);
+    const viewDir = join(caseDir, r.materialView);
+    for (const f of listFilesRecursive(viewDir)) {
+      parts.push(`material:${r.materialView}/${f.path}\0${f.sha256}\0${f.bytes}`);
+    }
+  }
   return createHash("sha256").update(parts.join("\u0000")).digest("hex");
 }
 

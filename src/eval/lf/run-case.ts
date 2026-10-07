@@ -47,6 +47,7 @@ import type {
   TruthFileV2,
 } from "./internals/types.ts";
 import type { DiagnosisEngine, EngineResult } from "../../agent/types.ts";
+import type { ObservationRecorder } from "../../observability/langfuse.ts";
 import { createHash } from "node:crypto";
 
 const MIGRATIONS = "migrations";
@@ -63,12 +64,14 @@ export interface RunCaseOptions {
   baseConfig: AppConfig;
   /** 候选提示词（缺省 = 生产内置）；注入走 buildEngine(config, systemPrompt)（plan §5）。 */
   systemPrompt?: string;
+  /** Dataset 的 input.question：权威首轮问题（缺省才读本地 messageRef）。 */
+  firstRoundQuestion?: string;
   /** 实验输出目录（trace.jsonl / artifacts.json 落盘，仅调试与导出用）。 */
   outDir: string;
   /** 观测接入：SDK task 的 active context（本案例成为实验 item trace 的子节点，plan §6）。 */
   otelParentContext?: import("@opentelemetry/api").Context;
   /** Langfuse 观测记录器（plan §6 过程捕获）：提供时传入生产编排链路。 */
-  recorder?: import("../../observability/langfuse.ts").ObservationRecorder;
+  recorder?: ObservationRecorder;
 }
 
 export interface RoundVisibilitySummary {
@@ -94,8 +97,15 @@ export interface CaseRunResult {
   engine: string;
   auditEngine: string | null;
   promptHash: string;
-  /** plan §5：验证注入实际生效（pi 引擎回报 getSystemPrompt()；scripted/fake 无模型，null）。 */
-  injectedPrompt: { verified: boolean; matches: boolean | null; head: string | null };
+  /** plan §5：验证注入实际生效。verified/ matches 为引擎自报；effective* 为**实际模型请求**捕获。 */
+  injectedPrompt: {
+    verified: boolean;
+    matches: boolean | null;
+    head: string | null;
+    effectiveVerified: boolean;
+    effectiveMatches: boolean | null;
+    effectiveTruncated: boolean;
+  };
   isolation: { ok: boolean; counts: Record<string, number>; violationText?: string };
   rounds: Array<{
     roundId: string;
@@ -183,6 +193,43 @@ export function loadFrozenCase(evalRoot: string, projectRoot: string, entry: Cat
  * 执行一次完整调查（一个 dataset item = 一次完整多轮调查，plan §3）。
  * 所有轮次共享 investigation/会话/历史证据；每轮独立材料视图与授权。
  */
+/**
+ * 包装观测记录器：在转发事件的同时，从**实际模型请求**（model_start 的 effective context）
+ * 捕获主诊断会话的系统提示词，用于 plan §5 的注入实证（而非只看执行前配置）。
+ */
+function promptCaptureRecorder(rec: ObservationRecorder): {
+  recorder: ObservationRecorder;
+  prompts: Array<{ text: string; truncated: boolean }>;
+} {
+  const prompts: Array<{ text: string; truncated: boolean }> = [];
+  let scopeId: string | undefined;
+  const recorder: ObservationRecorder = {
+    beginAttempt: (identity, meta) => {
+      scopeId = rec.beginAttempt(identity, meta);
+      return scopeId;
+    },
+    record: (event, identity) => {
+      if (event.kind === "model_start" && event.callPurpose === "diagnosis" && (scopeId === undefined || event.parentLogicalId === scopeId)) {
+        const input = event.input as { text?: string; truncated?: boolean } | undefined;
+        if (typeof input?.text === "string") {
+          try {
+            const parsed = JSON.parse(input.text) as { systemPrompt?: unknown };
+            if (typeof parsed.systemPrompt === "string") prompts.push({ text: parsed.systemPrompt, truncated: input.truncated === true });
+          } catch {
+            // input 非 JSON（异常采集）：忽略，不伪造
+          }
+        }
+      }
+      rec.record(event, identity);
+    },
+    recordReportValidation: (identity, data) => rec.recordReportValidation(identity, data),
+    recordAuditApplication: (identity, data) => rec.recordAuditApplication(identity, data),
+    endAttempt: (identity, outcome) => rec.endAttempt(identity, outcome),
+    shutdown: () => rec.shutdown(),
+  };
+  return { recorder, prompts };
+}
+
 export async function runCase(opts: RunCaseOptions): Promise<CaseRunResult> {
   const loaded = loadLoadedCase(opts.evalRoot, opts.projectRoot, opts.entry);
   const { caseDesc, truth, caseDir } = loaded;
@@ -209,14 +256,16 @@ export async function runCase(opts: RunCaseOptions): Promise<CaseRunResult> {
   // plan §5：记录**编译后**提示词指纹；注入验证：pi 引擎回报实际生效的系统提示词。
   const expectedPrompt = opts.systemPrompt ?? buildSystemPrompt();
   const promptHash = createHash("sha256").update(expectedPrompt).digest("hex");
-  let injectedPrompt: CaseRunResult["injectedPrompt"] = { verified: false, matches: null, head: null };
+  let injectedPrompt: CaseRunResult["injectedPrompt"] = { verified: false, matches: null, head: null, effectiveVerified: false, effectiveMatches: null, effectiveTruncated: false };
   if (opts.engine === "pi") {
     const probe = engine as unknown as { getSystemPrompt?: () => string };
     if (typeof probe.getSystemPrompt === "function") {
       const actual = probe.getSystemPrompt();
-      injectedPrompt = { verified: true, matches: actual === expectedPrompt, head: actual.slice(0, 60) };
+      injectedPrompt = { ...injectedPrompt, verified: true, matches: actual === expectedPrompt, head: actual.slice(0, 60) };
     }
   }
+  // 实际请求捕获：只在有观测记录器时启用（真实实验路径）。
+  const promptCapture = opts.recorder ? promptCaptureRecorder(opts.recorder) : undefined;
 
   const startedAt = Date.now();
   const result: CaseRunResult = {
@@ -266,7 +315,7 @@ export async function runCase(opts: RunCaseOptions): Promise<CaseRunResult> {
         allowedServices: cfg.sources.allowedServices,
       });
 
-      const baseText = loadRoundMessage(caseDir, round.messageRef);
+      const baseText = r === 0 && opts.firstRoundQuestion ? opts.firstRoundQuestion : loadRoundMessage(caseDir, round.messageRef);
       const text = r === 0 ? baseText : `${baseText}\n[${SESSION_MARKER_PREFIX}${sessionCode ?? ""}]`;
       const externalMessageId = `${caseDesc.caseId}-t1-r${r + 1}`;
       const inbound: InboundMessage = {
@@ -307,7 +356,7 @@ export async function runCase(opts: RunCaseOptions): Promise<CaseRunResult> {
             engine: capture,
             auditor,
             logSource: recordingSource,
-            ...(opts.recorder ? { recorder: opts.recorder } : {}),
+            ...(promptCapture ? { recorder: promptCapture.recorder } : {}),
             onPrepared: ({ scope }) => {
               const resolved = scope.repos.map((r) => ({ repoId: r.repoId, resolvedSha: r.sha ?? null, pinnedBy: r.pinnedBy ?? null }));
               const checks = round.repos.map((repo) => {
@@ -500,6 +549,18 @@ export async function runCase(opts: RunCaseOptions): Promise<CaseRunResult> {
   } catch (err) {
     executionError = err instanceof Error ? err.message : String(err);
     trace.emit("case_error", { error: executionError });
+  }
+
+  if (promptCapture) {
+    const effectiveVerified = promptCapture.prompts.length > 0;
+    result.injectedPrompt = {
+      ...result.injectedPrompt,
+      effectiveVerified,
+      effectiveMatches: effectiveVerified
+        ? promptCapture.prompts.every((p) => p.text === expectedPrompt || p.text.includes(expectedPrompt))
+        : null,
+      effectiveTruncated: promptCapture.prompts.some((p) => p.truncated),
+    };
   }
 
   result.wall.finishedAt = Date.now();

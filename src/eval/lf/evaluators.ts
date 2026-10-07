@@ -20,7 +20,8 @@ export function runIntegrityEvaluator(params: EvalParams): Evaluation[] {
   if (out.failure) {
     return [{ name: "run_integrity", value: 0, dataType: "BOOLEAN", comment: `任务失败（未丢弃）：${out.failure.slice(0, 400)}` }];
   }
-  const expected = (params.expectedOutput as { rounds?: Array<{ roundId: string }> } | null)?.rounds ?? [];
+  const expected = (params.expectedOutput as { rounds?: Array<{ roundId: string; allowedOutcomes?: string[] }> } | null)?.rounds ?? [];
+  const expectedById = new Map(expected.map((r) => [r.roundId, r]));
   const plannedIds = expected.map((r) => r.roundId);
   const actualIds = out.rounds.map((r) => r.roundId);
   const notes: string[] = [];
@@ -32,10 +33,13 @@ export function runIntegrityEvaluator(params: EvalParams): Evaluation[] {
     notes.push(`缺轮：${missing.join(",")}`);
   }
   for (const r of out.rounds) {
+    const expectsBlocked = (expectedById.get(r.roundId)?.allowedOutcomes ?? []).includes("blocked");
     if (r.blocked) {
-      // 预期内阻断（版本/隔离 fail-closed）：运行无效，但不是"被丢弃"——原因如实上报。
-      ok = false;
-      notes.push(`r=${r.roundId} 取证前阻断`);
+      // 预期内阻断（版本/隔离 fail-closed）不是运行缺失——由 expected_blocked 专项校验；非预期阻断才算失败。
+      if (!expectsBlocked) {
+        ok = false;
+        notes.push(`r=${r.roundId} 非预期阻断`);
+      }
       continue;
     }
     if (r.status !== "succeeded") {
@@ -53,6 +57,55 @@ export function runIntegrityEvaluator(params: EvalParams): Evaluation[] {
     }
   }
   return [{ name: "run_integrity", value: bool(ok), dataType: "BOOLEAN", comment: ok ? "全部轮次完整" : notes.join("; ").slice(0, 450) }];
+}
+
+/**
+ * P0 预期阻断负例（plan §9）：allowedOutcomes 含 blocked 的轮次必须真的取证前阻断，
+ * 且**未调用模型、未继续取证**，阻断原因指向版本/范围一致性。仅该负例携带信号。
+ */
+export function expectedBlockedEvaluator(params: EvalParams): Evaluation[] {
+  const out = asOutput(params.output);
+  const expected = (params.expectedOutput as { rounds?: Array<{ roundId: string; allowedOutcomes?: string[] }> } | null)?.rounds ?? [];
+  const blockedRounds = expected.filter((r) => (r.allowedOutcomes ?? []).includes("blocked"));
+  if (blockedRounds.length === 0) {
+    return [{ name: "expected_blocked", value: 1, dataType: "BOOLEAN", comment: "本案例无预期阻断轮（该指标对本案例无信号）" }];
+  }
+  const notes: string[] = [];
+  let ok = true;
+  for (const er of blockedRounds) {
+    const actual = out.rounds.find((r) => r.roundId === er.roundId);
+    if (!actual) {
+      ok = false;
+      notes.push(`${er.roundId} 缺轮`);
+      continue;
+    }
+    if (!actual.blocked) {
+      ok = false;
+      notes.push(`${er.roundId} 未阻断（outcome=${actual.outcome}）`);
+      continue;
+    }
+    if (actual.engineCalls !== 0) {
+      ok = false;
+      notes.push(`${er.roundId} 阻断前调用模型 ${actual.engineCalls} 次`);
+    }
+    if (actual.toolCalls !== 0) {
+      ok = false;
+      notes.push(`${er.roundId} 阻断前调用工具 ${actual.toolCalls} 次`);
+    }
+    const reason = `${actual.error ?? ""}`;
+    if (!/版本|范围|阻断|一致性|隔离|scope|mismatch/i.test(reason)) {
+      ok = false;
+      notes.push(`${er.roundId} 阻断原因不含版本/范围关键词：${reason.slice(0, 80)}`);
+    }
+  }
+  return [
+    {
+      name: "expected_blocked",
+      value: bool(ok),
+      dataType: "BOOLEAN",
+      comment: ok ? `预期阻断 ${blockedRounds.map((r) => r.roundId).join(",")} 正确（未调用模型/未继续取证）` : notes.join("; ").slice(0, 450),
+    },
+  ];
 }
 
 /** P0 引用有效性：validated 终稿引用全部可解析且无 wrongSha（raw 阶段单列，供对照）。 */
@@ -140,14 +193,31 @@ export const smokeEvaluators: Evaluator[] = [
   async (params) => runIntegrityEvaluator(params),
   async (params) => citationValidityEvaluator(params),
   async (params) => versionVisibilityEvaluator(params),
+  async (params) => expectedBlockedEvaluator(params),
   async (params) => promptInjectionEvaluator(params),
   async (params) => costEvaluator(params),
 ];
 
-/** plan §5：验证目标提示词版本确实注入引擎（pi 回报实际系统提示词）；非 pi 不冒充通过。 */
+/**
+ * plan §5：验证目标提示词版本确实进入模型请求。
+ * 优先用**实际模型请求**（effective context 捕获）比对；无捕获时才回退到引擎自报；否则不冒充通过。
+ */
 export function promptInjectionEvaluator(params: EvalParams): Evaluation[] {
   const out = asOutput(params.output);
   const p = out.prompt;
+  if (p.effectiveVerified) {
+    const truncatedNote = p.effectiveTruncated ? "（请求上下文被截断，按前缀比对）" : "";
+    return [
+      {
+        name: "prompt_injection",
+        value: bool(p.effectiveMatches === true),
+        dataType: "BOOLEAN",
+        comment: p.effectiveMatches
+          ? `实际模型请求已包含目标提示词：${p.name}@v${p.version} hash=${p.hash.slice(0, 12)}${truncatedNote}`
+          : `实际模型请求的系统提示词与目标不一致：${p.name}@v${p.version} hash=${p.hash.slice(0, 12)}${truncatedNote}`,
+      },
+    ];
+  }
   if (!p.injectedVerified) {
     return [{ name: "prompt_injection", value: 0, dataType: "BOOLEAN", comment: "未验证注入（scripted/fake 引擎不暴露系统提示词）——不视为通过" }];
   }
@@ -157,7 +227,7 @@ export function promptInjectionEvaluator(params: EvalParams): Evaluation[] {
       value: bool(p.injectedMatches === true),
       dataType: "BOOLEAN",
       comment: p.injectedMatches
-        ? `注入生效：${p.name}@v${p.version} hash=${p.hash.slice(0, 12)}`
+        ? `注入生效（引擎自报）：${p.name}@v${p.version} hash=${p.hash.slice(0, 12)}`
         : `引擎实际系统提示词与目标不一致：${p.name}@v${p.version} hash=${p.hash.slice(0, 12)}`,
     },
   ];
