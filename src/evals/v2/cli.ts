@@ -19,6 +19,7 @@ import { SCORER_VERSION, scoreTrial, listJudgableClaims, type ScorerInput } from
 import { applyReview, judgedOutputsHash, reviewedBindingValid, validateReview } from "./review.ts";
 import { createEvalLangfuse, type TrialMetric } from "./langfuse.ts";
 import { applySyncResult, buildTrialPayload, emptySyncState, shouldSync, type LfSyncState } from "./experiment.ts";
+import { compareSuites } from "./compare.ts";
 import type { CaseDescriptorV2, CaseScoreV2, MetricValue, SuiteSummaryV2 } from "./types.ts";
 import type { SuiteManifestV2 } from "./manifest.ts";
 
@@ -30,7 +31,7 @@ function arg(name: string, fallback?: string): string | undefined {
 }
 
 function usage(): never {
-  console.log("用法：cli.ts run|replay|summary|rescore|push ...（见文件头注释）");
+  console.log("用法：cli.ts run|replay|summary|rescore|push|compare ...（见文件头注释）");
   process.exit(2);
 }
 
@@ -383,6 +384,46 @@ async function main(): Promise<void> {
     console.log(`[eval:v2] 同步完成：confirmed=${confirmed} skipped(已确认)=${skipped} failed=${failed} → ${syncPath}`);
     // 同步失败不改诊断结果、不丢本地产物；以非零退出提示续传。
     if (failed > 0) process.exit(1);
+    return;
+  }
+
+  if (command === "compare") {
+    // C2：v2 比较——可比性先行，同口径同材料才报差值。
+    const baseSuite = arg("--baseline");
+    const candSuite = arg("--candidate");
+    if (!baseSuite || !candSuite) usage();
+    const load = (suite: string): { summary: SuiteSummaryV2; manifest: SuiteManifestV2 | null } => {
+      const runDir = runDirOf(evalRoot, suite);
+      const summaryPath = join(runDir, "summary.json");
+      const manifestPath = join(runDir, "manifest.json");
+      if (!existsSync(summaryPath) || !existsSync(manifestPath)) {
+        console.error(`[eval:v2] 基线/候选缺少产物：${runDir}（需要 summary.json + manifest.json）`);
+        process.exit(1);
+      }
+      return {
+        summary: JSON.parse(readFileSync(summaryPath, "utf8")) as SuiteSummaryV2,
+        manifest: JSON.parse(readFileSync(manifestPath, "utf8")) as SuiteManifestV2,
+      };
+    };
+    const result = compareSuites(load(baseSuite), load(candSuite));
+    if (!result.compatible) {
+      console.error("[eval:v2][compare] 不可比：");
+      for (const i of result.issues) console.error(`  - ${i.reason}`);
+      process.exit(1);
+    }
+    const outPath = join(runDirOf(evalRoot, candSuite), "compare.json");
+    writeFileSync(outPath, JSON.stringify(result, null, 2), "utf8");
+    console.log(`[eval:v2][compare] ${baseSuite} → ${candSuite}（${result.summary.scorerVersion}，可比）`);
+    console.log(`  新增硬失败 ${result.summary.newFailuresTotal} / 修复 ${result.summary.fixedFailuresTotal}`);
+    for (const p of result.pairs) {
+      const d = Object.entries(p.metricDelta).filter(([, v]) => v !== null).map(([k, v]) => `${k} ${(v! * 100).toFixed(1)}pp`).join(" ");
+      const fails = [
+        ...p.newFailures.map((f) => `+${f.code}@${f.roundId ?? "-"}`),
+        ...p.fixedFailures.map((f) => `-${f.code}@${f.roundId ?? "-"}`),
+      ].join(" ");
+      console.log(`  ${p.caseId}/${p.trialId}${fails ? ` [${fails}]` : ""}${d ? ` ${d}` : ""}`);
+    }
+    console.log(`[eval:v2][compare] 结果：${outPath}`);
     return;
   }
 

@@ -64,6 +64,21 @@ export interface CaseDescriptorV2 {
    * 审计开启时 scripted/fake 引擎强制走确定性审计器，不得回落真实模型。
    */
   scriptedAudit?: boolean;
+  /**
+   * 诊断形态（C1）：known-service=已知服务诊断（召回按定位深度评）；
+   * unknown-service=未知服务定位（先评"定位到哪个服务"，再评证据级）。
+   * 缺省按 known-service 处理（记录口径，不猜）。
+   */
+  diagnosisKind?: "known-service" | "unknown-service";
+  /** 材料与标准来源（C1）：题面/标签/污染风险显式入账。 */
+  provenance?: {
+    /** 题面来源（如 RCAEval fault_description / 合成工单）。 */
+    questionSource: string;
+    /** gold/标签来源（如 RCAEval root_cause_service / 人工复核）。 */
+    labelSource: string;
+    /** 训练污染风险：public-dataset（公开数据集，可能入过模型训练语料）等。 */
+    contaminationRisk: "public-dataset" | "synthetic" | "internal";
+  };
 }
 
 // ---------- 私有逐轮标准 ----------
@@ -360,6 +375,8 @@ export interface CaseScoreV2 {
   trialId: string;
   split: CaseSplit;
   sourceTier: SourceTier;
+  /** 诊断形态（C1）：known-service | unknown-service（缺省 known-service）。 */
+  diagnosisKind: string;
   engine: string;
   executionSuccess: boolean;
   traceCompletion: MetricValue;

@@ -485,6 +485,7 @@ export function scoreTrial(input: ScorerInput): CaseScoreV2 {
     trialId: input.trialId,
     split: input.caseDesc.split,
     sourceTier: input.caseDesc.sourceTier,
+    diagnosisKind: input.caseDesc.diagnosisKind ?? "known-service",
     engine: input.engine,
     executionSuccess,
     traceCompletion: mkMetric(traceResults.filter((t) => t).length, traceResults.length),

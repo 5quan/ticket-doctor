@@ -113,6 +113,24 @@ npm run eval:v2 -- rescore --suite daily-1 --case <id> --trial t1 --review revie
 > - 人工复核闭环：复核在 Langfuse 标注队列完成后导出 review 工件 → `rescore --review`
 >   → `summary`（复核聚合）/`push`（.reviewed 侧车）。
 
+> **2026-10-07 更新（交付三 C1–C2 / 交付四 D）**：
+> - **C1 案例准入**：case.json 新增 `diagnosisKind`（known-service|unknown-service）与
+>   `provenance`（questionSource/labelSource/contaminationRisk）——来源与污染风险显式入账，
+>   `public-dataset` 必须同时 `publicBenchmark=true`（schema 拒绝矛盾声明）。RCAEval 导入改为
+>   `admission=qualified`：自动派生 gold 未经人工复核不入正式评测总体（准入拒绝单独计数），
+>   复核通过后升 admitted。
+> - **C2 比较**：`compare --baseline <suite> --candidate <suite>`——可比性前置（评分口径/
+>   引擎/审计口径/repeat/案例集/材料指纹任一不一致即拒绝）；成对 trial 比较输出新增/修复
+>   硬失败与确定性指标差（缺测不报差值）；结果写 `runs/<cand>/compare.json`。
+> - **工程基线 v0 已冻结**：`baseline-v0-eng-1`（scorer 3.3.0，gate 0 硬失败，replay 可重算）。
+>   真实模型基线待预算授权。案例准入与比较契约见 `docs/eval-v2-deliverable-1.md` 交付三。
+> - **D 每轮自动评分**：编排层新增可选 `postFinalize` 终态钩（生产不传=零行为变化）；
+>   `src/evals/v2/online.ts` 按**持久化事实**产出线上代理分（引用可解析性/工具次数/耗时/
+>   产出类型；无 gold 的正确率/召回率结构性缺测），迁移 `007_eval_scores.sql` 按
+>   (run,attempt,round,scorer_version) 唯一去重——重复触发不重复计分；引用不可解析、提交
+>   失败等记 `needs_review=1` 即**候选案例池**（`listNeedsReview`），经材料冻结与标准审核后
+>   回流为新 Dataset 版本。线上口径 `online-*` 独立版本，禁止与评测分同表比较。
+
 - 语义项（claimSupport 等）在人工 rubric 导入前保持 null；provisional 标准的结论只作参考。
 - 评分器标识为独立版本（`SCORER_VERSION=3.2.0`），与旧口径禁止同表对比；改判定语义必须
   bump 并对旧 trace 重评分。3.2.0 变更：回写代理改组间 AND；claimSupport 缺测口径改为

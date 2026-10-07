@@ -104,7 +104,8 @@ test("006 迁移回填历史行 UID 且全局唯一，历史行内容零改写",
   }
 
   const ran = migrate(db, join(ROOT, "migrations"));
-  assert.deepEqual(ran, ["006_evidence_uid.sql"]);
+  // 交付四 D：新增 007（eval_scores 线上评分表）；006 的回填语义不受影响。
+  assert.deepEqual(ran, ["006_evidence_uid.sql", "007_eval_scores.sql"]);
 
   const rows = db.prepare("SELECT run_id, evidence_id, evidence_uid, excerpt FROM evidence ORDER BY run_id, evidence_id").all() as Array<{
     run_id: string;

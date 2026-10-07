@@ -10,7 +10,8 @@
 //   private/<caseId>/truth.private.json
 //   catalog/catalog.json（合并，保留既有条目）
 //
-// 口径：sourceTier=reproduced_history、split=development、admission=admitted（材料准入）、
+// 口径（C1 修订）：sourceTier=reproduced_history、split=development、admission=qualified（自动 gold
+// 未人工复核前不进正式评测总体）、publicBenchmark=true（公开数据集污染风险）、
 // review.provisional=true（语义待人工复核）。题面为合成；无代码 gold → log-only。
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
@@ -144,8 +145,16 @@ for (const row of selected) {
     familyId: `rcaeval-${row.dataset}`,
     split: "development",
     sourceTier: "reproduced_history",
-    publicBenchmark: false,
-    admission: "admitted",
+    // C1：公开数据集 → 污染风险显式标记；gold 为自动派生（provisional）→ admission=qualified，
+    // 人工复核通过后再升 admitted（正式集准入门槛）。
+    publicBenchmark: true,
+    admission: "qualified",
+    diagnosisKind: "unknown-service",
+    provenance: {
+      questionSource: "RCAEval fault_description（合成题面，非真实工单）",
+      labelSource: "RCAEval 原生 gold（root_cause_service / root_cause.txt）或高频日志派生（弱，provisional）",
+      contaminationRisk: "public-dataset",
+    },
     maxRounds: 1,
     scriptedEngine: false,
     rounds: [

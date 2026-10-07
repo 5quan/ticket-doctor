@@ -174,3 +174,51 @@ junction 需 Windows 管理员/开发者模式；不可读文件/目录两个用
 - v3 scores 读取接口实测恒空（events_only）：confirmed ≠ 已读回，平台可读性需 UI 核对；
   Dataset/Annotation API 需服务端能力验证后再接（`@langfuse/client` 实验接口暂缓，原因同）。
 - 工具返回只上报头部 600 字符（控制体积）；完整返回在本地 trace.jsonl。
+
+
+---
+
+# 交付三：案例准入与比较（C1–C2，2026-10-07）
+
+## C1 案例准入修正
+- `case.json` 新增 `diagnosisKind`（known-service|unknown-service，C1"已知服务诊断 vs 未知服务
+  定位"分离的记录口径）与 `provenance`（questionSource/labelSource/contaminationRisk）——
+  题面/标签/污染风险来源显式入账（C1 第 2 条）。
+- 公开数据集污染风险显式标记（C1 第 3 条）：`contaminationRisk=public-dataset` 必须同时
+  `publicBenchmark=true`，schema 拒绝矛盾声明（反例测试锁定）。
+- **RCAEval 导入改为 `admission=qualified`**（自动派生 gold 未人工复核不入正式总体，C1 第 4 条）；
+  已存在的 11 个 RCAEval case.json 同步修正。全量运行时它们记 `admission_rejected` 单独计数
+  （实测 baseline 运行 admissionRejected=12 = 11 RCAEval + fp07-clarify），显式选题包含它们
+  则直接失败（1.1 #3）。
+- 工程自测 case 全部带 `diagnosisKind=known-service` + `provenance`（synthetic）。
+
+## C2 比较与基线
+- `compare --baseline A --candidate B`：可比性前置——评分口径/引擎/审计口径/repeat/案例集合/
+  逐 case 材料指纹（caseHash/truthHash）任一不一致即拒绝并列出全部原因；可比时按
+  caseId+trialId 成对比较：新增/修复硬失败、确定性指标差（缺测不报差值）；写 `compare.json`。
+- 反例测试：口径不一致拒绝、truthHash 变更拒绝、案例集缩小拒绝（分母不得静默缩小）、缺产物拒绝。
+- **工程基线 v0 冻结**：`baseline-v0-eng-1`（scripted+audit on，gate 0 硬失败，
+  blockedExpected=2，replay 对账 6 身份一致），`status.json#eval_v2_baseline` 记录
+  suiteRunId/gitRev/scorerVersion。真实模型基线待预算授权（不擅自花费）。
+
+# 交付四：每轮终态自动评分（D，2026-10-07）
+
+- **编排钩子**：`OrchestratorDeps.postFinalize`（可选；成功提交、提交被拒、ToolBudgetExceeded、
+  运行异常四条终态路径都触发）。生产不传 = 零行为变化；钩子抛错被编排层兜底，不阻塞投递
+  （反例：钩子首轮抛"评分器故障注入"，主链路照常 succeeded）。
+- **线上评分**（`src/evals/v2/online.ts`，`ONLINE_SCORER_VERSION=online-*` 独立口径）：
+  只读持久化事实——引用可解析性（uid/短号）、证据规模、工具次数、attempts 真实起止耗时、
+  产出类型。**无 gold 的正确率/召回率结构性缺测**（字段不存在，不冒充 0/1）。
+- **幂等**：迁移 `007_eval_scores.sql` 按 (run_id, attempt_id, round_id, scorer_version) 唯一
+  索引去重——重复触发返回已有行（反例：连续两次 persist 得同一 id，计数为 1）。
+- **候选案例池**：引用不可解析（反例：注入 uid-nonexistent → citationValidRatio=0）、提交失败
+  （反例：maxToolCalls=0 → error）记 `needs_review=1` + 原因；`listNeedsReview` 查询即回流入口
+  （材料冻结与标准审核后加入新 Dataset 版本）。
+- **接线说明**：WorkerPoolOptions 继承 OrchestratorDeps——生产 Host 传入
+  `postFinalize: (info) => { const m = scoreOnlineRound(...); persistOnlineScore(store, m); }`
+  即启用；本次交付默认不启用（不擅自改变生产行为），启用属运维决策。
+
+## 交付三/四测试与统计
+- 新增反例：`eval-v2-c1c2.test.ts` 4 例 + `eval-v2-online.test.ts` 4 例；迁移测试更新（007）。
+- 全量 **284 tests：282 通过 + 1 平台跳过 + docs:check 同步**（migrations.head=007）。
+- 端到端：baseline-v0-eng-1 冻结（gate 通过）+ replay 一致；compare 同口径两 suite 可比。

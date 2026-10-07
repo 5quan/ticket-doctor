@@ -1,12 +1,12 @@
 {
   "version": "0.3.1",
   "tests": {
-    "ts": 276,
+    "ts": 284,
     "go": "adapter"
   },
   "migrations": {
-    "head": "006_evidence_uid.sql",
-    "nextPrefix": "007_"
+    "head": "007_eval_scores.sql",
+    "nextPrefix": "008_"
   },
   "features": {
     "feishu_webhook": "done",
@@ -19,7 +19,7 @@
     "audit_agent": "done_first_version",
     "eval_harness": "mvp_offline",
     "eval_m2": "deferred",
-    "eval_v2": "deliver1_trustability_done"
+    "eval_v2": "deliver4_online_scoring_done"
   },
   "eval_mvp": {
     "status": "mvp_offline",
@@ -51,5 +51,22 @@
       "precision": 22.3,
       "accuracy": 80
     }
+  },
+  "eval_v2_baseline": {
+    "status": "frozen_engineering",
+    "suiteRunId": "baseline-v0-eng-1",
+    "scorerVersion": "3.3.0",
+    "gitRev": "b16bbf8",
+    "frozenAt": "2026-10-07",
+    "cases": [
+      "eng-clarify",
+      "eng-counter-evidence",
+      "eng-audit-loop",
+      "eng-truncation",
+      "eng-version-drift",
+      "eng-version-headfix"
+    ],
+    "gate": "hardFailures=0 blockedExpected=2 admissionRejected=12 omissions=0",
+    "note": "工程基线（scripted，确定性，零成本）已冻结并可通过 replay 重算。真实模型基线（C2 完整冻结）需要预算授权后执行；RCAEval 案例因 gold 未人工复核保持 qualified（C1 准入语义），人工复核后升 admitted 方可入正式基线。"
   }
 }

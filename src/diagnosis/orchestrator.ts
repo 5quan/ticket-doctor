@@ -42,6 +42,12 @@ export interface OrchestratorDeps {
    * 抛错即 fail-closed（由编排层 failRun）；生产不传，行为不变。
    */
   onPrepared?: (prepared: { scope: MaterialScope; missingMaterial: string[] }) => void;
+  /**
+   * 每轮终态钩（交付四 D）：轮次成功提交或失败落库后触发（同步、after-commit）。
+   * 用于线上自动评分（scoreOnlineRound + persistOnlineScore，fire-and-forget）；
+   * 抛错不得影响主链路——调用方自行兜底。生产不传，行为不变。
+   */
+  postFinalize?: (info: { investigationId: string; runId: string; attemptId: string; round: number; ok: boolean; kind: "report" | "reply" | "error" }) => void;
 }
 
 export async function executeRun(deps: OrchestratorDeps, claimed: ClaimedRun): Promise<void> {
@@ -176,6 +182,11 @@ export async function executeRun(deps: OrchestratorDeps, claimed: ClaimedRun): P
       if (err instanceof ToolBudgetExceeded) {
         endObservation({ status: "error", kind: "budget_tools", error: err.message });
         await failRun(deps, claimed, "budget_tools", err.message);
+        try {
+          deps.postFinalize?.({ investigationId: investigation.id, runId: run.id, attemptId: claimed.attemptId, round: run.round || investigation.total_rounds + 1, ok: false, kind: "error" });
+        } catch {
+          // 旁路失败不影响主链路
+        }
         return;
       }
       throw err;
@@ -214,6 +225,19 @@ export async function executeRun(deps: OrchestratorDeps, claimed: ClaimedRun): P
     if (!finalized.ok) {
       store.appendRunEvent(run.id, claimed.attemptId, "commit_rejected", { reason: "lease_lost" });
     }
+    // 交付四 D：轮终态钩（成功提交或提交被拒都算终态）；评分失败不得阻塞投递。
+    try {
+      deps.postFinalize?.({
+        investigationId: investigation.id,
+        runId: run.id,
+        attemptId: claimed.attemptId,
+        round: run.round || investigation.total_rounds + 1,
+        ok: finalized.ok,
+        kind: finalized.ok ? finalized.kind : "error",
+      });
+    } catch {
+      // 评分/回流属于旁路，绝不影响诊断主链路
+    }
   } catch (err) {
     if (cancelRequested) {
       store.finishCancelled(run.id, claimed.generation, "用户取消", Date.now());
@@ -226,6 +250,11 @@ export async function executeRun(deps: OrchestratorDeps, claimed: ClaimedRun): P
     const messageText = err instanceof Error ? err.message : String(err);
     endObservation({ status: err instanceof Error && signalAborted(controller) ? "aborted" : "error", kind: code, error: messageText });
     await failRun(deps, claimed, code, messageText);
+    try {
+      deps.postFinalize?.({ investigationId: investigation.id, runId: run.id, attemptId: claimed.attemptId, round: run.round || investigation.total_rounds + 1, ok: false, kind: "error" });
+    } catch {
+      // 旁路失败不影响主链路
+    }
   } finally {
     clearTimeout(timeout);
     clearInterval(heartbeat);

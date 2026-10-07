@@ -114,6 +114,22 @@ export function validateCaseDescriptor(
   if (c.scriptedAudit && c.split !== "engineering") {
     errors.push({ path: "scriptedAudit", message: "脚本审计只允许 engineering 拆分使用" });
   }
+  // C1：诊断形态与来源入账（可选字段，出现即严格校验）。
+  if (c.diagnosisKind !== undefined && !["known-service", "unknown-service"].includes(c.diagnosisKind)) {
+    errors.push({ path: "diagnosisKind", message: `只允许 known-service|unknown-service，得到 ${String(c.diagnosisKind)}` });
+  }
+  if (c.provenance !== undefined) {
+    const p = c.provenance as { questionSource?: unknown; labelSource?: unknown; contaminationRisk?: unknown };
+    if (!isStr(p.questionSource)) errors.push({ path: "provenance.questionSource", message: "缺失（题面来源必须显式入账）" });
+    if (!isStr(p.labelSource)) errors.push({ path: "provenance.labelSource", message: "缺失（gold/标签来源必须显式入账）" });
+    if (!["public-dataset", "synthetic", "internal"].includes(String(p.contaminationRisk))) {
+      errors.push({ path: "provenance.contaminationRisk", message: `只允许 public-dataset|synthetic|internal，得到 ${String(p.contaminationRisk)}` });
+    }
+    // C1：公开数据集必须标记污染风险，且 publicBenchmark 与之一致。
+    if (p.contaminationRisk === "public-dataset" && c.publicBenchmark !== true) {
+      errors.push({ path: "provenance.contaminationRisk", message: "public-dataset 必须同时 publicBenchmark=true（训练污染风险显式标记）" });
+    }
+  }
   if (c.split === "engineering" && c.sourceTier !== "synthetic_engineering") {
     errors.push({ path: "sourceTier", message: "engineering 拆分必须是 synthetic_engineering 来源" });
   }
