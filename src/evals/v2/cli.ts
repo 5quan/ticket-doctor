@@ -1,10 +1,13 @@
-// 评测 v2 CLI：run / replay / summary / rescore / push（方案 §12 T6；A2/A3 契约）。
+// 评测 v2 CLI：run / replay / summary / rescore / push / compare / datasets（方案 §12 T6；A2/A3 契约）。
 //
 //   npm run eval:v2 -- run --suite local-1 --engine scripted [--repeat 3] [--cases a,b] [--audit on] [--gate on]
 //   npm run eval:v2 -- replay --suite local-1
 //   npm run eval:v2 -- summary --suite local-1
 //   npm run eval:v2 -- rescore --suite local-1 --case eng-clarify --trial t1 --review review.json
-//   npm run eval:v2 -- push --suite local-1
+//   npm run eval:v2 -- push --suite local-1 [--dataset <name>]
+//   npm run eval:v2 -- compare --baseline <suite> --candidate <suite>
+//   npm run eval:v2 -- datasets sync   --dataset <name> [--cases a,b]
+//   npm run eval:v2 -- datasets verify --dataset <name> [--suite <id>]
 //
 // 默认引擎 scripted（确定性工程自测）；pi 必须显式选择且凭据预检通过（§7.1），
 // CLI 自身不设置任何 key。旧 `npm run eval` 入口保持不变，结果目录互不影响。
@@ -17,9 +20,20 @@ import { evaluateGate } from "./gate.ts";
 import { aggregateMetrics, runSuite } from "./runner.ts";
 import { SCORER_VERSION, scoreTrial, listJudgableClaims, type ScorerInput } from "./scorer.ts";
 import { applyReview, judgedOutputsHash, reviewedBindingValid, validateReview } from "./review.ts";
-import { createEvalLangfuse, type TrialMetric } from "./langfuse.ts";
+import { createEvalLangfuse, type ExperimentLink, type TrialMetric } from "./langfuse.ts";
 import { applySyncResult, buildTrialPayload, emptySyncState, shouldSync, type LfSyncState } from "./experiment.ts";
 import { compareSuites } from "./compare.ts";
+import { createLfApi } from "./lfapi.ts";
+import {
+  applyDatasetSync,
+  buildDatasetItemPayload,
+  datasetItemId,
+  emptyDatasetSyncState,
+  hashTruth,
+  LF_DATASET_SCHEMA,
+  type LfDatasetSyncState,
+} from "./lfdataset.ts";
+import { loadCase, loadCatalog } from "./load.ts";
 import type { CaseDescriptorV2, CaseScoreV2, MetricValue, SuiteSummaryV2 } from "./types.ts";
 import type { SuiteManifestV2 } from "./manifest.ts";
 
@@ -31,7 +45,7 @@ function arg(name: string, fallback?: string): string | undefined {
 }
 
 function usage(): never {
-  console.log("用法：cli.ts run|replay|summary|rescore|push|compare ...（见文件头注释）");
+  console.log("用法：cli.ts run|replay|summary|rescore|push|compare|datasets ...（见文件头注释）");
   process.exit(2);
 }
 
@@ -82,6 +96,37 @@ function loadRoundMessages(evalRoot: string, caseId: string, caseDesc: CaseDescr
 
 function stableStringify(value: unknown): string {
   return JSON.stringify(value, (_k, v: unknown) => (v === undefined ? null : v), 2);
+}
+
+const datasetSyncPathOf = (evalRoot: string, name: string): string => join(evalRoot, "datasets", `${name}.sync.json`);
+
+/** Langfuse 凭据预检：三个 env 齐全才构造（与既有 push 行为一致；CLI 不代填凭据）。 */
+function lfConfigOf(config: ReturnType<typeof loadConfig>): { baseUrl: string; publicKey: string; secretKey: string; environment: string; release?: string } | undefined {
+  const obs = config.observability;
+  return obs.baseUrl && obs.publicKey && obs.secretKey
+    ? {
+        baseUrl: obs.baseUrl,
+        publicKey: obs.publicKey,
+        secretKey: obs.secretKey,
+        environment: "eval",
+        ...(obs.release ? { release: obs.release } : {}),
+      }
+    : undefined;
+}
+
+/** 读取 dataset 同步状态（push --dataset / datasets verify 的前提）。 */
+function readDatasetSyncState(evalRoot: string, name: string): LfDatasetSyncState {
+  const path = datasetSyncPathOf(evalRoot, name);
+  if (!existsSync(path)) {
+    console.error(`[eval:v2] 缺少 dataset 同步状态：${path}（先执行 datasets sync --dataset ${name}）`);
+    process.exit(2);
+  }
+  const state = JSON.parse(readFileSync(path, "utf8")) as LfDatasetSyncState;
+  if (state.schemaVersion !== LF_DATASET_SCHEMA || !state.datasetId) {
+    console.error(`[eval:v2] dataset 同步状态格式非法或缺少 datasetId：${path}`);
+    process.exit(2);
+  }
+  return state;
 }
 
 async function main(): Promise<void> {
@@ -297,6 +342,7 @@ async function main(): Promise<void> {
     const suite = arg("--suite");
     if (!suite) usage();
     const force = process.argv.includes("--force"); // 布尔旗标：出现即 true
+    const datasetName = arg("--dataset"); // 可选：提供时把 trial 关联到 Langfuse 实验（v4 events_only）
     const runDir = runDirOf(evalRoot, suite);
     if (!existsSync(runDir)) {
       console.error(`[eval:v2] 找不到 suite 运行目录：${runDir}`);
@@ -306,22 +352,15 @@ async function main(): Promise<void> {
       console.error(`[eval:v2] 缺少 manifest/summary（产物不完整，拒绝推送）：${runDir}`);
       process.exit(1);
     }
-    const obs = config.observability;
-    const lf = createEvalLangfuse(
-      obs.baseUrl && obs.publicKey && obs.secretKey
-        ? {
-            baseUrl: obs.baseUrl,
-            publicKey: obs.publicKey,
-            secretKey: obs.secretKey,
-            environment: "eval",
-            ...(obs.release ? { release: obs.release } : {}),
-          }
-        : undefined,
-    );
+    const lfConfig = lfConfigOf(config);
+    const lf = createEvalLangfuse(lfConfig);
     if (!lf) {
       console.error("[eval:v2] 缺少 LANGFUSE_BASE_URL / LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY");
       process.exit(2);
     }
+    // --dataset：需要先 datasets sync。缺 item 视为该 trial 同步失败（不静默脱钩——
+    // 关联残缺的实验会让 UI 对比失真）。
+    const datasetState = datasetName ? readDatasetSyncState(evalRoot, datasetName) : null;
     // B2：同步状态（runs/<suite>/langfuse-sync.json）——confirmed 跳过、failed 续传、
     // 重复同步以确定性 traceId/score id 幂等，不产生重复记录。
     const syncPath = join(runDir, "langfuse-sync.json");
@@ -332,6 +371,7 @@ async function main(): Promise<void> {
     let confirmed = 0;
     let skipped = 0;
     let failed = 0;
+    const lfApi = datasetName && lfConfig ? createLfApi(lfConfig) : undefined;
     for (const c of summary.cases) {
       for (const t of c.trials) {
         const key = `${c.caseId}/${t.trialId}`;
@@ -368,10 +408,29 @@ async function main(): Promise<void> {
             reviewed,
             input: loadRoundMessages(evalRoot, c.caseId, scorerInput.caseDesc),
           });
-          const traceId = await lf.pushExperimentTrial(payload);
+          // v4 关联三步：run-item 换确定性 experimentId → span 属性关联 → 分数落在同一 trace。
+          let link: ExperimentLink | undefined;
+          if (datasetState && lfApi) {
+            const itemRec = datasetState.items[c.caseId];
+            if (!itemRec) throw new Error(`case ${c.caseId} 不在 dataset「${datasetState.datasetName}」同步状态中（先 datasets sync）`);
+            const experimentId = await lfApi.createDatasetRunItem(
+              itemRec.itemId,
+              suite,
+              payload.traceId,
+            );
+            link = {
+              experimentId,
+              experimentName: suite,
+              datasetId: datasetState.datasetId,
+              datasetItemId: itemRec.itemId,
+            };
+          }
+          const traceId = await lf.pushExperimentTrial(payload, link);
           applySyncResult(syncState, key, { ok: true, traceId, scores: payload.scores.length, rounds: payload.rounds.length });
           confirmed += 1;
-          console.log(`  ✅ ${key} → trace ${traceId.slice(0, 12)}（${payload.scores.length} 分 / ${payload.rounds.length} 轮子观测${reviewed ? " + 复核分" : ""}）`);
+          console.log(
+            `  ✅ ${key} → trace ${traceId.slice(0, 12)}（${payload.scores.length} 分 / ${payload.rounds.length} 轮子观测${reviewed ? " + 复核分" : ""}${link ? `；实验 ${link.experimentId.slice(0, 12)}` : ""}）`,
+          );
         } catch (err) {
           failed += 1;
           applySyncResult(syncState, key, { ok: false, traceId: "", scores: 0, rounds: 0, error: err instanceof Error ? err.message : String(err) });
@@ -469,6 +528,127 @@ async function main(): Promise<void> {
       writeFileSync(reviewedPath, JSON.stringify(reviewedSummary, null, 2), "utf8");
       console.log(`[eval:v2] 复核聚合已写入：${reviewedPath}`);
     }
+    return;
+  }
+
+  if (command === "datasets") {
+    // 数据集闭环（eval/langfuse 分支）：案例集 ↔ Langfuse Dataset 双向对账。
+    //   sync   = 本地 case 目录 → items upsert（幂等，确定性 id；B1 白名单纪律）
+    //   verify = 回读 dataset/items/experiments/scores，输出平台可读性矩阵
+    const action = process.argv[3];
+    const datasetName = arg("--dataset");
+    if (!action || !["sync", "verify"].includes(action) || !datasetName) usage();
+    const lfConfig = lfConfigOf(config);
+    if (!lfConfig) {
+      console.error("[eval:v2] 缺少 LANGFUSE_BASE_URL / LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY");
+      process.exit(2);
+    }
+    const lfApi = createLfApi(lfConfig);
+
+    if (action === "sync") {
+      materializeEngineeringCases(PROJECT_ROOT, evalRoot);
+      const caseFilter = arg("--cases")?.split(",").map((s) => s.trim()).filter(Boolean);
+      const catalog = loadCatalog(evalRoot);
+      const entries = catalog.cases.filter((e) => !caseFilter || caseFilter.includes(e.caseId));
+      if (entries.length === 0) {
+        console.error("[eval:v2] catalog 中没有可同步的 case（检查 --cases 过滤条件）");
+        process.exit(1);
+      }
+      const dataset = await lfApi.upsertDataset(
+        datasetName,
+        "ticket-doctor eval-v2 案例集（公开题面镜像；truth 仅以指纹引用，内容留本地）",
+        { source: "ticket-doctor/evals/v2", discipline: "b1-whitelist" },
+      );
+      const statePath = datasetSyncPathOf(evalRoot, datasetName);
+      const state: LfDatasetSyncState = existsSync(statePath)
+        ? (JSON.parse(readFileSync(statePath, "utf8")) as LfDatasetSyncState)
+        : emptyDatasetSyncState(datasetName, dataset.id);
+      state.datasetId = dataset.id;
+      let synced = 0;
+      let failed = 0;
+      let skippedAdmission = 0;
+      for (const entry of entries) {
+        try {
+          // 准入前置（C1 纪律）：非 admitted 的 case 不进 Langfuse 数据集——未经人工复核
+          // 的候选不入评测总体，也不上平台。资格记录留在本地 candidates.json。
+          const rawAdmission = (JSON.parse(readFileSync(join(evalRoot, entry.publicDir, "case.json"), "utf8")) as { admission?: string }).admission;
+          if (rawAdmission !== "admitted") {
+            skippedAdmission += 1;
+            console.log(`  ⏭ ${entry.caseId}（admission=${rawAdmission ?? "missing"}，未准入不同步）`);
+            continue;
+          }
+          const caseDesc = loadCase(evalRoot, entry, PROJECT_ROOT);
+          const payload = buildDatasetItemPayload({
+            datasetName,
+            evalRoot,
+            caseDesc,
+            truthHash: hashTruth(evalRoot, entry),
+          });
+          await lfApi.upsertDatasetItem(payload);
+          applyDatasetSync(state, caseDesc.caseId, {
+            itemId: datasetItemId(caseDesc.caseId),
+            caseHash: payload.metadata.caseHash,
+            truthHash: payload.metadata.truthHash,
+          });
+          synced += 1;
+          console.log(`  ✅ ${caseDesc.caseId} → item ${payload.id.slice(0, 12)}（caseHash ${payload.metadata.caseHash.slice(0, 8)}）`);
+        } catch (err) {
+          failed += 1;
+          console.error(`  ❌ ${entry.caseId} → ${err instanceof Error ? err.message : err}`);
+        }
+      }
+      mkdirSync(join(evalRoot, "datasets"), { recursive: true });
+      writeFileSync(statePath, JSON.stringify(state, null, 2), "utf8");
+      console.log(`[eval:v2] dataset「${datasetName}」同步完成：ok=${synced} skipped(未准入)=${skippedAdmission} failed=${failed} → ${statePath}`);
+      if (failed > 0) process.exit(1);
+      return;
+    }
+
+    // verify：平台可读性矩阵。分数回读（v3/scores）当前实测可能为空（events_only 已知限制），
+    // 记 warning 不阻断；dataset/items/experiment 关联缺失才算失败。
+    const state = readDatasetSyncState(evalRoot, datasetName);
+    let problems = 0;
+    const dataset = await lfApi.getDataset(datasetName);
+    if (!dataset) {
+      console.error(`[eval:v2] dataset「${datasetName}」在平台不存在（先 datasets sync）`);
+      process.exit(1);
+    }
+    console.log(`✅ dataset ${dataset.name}（id ${dataset.id}）`);
+    const platformItems = await lfApi.listDatasetItems(datasetName);
+    const activeIds = new Set(platformItems.filter((i) => i.status === "ACTIVE").map((i) => i.id));
+    const localIds = Object.values(state.items).map((r) => r.itemId);
+    const missing = localIds.filter((id) => !activeIds.has(id));
+    console.log(`${missing.length === 0 ? "✅" : "❌"} items：本地 ${localIds.length} / 平台 ACTIVE ${activeIds.size}${missing.length > 0 ? `（缺失 ${missing.length}）` : ""}`);
+    if (missing.length > 0) problems += 1;
+
+    const suite = arg("--suite");
+    const from = new Date(Math.max(state.syncedAt - 24 * 3600_000, 0)).toISOString();
+    const experiments = await lfApi.listExperiments(state.datasetId, from);
+    const experimentItems = await lfApi.listExperimentItems(state.datasetId, from);
+    console.log(`${experimentItems.length > 0 ? "✅" : "⚠"} 实验关联：experiments=${experiments.length}，experiment-items=${experimentItems.length}${suite ? `（窗口自 ${from}）` : ""}`);
+    if (suite) {
+      const syncPath = join(runDirOf(evalRoot, suite), "langfuse-sync.json");
+      if (!existsSync(syncPath)) {
+        console.error(`[eval:v2] 找不到 ${syncPath}（先 push --suite ${suite} --dataset ${datasetName}）`);
+        process.exit(1);
+      }
+      const syncState = JSON.parse(readFileSync(syncPath, "utf8")) as LfSyncState;
+      const confirmed = Object.entries(syncState.trials).filter(([, r]) => r.status === "confirmed");
+      const linkedTraceIds = new Set(experimentItems.map((i) => i.traceId));
+      const unlinked = confirmed.filter(([, r]) => r.traceId && !linkedTraceIds.has(r.traceId));
+      console.log(`${unlinked.length === 0 ? "✅" : "❌"} suite「${suite}」：confirmed trial=${confirmed.length}，已关联实验=${confirmed.length - unlinked.length}${unlinked.length > 0 ? `（未关联：${unlinked.map(([k]) => k).join(", ")}）` : ""}`);
+      if (unlinked.length > 0) problems += 1;
+
+      const sample = confirmed[0]?.[1];
+      if (sample?.traceId) {
+        const obs = await lfApi.listObservations(sample.traceId);
+        console.log(`${obs.length > 0 ? "✅" : "⚠"} 观测回读（v2/observations，样本 ${sample.traceId.slice(0, 12)}）：${obs.length} 条子观测`);
+        const scores = await lfApi.listScores(sample.traceId);
+        console.log(`${scores.length > 0 ? "✅" : "⚠"} 分数回读（v3/scores，同一样本）：${scores.length} 条${scores.length === 0 ? "——events_only 已知限制：UI 可核，API 恒空时以 UI 为准" : ""}`);
+      }
+    }
+    console.log(`[eval:v2] verify 完成：${problems === 0 ? "全部通过" : `${problems} 项失败`}`);
+    if (problems > 0) process.exit(1);
     return;
   }
 

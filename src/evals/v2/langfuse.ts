@@ -40,10 +40,22 @@ export interface TrialPush {
   metrics: TrialMetric[];
 }
 
+/**
+ * v4 实验关联（events_only）：dataset-run-items 换取确定性 experimentId 后，
+ * OTel span 携带 `langfuse.experiment.*` 属性完成 trace↔实验↔dataset item 关联
+ * （服务端 OtelIngestionProcessor.extractExperimentFields 消费这些键）。
+ */
+export interface ExperimentLink {
+  experimentId: string;
+  experimentName: string;
+  datasetId: string;
+  datasetItemId: string;
+}
+
 export interface EvalLangfuse {
   pushTrial(trial: TrialPush): Promise<string | undefined>;
   /** B1：推送一个 trial 的完整实验载荷（逐轮子观测 + 全量分数）；返回确定性 traceId。 */
-  pushExperimentTrial(payload: TrialExperimentPayload): Promise<string>;
+  pushExperimentTrial(payload: TrialExperimentPayload, link?: ExperimentLink): Promise<string>;
   shutdown(): Promise<void>;
 }
 
@@ -130,7 +142,8 @@ export function createEvalLangfuse(config: EvalLangfuseConfig | undefined): Eval
 
     // B1：完整实验载荷上报。根 span = trial（确定性 traceId），每个用户轮一个子 span，
     // 携带正式报告全文/回写/工具返回/审计过程（保留原始时间）；分数走 ingestion（确定性 id）。
-    async pushExperimentTrial(payload: TrialExperimentPayload): Promise<string> {
+    // link 存在时（v4 events_only）根 span 额外携带 langfuse.experiment.* 完成实验关联。
+    async pushExperimentTrial(payload: TrialExperimentPayload, link?: ExperimentLink): Promise<string> {
       // 以 non-recording 父上下文承载确定性 traceId：真实子 span 继承该 traceId（B2 幂等）。
       const parentCtx = trace.wrapSpanContext({
         traceId: payload.traceId,
@@ -150,10 +163,24 @@ export function createEvalLangfuse(config: EvalLangfuseConfig | undefined): Eval
               experimentId: payload.experimentId,
               ...payload.metadata,
             }),
+            ...(link
+              ? {
+                  "langfuse.experiment.id": link.experimentId,
+                  "langfuse.experiment.name": link.experimentName,
+                  "langfuse.experiment.dataset.id": link.datasetId,
+                  "langfuse.experiment.item.id": link.datasetItemId,
+                  // 服务端要求 experiment_item_root_span_id = span_id 才认实验 item 根
+                  //（repository.ts whereRaw），缺省不回填 → 必须显式携带自身 spanId。
+                  "langfuse.experiment.item.root_observation_id": "",
+                }
+              : {}),
           },
         },
         ctx,
       );
+      if (link) {
+        span.setAttribute("langfuse.experiment.item.root_observation_id", span.spanContext().spanId);
+      }
       span.setStatus({ code: SpanStatusCode.OK });
       span.end();
 

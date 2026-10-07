@@ -78,7 +78,7 @@ test("D 引用不可解析 → needs_review 候选池；listNeedsReview 可查",
   await executeRun({ store, config: cfgd, engine: new FakeDiagnosisEngine({ defaultService: "checkout-service" }) }, claimed);
   // 篡改报告：注入一个不存在的引用 uid → 引用可解析性下降
   const reportRow = store.getReportByRun(claimed.run.id)!;
-  const report = JSON.parse(reportRow.content) as { hypotheses: Array<{ evidenceIds: string[] }> };
+  const report = JSON.parse(reportRow.content) as { hypotheses: Array<{ cause?: string; status?: string; confidence?: string; evidenceIds: string[] }> };
   if (report.hypotheses.length === 0) report.hypotheses.push({ cause: "x", status: "supported", confidence: "low", evidenceIds: [] });
   report.hypotheses[0]!.evidenceIds = ["uid-nonexistent-0001"];
   store.db

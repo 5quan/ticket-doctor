@@ -1,7 +1,7 @@
 {
   "version": "0.3.1",
   "tests": {
-    "ts": 284,
+    "ts": 289,
     "go": "adapter"
   },
   "migrations": {
@@ -19,7 +19,16 @@
     "audit_agent": "done_first_version",
     "eval_harness": "mvp_offline",
     "eval_m2": "deferred",
-    "eval_v2": "deliver4_online_scoring_done"
+    "eval_v2": "deliver4_online_scoring_done",
+    "eval_langfuse_loop": "e2e_done_local"
+  },
+  "eval_langfuse_loop": {
+    "status": "e2e_done_local",
+    "plan": "docs/eval-langfuse-loop.md",
+    "platform": "self-host Langfuse 4.50.0 events_only",
+    "loop": "run → push(--dataset) → datasets sync/verify；实验关联经 dataset-run-items + OTel langfuse.experiment.* span 属性",
+    "e2e": "suite lf-loop-1（6 eng case）：push confirmed=6、experiment-items=6、v2/observations 可读；v3/scores 平台恒空（分数以 UI 为准）",
+    "discipline": "B1 白名单（input=公开题面、expectedOutput=null、truth 仅指纹）；非 admitted case 不同步"
   },
   "eval_mvp": {
     "status": "mvp_offline",

@@ -109,7 +109,8 @@ npm run eval:v2 -- rescore --suite daily-1 --case <id> --trial t1 --review revie
 >   跳过、failed 续传、`--force` 重推；同步失败不改诊断结果、不丢本地产物（exit 1 提示续传）。
 > - **兼容限制**（v4.50 events_only）：`/api/public/v3/scores` 实测对所有分数返回空——
 >   `confirmed` 语义为"平台已确认受理（2xx 无逐条错误）"，**平台可读性仍需 UI 核对**；
->   Langfuse Dataset/Annotation 走 UI/后续 SDK（需服务端 dataset API 能力验证后接入）。
+>   Langfuse Dataset API 已于 eval/langfuse 分支验证可用并接入（`datasets sync/verify`），
+>   实验关联、白名单纪律与验收标准见 `docs/eval-langfuse-loop.md`。
 > - 人工复核闭环：复核在 Langfuse 标注队列完成后导出 review 工件 → `rescore --review`
 >   → `summary`（复核聚合）/`push`（.reviewed 侧车）。
 
