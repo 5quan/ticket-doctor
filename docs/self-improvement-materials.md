@@ -36,19 +36,31 @@ npm run evolve:materials:verify                 # 核对冻结包 hash 与 split
 npm run evolve:materials:convert                # 转换首批 3 例
 npm run evolve:materials:convert -- --all       # 全部 9 例
 npm run evolve:materials:build                  # 装配 case-v2/truth-v2 + catalog + 数据集清单
+npm run evolve:review                           # 列出 split/admission/rubric 指纹/复核状态
+npm run evolve:review:record -- --case rcb-001 --reviewer <name> --decision approved|changes_requested [--revise]
+npm run evolve:review:verify                    # 校验 admitted 案例都有匹配批准记录
 ```
 
-输出：材料在 `data/evolve/rsi-bootstrap/`，协议案例在 `data/eval-v2/`（`data/` 已被 gitignore，可重建）。
+输出：材料在 `data/evolve/rsi-bootstrap/`，协议案例在 `data/eval-v2/`（`data/` 已被 gitignore，可重建）；复核批准记录在 `evolve/reviews/`（**入库**，重建后按指纹自动重新应用准入）。
 
-## 3. 尚未完成
+## 3. 复核与准入
 
-1. **人工复核 rubric**：当前为 AI 起草（`provisional`），需人工确认事实、因果与允许结论后才可置 `admitted`；未复核不得用于质量结论或发布门禁。
-2. **准入**：`candidate → qualified → admitted`；需人工复核记录与批准清单。
-3. **Langfuse 导入**：`buildBootstrapDataset` 已能产出 admitted 案例的 dataset item（`ticket-doctor-rsi-bootstrap-v1`），但尚未推送/同步到服务器。
-4. **多轮 / 补证 / 反证材料**：首批为单轮 log-only；方案 §4.4 的 FastAPI 历史故障与多轮材料未做。
-5. **隔离**：holdout 材料仍在同一 checkout；正式搜索 job 需要独立读取授权，现有目录划分不构成进程权限隔离。
+复核工具已就绪（`src/evolve/materials/review.ts` + `scripts/evolve-review.ts`）：
 
-## 4. 限制
+- 复核记录写入仓库内 `evolve/reviews/<caseId>.json`，含 `rubricHash`、`reviewer`、`decision`。
+- 只有 `approved` 且 `rubricHash` 与当前 truth **完全一致**时才置 `admitted`；rubric 任何改动使旧批准失效（标准漂移防护）。
+- `admitted` 案例进入数据集前会做完整性检查，无匹配批准记录即拒绝。
+
+**仍需人工完成**：由真实审阅人确认事实、因果、允许结论与禁用断言，再用 `evolve:review:record` 记录结论。AI 起草的 rubric 在人工批准前一直是 `provisional`，不得用于质量结论或发布门禁。
+
+## 4. 尚未完成
+
+1. **人工复核**：工具就绪，但批准动作必须由人完成（当前三例均 `qualified`、未复核）。
+2. **Langfuse 导入**：`buildBootstrapDataset` 已能产出 admitted 案例的 dataset item（`ticket-doctor-rsi-bootstrap-v1`），但尚未推送/同步到服务器。
+3. **多轮 / 补证 / 反证材料**：首批为单轮 log-only；方案 §4.4 的 FastAPI 历史故障与多轮材料未做。
+4. **隔离**：holdout 材料仍在同一 checkout；正式搜索 job 需要独立读取授权，现有目录划分不构成进程权限隔离。
+
+## 5. 限制
 
 - 案例包是公开模拟／重建材料，应用内 commit 为虚构替身、diff 不是完整源码 checkout；不能据此声称真实生产根因或代码 SHA 核验能力。
 - 本轮只做日志-only 基线准备；metrics/traces/attachments 未开放读取，相关评分项为不适用。

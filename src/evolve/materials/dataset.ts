@@ -10,6 +10,7 @@
 import { join } from "node:path";
 import { loadCatalog, loadCase, loadRoundMessage, loadTruth, type CatalogEntry } from "../../eval/lf/internals/load.ts";
 import { casePublicHash } from "../../eval/lf/seed.ts";
+import { assertAdmissionIntegrity } from "./review.ts";
 import type { CaseDescriptorV2, TruthFileV2 } from "../../eval/lf/internals/types.ts";
 
 export const BOOTSTRAP_DATASET = "ticket-doctor-rsi-bootstrap-v1";
@@ -56,7 +57,7 @@ export interface BootstrapDatasetBuild {
 }
 
 /** 只纳入 admitted；其余记跳过原因。对每条 admitted 案例的首轮生成 input/expectedOutput/metadata。 */
-export function buildBootstrapDataset(evalRoot: string, projectRoot: string): BootstrapDatasetBuild {
+export function buildBootstrapDataset(evalRoot: string, projectRoot: string, opts?: { reviewRoot?: string }): BootstrapDatasetBuild {
   const items: BootstrapDatasetItem[] = [];
   const skipped: BootstrapDatasetBuild["skipped"] = [];
   for (const { entry, caseDesc, truth } of listRsiCases(evalRoot, projectRoot)) {
@@ -64,6 +65,8 @@ export function buildBootstrapDataset(evalRoot: string, projectRoot: string): Bo
       skipped.push({ caseId: caseDesc.caseId, admission: caseDesc.admission, reason: "未通过准入门槛（需人工复核后置 admitted）" });
       continue;
     }
+    // 已准入必须有匹配的批准记录，否则拒绝纳入（标准漂移防护）。
+    assertAdmissionIntegrity(projectRoot, truth, { reviewRoot: opts?.reviewRoot });
     const firstRound = caseDesc.rounds[0]!;
     const roundTruth = truth.rounds.find((r) => r.roundId === firstRound.roundId);
     if (!roundTruth) throw new Error(`case ${caseDesc.caseId} 首轮缺少 truth`);

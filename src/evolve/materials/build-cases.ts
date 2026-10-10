@@ -17,6 +17,7 @@ import type { CaseDescriptorV2, TruthFileV2 } from "../../eval/lf/internals/type
 import { EVOLVE_MATERIALS_ROOT } from "./materialize.ts";
 import { RSI_BOOTSTRAP_ROOT } from "./catalog.ts";
 import { BOOTSTRAP_SPECS, type BootstrapCaseSpec } from "./rubrics.ts";
+import { applyAdmission, rubricHash } from "./review.ts";
 
 export const BOOTSTRAP_ADMISSION = "qualified" as const;
 export const MATERIAL_VIEW = "round-1";
@@ -30,6 +31,7 @@ export interface BuiltCase {
   materialFiles: string[];
   casePublicHash: string;
   truthHash: string;
+  rubricHash: string;
 }
 
 interface RsiTask {
@@ -50,7 +52,7 @@ export function buildBootstrapCase(
   projectRoot: string,
   evalV2Root: string,
   spec: BootstrapCaseSpec,
-  opts?: { materialsRoot?: string },
+  opts?: { materialsRoot?: string; reviewRoot?: string },
 ): { caseDesc: CaseDescriptorV2; truth: TruthFileV2; built: BuiltCase } {
   const materialsRoot = opts?.materialsRoot ?? join(projectRoot, EVOLVE_MATERIALS_ROOT);
   const srcLogs = join(materialsRoot, spec.caseId, MATERIAL_VIEW, "logs");
@@ -115,6 +117,10 @@ export function buildBootstrapCase(
       notes: "AI 依据 RootCauseBench oracle 与公开告警字段起草；未经人工复核，不得用于质量结论或发布门禁。",
     },
   };
+  // 复核记录（仓库内）决定是否准入；rubric 变更会使旧批准失效。
+  const admission = applyAdmission(projectRoot, truth, { reviewRoot: opts?.reviewRoot });
+  caseDesc.admission = admission.admission;
+  truth.review = admission.review;
 
   const cErr = validateCaseDescriptor(caseDesc, { caseDir, projectRoot, requireAdmitted: false });
   if (!cErr.ok) throw new Error(`case.json 校验失败（${spec.caseId}）：${cErr.errors.map((e) => `${e.path}: ${e.message}`).join("; ")}`);
@@ -141,18 +147,19 @@ export function buildBootstrapCase(
       caseId: spec.caseId,
       familyId: spec.familyId,
       split: spec.split,
-      admission: BOOTSTRAP_ADMISSION,
+      admission: caseDesc.admission,
       services: [...spec.services].sort(),
       materialFiles: listFilesRecursive(viewDir).map((f) => f.path),
       casePublicHash,
       truthHash: sha256Bytes(readFileSync(join(privateDir, "truth.private.json"))),
+      rubricHash: rubricHash(truth),
     },
   };
 }
 
 export interface CasesManifest {
   schemaVersion: "rsi-cases-manifest/v0";
-  cases: Array<{ caseId: string; familyId: string; split: string; admission: string; casePublicHash: string; truthHash: string; services: string[] }>;
+  cases: Array<{ caseId: string; familyId: string; split: string; admission: string; casePublicHash: string; truthHash: string; rubricHash: string; services: string[] }>;
 }
 
 /** 装配一批案例，合并 catalog，写控制器清单。返回清单。 */
@@ -160,7 +167,7 @@ export function buildBootstrapCases(
   projectRoot: string,
   evalV2Root: string,
   specs: BootstrapCaseSpec[] = BOOTSTRAP_SPECS,
-  opts?: { materialsRoot?: string },
+  opts?: { materialsRoot?: string; reviewRoot?: string },
 ): { manifest: CasesManifest; built: BuiltCase[] } {
   const built: BuiltCase[] = [];
   for (const spec of specs) built.push(buildBootstrapCase(projectRoot, evalV2Root, spec, opts).built);
@@ -186,6 +193,7 @@ export function buildBootstrapCases(
       admission: b.admission,
       casePublicHash: b.casePublicHash,
       truthHash: b.truthHash,
+      rubricHash: b.rubricHash,
       services: b.services,
     })),
   };

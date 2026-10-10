@@ -2,7 +2,7 @@
 //   * qualified 草稿可装配校验，但默认 loadCase 必须拒绝（未审定不得运行）；
 //   * 日志视图只含 .log；Agent 输入不泄漏私有 oracle/答案；
 //   * 数据集 builder 只纳入 admitted，其余显式跳过。
-import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,17 +14,19 @@ import { buildBootstrapCases, MATERIAL_VIEW } from "../../src/evolve/materials/b
 import { buildBootstrapDataset, listRsiCases } from "../../src/evolve/materials/dataset.ts";
 import { loadCase, loadCatalog, loadTruth, loadRoundMessage } from "../../src/eval/lf/internals/load.ts";
 import { validatePairing } from "../../src/eval/lf/internals/schema.ts";
+import { rubricHash, writeReview, type RubricReview } from "../../src/evolve/materials/review.ts";
 
 const ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 
 function setup() {
   const materialsRoot = mkdtempSync(join(tmpdir(), "evolve-mat-"));
   const evalRoot = mkdtempSync(join(tmpdir(), "evolve-eval-"));
+  const reviewRoot = mkdtempSync(join(tmpdir(), "evolve-rev-"));
   const manifest = loadRsiBootstrapManifest(ROOT);
   const cases = selectFirstBatch(manifest);
   for (const c of cases) materializeCase(ROOT, materialsRoot, c);
-  buildBootstrapCases(ROOT, evalRoot, undefined, { materialsRoot });
-  return { materialsRoot, evalRoot, cases };
+  buildBootstrapCases(ROOT, evalRoot, undefined, { materialsRoot, reviewRoot });
+  return { materialsRoot, evalRoot, reviewRoot, cases };
 }
 
 test("装配：qualified 草稿可校验，但默认准入闸门拒绝运行", () => {
@@ -62,22 +64,22 @@ test("隔离：日志视图只含 .log，Agent 输入不泄漏私有 oracle", ()
 });
 
 test("数据集 builder：未审定案例全部跳过，产出 0 条", () => {
-  const { evalRoot } = setup();
-  const built = buildBootstrapDataset(evalRoot, ROOT);
+  const { evalRoot, reviewRoot } = setup();
+  const built = buildBootstrapDataset(evalRoot, ROOT, { reviewRoot });
   assert.equal(built.items.length, 0);
   assert.deepEqual(built.skipped.map((s) => s.caseId).sort(), ["rcb-001", "rcb-004", "rcb-007"]);
   assert.ok(built.skipped.every((s) => s.admission === "qualified"));
 });
 
-test("数据集 builder：admitted 后才纳入，input 不含私有内容且带 split", () => {
-  const { evalRoot } = setup();
-  // 模拟人工复核通过：rcb-001 置 admitted。
-  const path = join(evalRoot, "public", "rcb-001", "case.json");
-  const desc = JSON.parse(readFileSync(path, "utf8")) as { admission: string };
-  desc.admission = "admitted";
-  writeFileSync(path, JSON.stringify(desc, null, 2), "utf8");
+test("数据集 builder：经复核准入后才纳入，input 不含私有内容且带 split", () => {
+  const { evalRoot, materialsRoot, reviewRoot } = setup();
+  // 模拟人工复核通过：写批准记录后重建。
+  const truth = loadTruth(evalRoot, loadCatalog(evalRoot).cases.find((e) => e.caseId === "rcb-001")!);
+  const review: RubricReview = { schemaVersion: "rsi-rubric-review/v0", caseId: "rcb-001", rubricHash: rubricHash(truth), reviewer: "tester", reviewedAt: "t", decision: "approved" };
+  writeReview(ROOT, review, { reviewRoot });
+  buildBootstrapCases(ROOT, evalRoot, undefined, { materialsRoot, reviewRoot });
 
-  const built = buildBootstrapDataset(evalRoot, ROOT);
+  const built = buildBootstrapDataset(evalRoot, ROOT, { reviewRoot });
   assert.equal(built.items.length, 1);
   const item = built.items[0]!;
   assert.equal(item.metadata.caseId, "rcb-001");
