@@ -121,6 +121,20 @@ function roundReportText(report: unknown): string {
   return (["summary", "confirmedFacts", "hypotheses"] as const).map((f) => reportFieldText(report, f)).join("\n");
 }
 
+/** 指定状态的假设文本（用于 forbiddenRules.onlyWhenStatus：只对“已支持”的断言判定）。 */
+export function hypothesesByStatus(report: unknown, status: "supported" | "candidate" | "refuted"): string {
+  if (!report || typeof report !== "object") return "";
+  const hs = (report as Record<string, unknown>).hypotheses;
+  if (!Array.isArray(hs)) return "";
+  return hs
+    .filter((h) => h && typeof h === "object" && (h as Record<string, unknown>).status === status)
+    .map((h) => {
+      const o = h as Record<string, unknown>;
+      return [o.cause, o.summary, o.statement, o.description].filter((x) => typeof x === "string").join(" ");
+    })
+    .join("\n");
+}
+
 function weighted(components: Array<{ w: number; v: number | null }>): number | null {
   const applicable = components.filter((c) => c.v !== null);
   if (applicable.length === 0) return null;
@@ -176,7 +190,12 @@ export function gradeCase(result: CaseRunResult, truth: TruthFileV2): GradeResul
     // 禁用断言。
     const forbiddenTriggered: string[] = [];
     for (const rule of rt.forbiddenRules) {
-      const fields = rule.where.map((f) => reportFieldText(round.report, f)).join("\n");
+      // onlyWhenStatus：只对指定状态的假设判定（candidate/低置信不能当肯定断言）；
+      // 没有该状态的假设则不触发。其余规则按 where 字段（已共现窗口约束）。
+      const fields = rule.onlyWhenStatus
+        ? hypothesesByStatus(round.report, rule.onlyWhenStatus)
+        : rule.where.map((f) => reportFieldText(round.report, f)).join("\n");
+      if (rule.onlyWhenStatus && fields.trim().length === 0) continue;
       if (groupsColocated(fields, rule.assertAnyOf)) {
         forbiddenTriggered.push(rule.ruleId);
         hardFailures.push(`forbidden_assertion:${round.roundId}/${rule.ruleId}`);

@@ -153,6 +153,14 @@ test("评分：禁用断言须同窗口共现，跨句正确表述不误伤", ()
   assert.ok(bad.hardFailures.some((h) => h.includes("forbidden_assertion")));
 });
 
+test("评分：onlyWhenStatus 只对 supported 假设判禁用断言，candidate 不触发", () => {
+  const truth = truthWith({ forbiddenRules: [{ ruleId: "forbid-x", where: ["hypotheses"], assertAnyOf: [["audience"], ["根因"]], onlyWhenStatus: "supported" }] });
+  const cand = gradeCase(runResult({ report: { summary: "", confirmedFacts: [], hypotheses: [{ cause: "gateway_strict_audience_check 是根因", status: "candidate" }] } }), truth);
+  assert.equal(cand.hardFailures.length, 0, "candidate 假设不得当肯定断言");
+  const sup = gradeCase(runResult({ report: { summary: "", confirmedFacts: [], hypotheses: [{ cause: "audience 是根因", status: "supported" }] } }), truth);
+  assert.ok(sup.hardFailures.some((h) => h.includes("forbidden_assertion")));
+});
+
 test("评分：错误 SHA 引用是硬失败", () => {
   const g = gradeCase(runResult({ report: { summary: "x", confirmedFacts: [], hypotheses: [] }, citations: [{ stage: "validated", rawId: "E1", resolved: true, wrongSha: true }] }), truthWith({}));
   assert.ok(g.hardFailures.some((h) => h.includes("citation_invalid")));
