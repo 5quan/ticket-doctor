@@ -40,6 +40,18 @@
 > 范围仅诊断核心，不含持久化/投递。**Langfuse 能做评测/实验/人工标注**：首期本地执行+评分是缩小范围，
 > 接入形态（本地执行 + Langfuse 实验账本/复核，权威源二选一）见 `docs/eval-implementation-plan.md` §0.1 与 E8。
 > 后续 E1–E9 工作单同文件；**真实案例准入前不发布质量结论**。
+>
+> **2026-10-07 更新（Langfuse 原生离线评测，第一阶段完成）**：新增 `codex/langfuse-eval` 分支与
+> `docs/langfuse-eval-implementation-plan.md`（唯一事实源）。把诊断链路接入 **Langfuse 原生实验**：
+> Dataset 版本（`ticket-doctor-smoke-v1`，5 条 synthetic 工程案例）+ 提示词版本（`ticket-doctor-diagnosis` v1 基线 / v2 候选）
+> → 真实 pi Agent 多轮调查 → 过程全部挂到实验 item trace（`joinActiveContext` + 全局 OTel context manager）→
+> 官方 SDK evaluator（运行完整性/引用有效性/版本可见性/预期阻断/提示词注入/成本）→ 原生人工复核（0–2 分）。
+> 命令：`eval:lf:preflight|seed|run|verify|review`。已装 Langfuse agent skill（`/root/.agents/skills/langfuse`）。
+> 复验修正：`input.question` 权威驱动首轮；材料 hash 覆盖 materialView 日志；逐案例读回预期分数（v3/scores +
+> `fields=details,subject,annotation`）缺失即失败、按 dataType 校验值与 `subject` 归属；预期阻断按**结构化 SHA mismatch**
+> 校验；`prompt_injection` 四态（actual_request_verified/config_only/not_called/mismatch）并回读 generation 原生 prompt name/version。
+> 真实两轮实验（`baseline-v1-r3` / `candidate-v2-r3`）已跑通并严格读回（原生关联 27/27、34/34）。
+> **人工复核：队列 30 条全 PENDING（先前 API 联通测试分已删），需真人评分；语义质量 unscored，不作质量结论。**详见该方案文档。
 
 ---
 
@@ -48,7 +60,7 @@
 | 项 | 值 |
 |---|---|
 | 版本 / 分支 | `0.3.1` / `main` |
-| 测试 | TS 193（`npm test`，数字以 docs/status.json 为准）+ Go adapter（`npm run test:go`）+ `typecheck` 全绿 |
+| 测试 | TS 228（数字以 docs/status.json 的静态统计为准）；本轮 tracing 迁移验证见 [迁移记录](langfuse-sdk-migration.md)。Go adapter 验证沿用原记录。 |
 | 迁移 | `001` … `006_evidence_uid.sql` |
 | 运行 | `npm run host`（生产，systemd `ticket-doctor-host`）/ `npm run demo`（离线；可开观测做验证） |
 | 部署 | `docker-compose.yml` + `Dockerfile` + `adapters/go/Dockerfile`（已构建并冒烟） |
@@ -139,7 +151,7 @@ ct-004 代码证据漏检），交阶段二 rules / 审计 Agent，不是打分 
 4. 按任务读专项：
    - 接入/长连接 → `docs/adapter-longconn-design.md`、`docs/feishu-trigger-design.md`、`adapters/go/README.md`
    - 证据 → `docs/evidence-uid-design.md`（已实现）
-   - 评测 → `docs/eval-design.md`、`docs/evolve-protocol.md`
+   - 评测 → `docs/eval-design.md`、`docs/evolve-protocol.md`；Langfuse 原生评测 → `docs/langfuse-eval-implementation-plan.md`
    - 会话/持久化 → `docs/interface.md §8`、`docs/session-log-design.md`
    - 并发 → `docs/concurrency.md`
 

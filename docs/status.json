@@ -1,7 +1,7 @@
 {
   "version": "0.3.1",
   "tests": {
-    "ts": 193,
+    "ts": 228,
     "go": "adapter"
   },
   "migrations": {
@@ -30,6 +30,21 @@
     "cases": { "synthetic": 3, "real": 0 },
     "exploratory": "pi 审计关/开、3 个合成 case、各 1 次；语义未复核，非基线",
     "note": "离线 MVP：复用正式诊断链路，只评材料/引用；语义正确性未人工复核=unscored。持久化/投递/调查隔离不在其内。接入 Langfuse 用于实验/人工复核见 plan E8（权威源二选一）。"
+  },
+  "eval_langfuse": {
+    "status": "phase1_done",
+    "plan": "docs/langfuse-eval-implementation-plan.md",
+    "cli": "npm run eval:lf:preflight / eval:lf:seed / eval:lf:run / eval:lf:verify / eval:lf:review",
+    "skill": "langfuse agent skill installed at /root/.agents/skills/langfuse（源 github.com/langfuse/skills）",
+    "serverVersion": "4.50.0",
+    "dataset": "ticket-doctor-smoke-v1",
+    "datasetVersion": "2026-10-07T14:35:00.000Z",
+    "prompt": { "name": "ticket-doctor-diagnosis", "baseline": 1, "candidate": 2 },
+    "experiments": { "baseline": "baseline-v1-r3", "candidate": "candidate-v2-r3" },
+    "annotationQueue": "ticket-doctor-prediagnosis-review",
+    "annotation": { "scoreConfig": "prediagnosis_quality（NUMERIC 0–2）", "items": 30, "completed": 0, "note": "队列已就绪待真人复核；此前的 API 联通测试分已删除，不计作人工复核。" },
+    "cases": { "synthetic": 5, "real": 0 },
+    "note": "原生 Langfuse 实验：5 合成案例 × 基线/候选提示词（各自一次）。逐案例读回预期指标（v3/scores + fields=details,subject,annotation），按 dataType 校验必需值与 subject 归属，缺即失败；input.question 为权威首轮问题；材料 hash 覆盖 materialView 日志；预期阻断按结构化 SHA mismatch 校验（未调模型/未继续取证）；prompt_injection 输出分类状态（actual_request_verified/config_only/not_called/mismatch）并读回 generation 原生 prompt name/version。语义质量尚无真人评分（unscored），不作真实工单质量结论。"
   },
   "eval": {
     "status": "removed",

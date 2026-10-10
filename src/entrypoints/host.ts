@@ -70,7 +70,10 @@ if (config.host.feishuDirect && config.feishu.appId && config.feishu.appSecret) 
   console.log("[ticket-doctor] 未开启飞书直连，等待 Go 接入适配器调用 /api/agent/message");
 }
 
+let shuttingDown = false;
 async function shutdown(): Promise<void> {
+  if (shuttingDown) return;
+  shuttingDown = true;
   pool.stop();
   if (deliveryTimer) clearInterval(deliveryTimer);
   await feishu?.stop().catch(() => {});
