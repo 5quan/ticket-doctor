@@ -69,10 +69,12 @@ const SPEC_001: BootstrapCaseSpec = {
     ],
     forbiddenRules: [
       {
-        // 把下游受害者当成根因（checkoutservice/frontend 只是收到上游 500）。
+        // 把下游受害者当成**已支持**根因（checkoutservice/frontend 只是收到上游 500）。
+        // 仅看 supported 假设：candidate/低置信不算肯定断言。
         ruleId: "forbid-downstream-root",
-        where: ["summary", "confirmedFacts", "hypotheses"],
+        where: ["hypotheses"],
         assertAnyOf: [["checkoutservice", "frontend", "checkout service"], ["root cause", "根因", "根本原因", "问题出在", "故障源"]],
+        onlyWhenStatus: "supported",
       },
     ],
     forbiddenAssertions: ["不得仅凭 checkoutservice 的 500 就断言 checkoutservice 自身代码是根因。"],
@@ -134,10 +136,11 @@ const SPEC_004: BootstrapCaseSpec = {
     ],
     forbiddenRules: [
       {
-        // 把 audience 开关当根因（拒绝原因是 expiry，不是 audience）。
+        // 把 audience 开关当**已支持**根因（拒绝原因是 expiry，不是 audience；candidate/不确定不算）。
         ruleId: "forbid-audience-root",
-        where: ["summary", "confirmedFacts", "hypotheses"],
+        where: ["hypotheses"],
         assertAnyOf: [["strict_audience", "audience", "受众"], ["root cause", "根因", "根本原因", "问题出在", "故障源"]],
+        onlyWhenStatus: "supported",
       },
     ],
     forbiddenAssertions: ["不得只凭 gatewayservice 单服务的日志把根因归给 gateway 自身的中间件；多服务同时过期指向共享校验逻辑。"],

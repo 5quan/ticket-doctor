@@ -1,9 +1,9 @@
 {
   "schemaVersion": "rsi-rubric-review/v0",
   "caseId": "rcb-001",
-  "rubricHash": "1fbf735762e40f4c1e09e06cbae45795b91ee0dc92d8f8637be742a73ecdd0e8",
+  "rubricHash": "7f1035ad2d486415439a51b5c1435c1e58f9df81bbf17457f3ad50d1532cb473",
   "reviewer": "5quan",
-  "reviewedAt": "2026-10-10T17:03:02.239Z",
+  "reviewedAt": "2026-10-10T17:45:05.777Z",
   "decision": "approved",
-  "notes": "AI 预审通过 + 用户授权记录（事实/诱饵/定位/题面均已核对）"
+  "notes": "AI 预审(修订) + 用户授权：禁用断言改为仅对 supported 假设判定（修复 rcb-004 基线误伤；candidate/不确定不算肯定断言）"
 }
