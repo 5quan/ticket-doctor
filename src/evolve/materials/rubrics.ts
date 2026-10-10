@@ -120,12 +120,15 @@ const SPEC_004: BootstrapCaseSpec = {
     requiredFacts: [
       {
         factId: "fact-token-expired",
-        concepts: [["token is expired", "expired token", "token 过期", "令牌过期", "过期"], ["jwt", "token", "令牌", "认证"]],
+        concepts: [["token is expired", "expired token", "expired", "token 过期", "令牌过期", "过期"], ["jwt", "token", "令牌", "认证"]],
         where: ["summary", "confirmedFacts", "hypotheses"],
       },
       {
         factId: "fact-multi-service",
-        concepts: [["多个服务", "多处", "跨服务", "同时", "all services", "across services", "共享", "shared"], ["jwt", "token", "auth", "认证", "校验"]],
+        concepts: [
+          ["多个服务", "多处", "跨服务", "同时", "各服务", "每个服务", "所有服务", "全部服务", "共同", "一致", "all services", "across services", "multiple services", "several services", "shared"],
+          ["jwt", "token", "auth", "认证", "校验"],
+        ],
         where: ["summary", "confirmedFacts", "hypotheses"],
       },
     ],
