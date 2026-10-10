@@ -23,6 +23,7 @@
     "evolve:materials:verify": "node --experimental-strip-types scripts/evolve-materials.ts verify",
     "evolve:materials:convert": "node --experimental-strip-types scripts/evolve-materials.ts convert",
     "evolve:materials:build": "node --experimental-strip-types scripts/evolve-materials.ts build",
+    "evolve:batch": "node --experimental-strip-types scripts/evolve-batch.ts",
     "docs:check": "node scripts/check-docs.mjs",
     "test:go": "cd adapters/go && go test ./...",
     "pretest": "node scripts/init-demo-repo.mjs && node scripts/init-eval-fixture.mjs"
