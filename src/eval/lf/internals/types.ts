@@ -10,8 +10,8 @@
 
 // ---------- 枚举 ----------
 
-export type CaseSplit = "development" | "holdout" | "engineering";
-export type SourceTier = "synthetic_engineering" | "reproduced_history" | "verified_snapshot" | "from_issue_only";
+export type CaseSplit = "development" | "train" | "validation" | "holdout" | "engineering";
+export type SourceTier = "synthetic_engineering" | "public_simulated" | "reproduced_history" | "verified_snapshot" | "from_issue_only";
 export type Admission = "candidate" | "qualified" | "admitted" | "deferred";
 export type ClaimDepth = "symptom" | "direct" | "root";
 // blocked：预期内的“读取前阻断”（版本/隔离预检），与真实 error 区分（M3，2026-10-05）。

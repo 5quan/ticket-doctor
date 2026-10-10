@@ -38,7 +38,7 @@ function checkIso(value: unknown, path: string, errors: SchemaIssue[], nullable 
 
 export function validateCaseDescriptor(
   raw: unknown,
-  opts: { caseDir: string; projectRoot: string },
+  opts: { caseDir: string; projectRoot: string; requireAdmitted?: boolean },
 ): { ok: true; value: CaseDescriptorV2 } | { ok: false; errors: SchemaIssue[] } {
   const errors: SchemaIssue[] = [];
   const c = raw as CaseDescriptorV2;
@@ -48,10 +48,10 @@ export function validateCaseDescriptor(
   }
   if (!isStr(c.caseId)) errors.push({ path: "caseId", message: "缺失" });
   if (!isStr(c.familyId)) errors.push({ path: "familyId", message: "缺失" });
-  if (!["development", "holdout", "engineering"].includes(c.split)) {
+  if (!["development", "train", "validation", "holdout", "engineering"].includes(c.split)) {
     errors.push({ path: "split", message: `非法 split：${String(c.split)}` });
   }
-  if (!["synthetic_engineering", "reproduced_history", "verified_snapshot", "from_issue_only"].includes(c.sourceTier)) {
+  if (!["synthetic_engineering", "public_simulated", "reproduced_history", "verified_snapshot", "from_issue_only"].includes(c.sourceTier)) {
     errors.push({ path: "sourceTier", message: `非法 sourceTier：${String(c.sourceTier)}` });
   }
   if (!["candidate", "qualified", "admitted", "deferred"].includes(c.admission)) {
@@ -83,8 +83,8 @@ export function validateCaseDescriptor(
       if (!Array.isArray(r.services)) errors.push({ path: `rounds[${i}].services`, message: "必须是数组" });
       if (!Array.isArray(r.repos)) {
         errors.push({ path: `rounds[${i}].repos`, message: "必须是数组" });
-      } else if (r.repos.length === 0 && c.sourceTier !== "reproduced_history") {
-        // log-only 真实案例（RCAEval 等）允许无代码绑定；其余拆分仍要求至少一个仓库。
+      } else if (r.repos.length === 0 && c.sourceTier !== "reproduced_history" && c.sourceTier !== "public_simulated") {
+        // log-only 真实案例（RCAEval 等）与公开模拟案例允许无代码绑定；其余拆分仍要求至少一个仓库。
         errors.push({ path: `rounds[${i}].repos`, message: "至少一个仓库（log-only 仅允许 sourceTier=reproduced_history）" });
       } else {
         r.repos.forEach((repo, j) => {
@@ -133,8 +133,8 @@ export function validateCaseDescriptor(
   if (c.split === "engineering" && c.sourceTier !== "synthetic_engineering") {
     errors.push({ path: "sourceTier", message: "engineering 拆分必须是 synthetic_engineering 来源" });
   }
-  if (c.split !== "engineering" && c.admission !== "admitted") {
-    // 非工程拆分必须走准入门槛；candidate/deferred 允许加载但只能用于制作侧（由调用方约束）。
+  if (c.split !== "engineering" && c.admission !== "admitted" && opts.requireAdmitted !== false) {
+    // 非工程拆分默认必须走准入门槛；requireAdmitted=false 仅用于制作侧校验草稿（数据集 builder 只纳入 admitted）。
     errors.push({
       path: "admission",
       message: `split=${c.split} 的 case 必须 admitted 才能进入评测运行（当前 ${String(c.admission)}）`,
