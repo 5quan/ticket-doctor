@@ -24,6 +24,8 @@ import { addTracesToAnnotationQueue, ensureAnnotationSetup, recordQueueAnnotatio
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const EVAL_ROOT_DEFAULT = join(ROOT, "data", "eval-v2");
 
+function arg(name: string, fallback: string): string;
+function arg(name: string): string | undefined;
 function arg(name: string, fallback?: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
   return i >= 0 && process.argv[i + 1] && !process.argv[i + 1]!.startsWith("--") ? process.argv[i + 1] : fallback;
@@ -204,23 +206,7 @@ async function cmdRun(): Promise<number> {
     diagnosis: { ...config.diagnosis, audit: { ...config.diagnosis.audit, enabled: auditEnabled } },
   };
   const observability = { ...config.observability, enabled: true, environment: "eval" };
-  const recorder = createLangfuseRecorder(observability, undefined, {
-    joinActiveContext: true,
-    prompt: { name: prompt.name, version: prompt.version },
-  });
-  const evalOtel = setupEvalOtel(requireLf(config), "eval");
-
   const outDir = arg("out") ?? join(ROOT, "data", "lf-eval", "runs");
-  const task = makeTicketDoctorTask({
-    projectRoot: config.projectRoot,
-    evalRoot: root,
-    baseConfig,
-    engine,
-    prompt,
-    outDir,
-    ...(recorder ? { recorder } : {}),
-  });
-
   const fingerprint = {
     protocolVersion: SMOKE_PROTOCOL,
     gitRev: gitRev(config.projectRoot),
@@ -239,8 +225,25 @@ async function cmdRun(): Promise<number> {
   const startedAt = new Date().toISOString();
   console.log(`[eval:lf] 实验 ${experimentName}${runName ? ` run=${runName}` : ""} engine=${engine} 并发=${concurrency} 审计=${auditEnabled ? "on" : "off"}`);
 
+  const evalOtel = setupEvalOtel(requireLf(config), "eval");
+  let recorder: ReturnType<typeof createLangfuseRecorder>;
   let result;
   try {
+    // 业务 observation 借用实验 provider，避免创建第二套 processor/导出队列。
+    recorder = createLangfuseRecorder(observability, undefined, {
+      joinActiveContext: true,
+      prompt: { name: prompt.name, version: prompt.version },
+      tracerProvider: evalOtel.provider,
+    });
+    const task = makeTicketDoctorTask({
+      projectRoot: config.projectRoot,
+      evalRoot: root,
+      baseConfig,
+      engine,
+      prompt,
+      outDir,
+      ...(recorder ? { recorder } : {}),
+    });
     result = await dataset.runExperiment({
       name: experimentName,
       ...(runName ? { runName } : {}),
@@ -253,9 +256,19 @@ async function cmdRun(): Promise<number> {
       ...(casesArg ? { data: items } : {}),
     } as Parameters<typeof dataset.runExperiment>[0]);
   } finally {
-    // plan §6：实验结束统一 flush/shutdown——共享 provider 只在实验边界关闭，单案例不关。
-    if (recorder) await recorder.shutdown();
-    await evalOtel.shutdown();
+    // runExperiment 成功时已 flush scores；异常也须处理客户端队列。
+    // recorder 先结束残留节点，实验拥有者随后发送 traces 并释放自己的基础设施。
+    try {
+      await lf.shutdown().catch((err: unknown) => {
+        console.warn(`[eval:lf] 分数队列关闭失败：${err instanceof Error ? err.message : String(err)}`);
+      });
+    } finally {
+      try {
+        await recorder?.shutdown();
+      } finally {
+        await evalOtel.shutdown();
+      }
+    }
   }
 
   const traceIds = result.itemResults.map((r) => r.traceId).filter((t): t is string => typeof t === "string");

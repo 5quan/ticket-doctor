@@ -62,37 +62,39 @@ async function drain(): Promise<void> {
   }
 }
 
-const first = await gateway.handleEvent(
-  feishuEvent({ messageId: "om_1", text: "下单接口报 500，checkout-service 服务", mentioned: true }) as never,
-);
-console.log("第一轮接入结果：", JSON.stringify(first));
-await drain();
-console.log("\n===== 第 1 轮报告 =====\n" + (feishu.sent.at(-1)?.text ?? "(无)"));
+try {
+  const first = await gateway.handleEvent(
+    feishuEvent({ messageId: "om_1", text: "下单接口报 500，checkout-service 服务", mentioned: true }) as never,
+  );
+  console.log("第一轮接入结果：", JSON.stringify(first));
+  await drain();
+  console.log("\n===== 第 1 轮报告 =====\n" + (feishu.sent.at(-1)?.text ?? "(无)"));
 
-const marker = feishu.sent.at(-1)?.text.match(/\[TD-[0-9a-z]{8}\]/)?.[0] ?? "";
-const second = await gateway.handleEvent(
-  feishuEvent({
-    messageId: "om_2",
-    text: `${marker} 补充：只在 10:01~10:03 之间复现，库存服务超时`,
-    mentioned: false,
-    parentId: "om_1",
-    rootId: "om_1",
-    at: "2026-09-06T10:03:00+08:00",
-  }) as never,
-);
-console.log("\n第二轮接入结果：", JSON.stringify(second));
-await drain();
-console.log("\n===== 第 2 轮报告 =====\n" + (feishu.sent.at(-1)?.text ?? "(无)"));
+  const marker = feishu.sent.at(-1)?.text.match(/\[TD-[0-9a-z]{8}\]/)?.[0] ?? "";
+  const second = await gateway.handleEvent(
+    feishuEvent({
+      messageId: "om_2",
+      text: `${marker} 补充：只在 10:01~10:03 之间复现，库存服务超时`,
+      mentioned: false,
+      parentId: "om_1",
+      rootId: "om_1",
+      at: "2026-09-06T10:03:00+08:00",
+    }) as never,
+  );
+  console.log("\n第二轮接入结果：", JSON.stringify(second));
+  await drain();
+  console.log("\n===== 第 2 轮报告 =====\n" + (feishu.sent.at(-1)?.text ?? "(无)"));
 
-console.log("\n===== 运行事件（第 2 轮）=====");
-const lastRun = store.db
-  .prepare("SELECT id FROM runs ORDER BY created_at DESC LIMIT 1")
-  .get() as { id: string };
-const events = store.db
-  .prepare("SELECT sequence, type, payload FROM run_events WHERE run_id = ? ORDER BY sequence")
-  .all(lastRun.id) as Array<{ sequence: number; type: string; payload: string | null }>;
-for (const e of events) console.log(`${e.sequence}\t${e.type}\t${e.payload ?? ""}`);
-
-pool.stop();
-// 观测有界关闭：把剩余批次导出给 Langfuse（默认禁用时为空操作）。
-await recorder?.shutdown().catch(() => {});
+  console.log("\n===== 运行事件（第 2 轮）=====");
+  const lastRun = store.db
+    .prepare("SELECT id FROM runs ORDER BY created_at DESC LIMIT 1")
+    .get() as { id: string };
+  const events = store.db
+    .prepare("SELECT sequence, type, payload FROM run_events WHERE run_id = ? ORDER BY sequence")
+    .all(lastRun.id) as Array<{ sequence: number; type: string; payload: string | null }>;
+  for (const e of events) console.log(`${e.sequence}\t${e.type}\t${e.payload ?? ""}`);
+} finally {
+  pool.stop();
+  // 异常也结束残留节点并发送队列；默认禁用时为空操作。
+  await recorder?.shutdown().catch(() => {});
+}

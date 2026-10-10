@@ -1,56 +1,71 @@
-// 全局 OTel provider（plan §6）：SDK runExperiment 的 item 根 span 经全局 tracer 创建，
-// 必须注册带 LangfuseSpanProcessor 的全局 provider 才会真正导出（isOtelRegistered 检查）。
-//
-// 关键（已踩坑）：`@langfuse/tracing` 的 startActiveObservation 依赖 OTel 的 **全局 context manager**
-// 把 item 根 span 设为 active。仅注册 provider 不够——没有 AsyncLocalStorageContextManager 时
-// `context.active()` 恒为 ROOT_CONTEXT，业务 recorder 会另起一条 trace（joinActiveContext 失效）。
-// 因此这里同时注册 context manager + 全局 provider + Langfuse isolated provider。
-//
-// 资源所有权：本 provider 属于**整个实验**——只在实验结束 flush/shutdown 一次，
-// 不随单案例关闭；案例内业务 span 由 src/observability 的 recorder 负责（各自 provider）。
-import { context, trace } from "@opentelemetry/api";
-import { BasicTracerProvider } from "@opentelemetry/sdk-trace-base";
+// 实验级 OTel 基础设施：SDK runExperiment 和业务 recorder 共用一个 provider/processor。
+// startActiveObservation 依赖全局 AsyncLocalStorage context manager，把 item 根 observation
+// 及实验属性沿 task → runCase → executeRun 的 async 链传递；仅注册 provider 不够。
+// 全局 provider 用于 SDK isOtelRegistered 检查，isolated provider 决定 Langfuse span 的实际导出。
+// 资源属于整个实验，案例及 recorder 只借用，实验结束才统一 flush/shutdown。
+import { context, createContextKey, ProxyTracerProvider, ROOT_CONTEXT, trace, type TracerProvider } from "@opentelemetry/api";
+import { BasicTracerProvider, type SpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
 import { LangfuseSpanProcessor } from "@langfuse/otel";
-import { setLangfuseTracerProvider } from "@langfuse/tracing";
+import { getLangfuseTracerProvider, setLangfuseTracerProvider } from "@langfuse/tracing";
 import type { LfClientConfig } from "./client.ts";
 
 export interface EvalOtel {
-  /** 实验结束调用一次：flush 导出并关闭（plan §6「实验结束完成 SDK 分数 flush 和 OTel 导出」）。 */
+  /** 实验拥有；业务 recorder 借用，不得自行关闭。 */
+  provider: BasicTracerProvider;
+  /** 实验边界调用；并发或重复调用只 flush/shutdown 一次。 */
   shutdown(): Promise<void>;
 }
 
-/** 全局 context manager 只能设置一次（进程级）；重复调用会告警，这里幂等处理。 */
-function ensureContextManager(): void {
-  try {
-    context.setGlobalContextManager(new AsyncLocalStorageContextManager());
-  } catch {
-    // 已被其他 SDK 注册（如 NodeSDK）：沿用现有 manager，不覆盖。
-  }
+function registeredProvider(): TracerProvider {
+  const provider = trace.getTracerProvider();
+  return provider instanceof ProxyTracerProvider ? provider.getDelegate() : provider;
 }
 
-export function setupEvalOtel(cfg: LfClientConfig, environment = "eval"): EvalOtel {
-  ensureContextManager();
-  const processor = new LangfuseSpanProcessor({
+export function setupEvalOtel(
+  cfg: LfClientConfig,
+  environment = "eval",
+  /** 离线测试替换 exporter，不产生网络请求。 */
+  processorOverride?: SpanProcessor,
+): EvalOtel {
+  const processor = processorOverride ?? new LangfuseSpanProcessor({
     publicKey: cfg.publicKey,
     secretKey: cfg.secretKey,
     baseUrl: cfg.baseUrl,
     environment,
-    // SDK 的实验根 span 使用官方 tracer 名；本进程内没有自动埋点噪声，全部放行。
-    shouldExportSpan: () => true,
   });
   const provider = new BasicTracerProvider({ spanProcessors: [processor] });
-  // 1) Langfuse SDK 走 isolated provider；2) 全局 provider 让 isOtelRegistered() 为真（否则 SDK 告警且不认为已接入）。
+  const previousGlobalProvider = trace.getTracerProvider();
+  const previousLangfuseProvider = getLangfuseTracerProvider();
+  const manager = new AsyncLocalStorageContextManager().enable();
+  // OTel 重复注册返回 false，不抛错：保留已有基础设施，并立即释放未注册的 manager。
+  const ownsContextManager = context.setGlobalContextManager(manager);
+  if (!ownsContextManager) manager.disable();
+  const ownsGlobalProvider = trace.setGlobalTracerProvider(provider);
   setLangfuseTracerProvider(provider);
-  try {
-    trace.setGlobalTracerProvider(provider);
-  } catch {
-    // 全局 provider 已注册：isolated provider 仍生效，实验根 span 依旧导出。
-  }
+  let shutdownPromise: Promise<void> | undefined;
   return {
-    async shutdown(): Promise<void> {
-      await provider.forceFlush().catch(() => {});
-      await provider.shutdown().catch(() => {});
+    provider,
+    shutdown(): Promise<void> {
+      shutdownPromise ??= (async () => {
+        try {
+          await provider.forceFlush().catch(() => {});
+          await provider.shutdown().catch(() => {});
+        } finally {
+          // 若其他组件已接管 isolated/global provider，不覆盖或关闭它的资源。
+          if (getLangfuseTracerProvider() === provider) {
+            setLangfuseTracerProvider(previousLangfuseProvider === previousGlobalProvider ? null : previousLangfuseProvider);
+          }
+          if (ownsGlobalProvider && registeredProvider() === provider) trace.disable();
+          if (ownsContextManager) {
+            // public context.with + manager.active 检查当前全局 manager 仍是本实例。
+            const probe = ROOT_CONTEXT.setValue(createContextKey("ticket-doctor.eval-otel-owner"), true);
+            if (context.with(probe, () => manager.active() === probe)) context.disable();
+            else manager.disable();
+          }
+        }
+      })();
+      return shutdownPromise;
     },
   };
 }

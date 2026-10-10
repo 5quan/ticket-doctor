@@ -1,7 +1,7 @@
-// Langfuse OTel 适配（观测方案 §6/§8）：Host 侧 SDK 初始化、显式 observation registry、导出与关闭。
+// Langfuse tracing SDK 适配（观测方案 §6/§8）：Host 侧 SDK 初始化、显式 observation registry、导出与关闭。
 //
 // 设计约束：
-//   * 只用 LangfuseSpanProcessor + BasicTracerProvider 手动建 span：显式指定父子 context，
+//   * 用官方 SDK observation 显式建父子节点，保留 provider/processor 基础设施；
 //     跨 IPC/回调不依赖 AsyncLocalStorage 自动延续（观测方案 §6）；
 //   * 不加载 Node 自动埋点（@opentelemetry/auto-instrumentations 等），避免 HTTP/DB 噪声 span；
 //   * 未启用/缺配置 → 不创建 exporter、不连云端；启用但缺配置打印不含秘密的错误并降级 noop；
@@ -10,14 +10,20 @@
 import { BasicTracerProvider } from "@opentelemetry/sdk-trace-base";
 import type { SpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { LangfuseSpanProcessor } from "@langfuse/otel";
-import { ROOT_CONTEXT, SpanStatusCode, context, trace, type Attributes, type Context, type Span } from "@opentelemetry/api";
+import { ROOT_CONTEXT, SpanStatusCode, context, trace, type Context, type TracerProvider } from "@opentelemetry/api";
 import {
-  createObservationAttributes,
-  createTraceAttributes,
+  getLangfuseTracerProvider,
+  setLangfuseTracerProvider,
+  startObservation,
+  type LangfuseObservationAttributes,
+  type LangfuseAgent,
+  type LangfuseGeneration,
+  type LangfuseSpan,
+  type LangfuseTool,
   type ObservationLevel,
 } from "@langfuse/tracing";
 // plan §2：枚举在 5.13 归属 @langfuse/core，显式从此导入（tracing 仅为向后兼容的再导出）。
-import { LangfuseOtelSpanAttributes as LF } from "@langfuse/core";
+import { LangfuseOtelSpanAttributes as LF, propagateAttributes } from "@langfuse/core";
 import type { ObservabilityConfig } from "../config/index.ts";
 import type { DiagnosisReport } from "../domain/types.ts";
 import type { ObservationEvent, ObservationStatus } from "./types.ts";
@@ -57,16 +63,28 @@ function jsonAttr(value: unknown): string {
   }
 }
 
+type BusinessObservation = LangfuseSpan | LangfuseAgent | LangfuseGeneration | LangfuseTool;
+
+interface NodeRecord {
+  observation: BusinessObservation;
+  type: "generation" | "tool" | "agent" | "span";
+  metadata: Record<string, unknown>;
+  parentLogicalId?: string;
+  toolCallId?: string;
+  ended: boolean;
+  endedAt?: number;
+}
+
 interface AttemptRecord {
-  root: Span;
-  agent: Span;
-  /** logicalObservationId → 在飞 span（generation/tool）。 */
-  children: Map<string, Span>;
-  /** audit phase 的 agent 节点（logicalObservationId → span，每轮一个）。 */
-  auditAgents: Map<string, Span>;
-  /** agent 节点是否已由 phase_end 关闭。 */
-  agentEnded: boolean;
-  /** 子节点的上下文基座：普通模式 = ROOT_CONTEXT；评测模式 = 实验 task 的 active context。 */
+  root: NodeRecord;
+  agent: NodeRecord;
+  /** 保留已结束节点作 tombstone，重复 start/end 不会重开或覆盖在飞节点。 */
+  children: Map<string, NodeRecord>;
+  auditAgents: Map<string, NodeRecord>;
+  agentStarted: boolean;
+  /** 有界缓存先于 start/父节点到达的事件；attempt 终态时释放。 */
+  pending: ObservationEvent[];
+  /** 普通模式从 ROOT_CONTEXT 开始；评测模式保存实验 item 的完整传播上下文。 */
   base: Context;
 }
 
@@ -103,13 +121,14 @@ const identityKey = (id: ObservationRunIdentity): string =>
 
 export function createLangfuseRecorder(
   config: ObservabilityConfig,
-  /** 测试注入：替换 LangfuseSpanProcessor（内存 spy processor 验证 span 结构，不发网络请求）。 */
+  /** 测试注入：内存 processor，不发网络请求。 */
   processorOverride?: SpanProcessor,
-  /** 评测接入（plan §6）：joinActiveContext=true 时，attempt 根 span 挂到调用时刻的
-   * active context（Langfuse SDK 实验 item 根 span）下，整条调查成为实验 trace 的子节点；
-   * 缺省 false = 生产行为不变（自有根 span，显式父子）。
-   * prompt 提供时，仅“主诊断 generation”关联原生 prompt 字段；审计/压缩调用不关联（plan §5）。 */
-  opts?: { joinActiveContext?: boolean; prompt?: { name: string; version: number } },
+  /** 评测只借用进程拥有的 provider，不负责 flush/shutdown 它。 */
+  opts?: {
+    joinActiveContext?: boolean;
+    prompt?: { name: string; version: number };
+    tracerProvider?: TracerProvider;
+  },
 ): ObservationRecorder | undefined {
   if (!config.enabled) return undefined;
   const missing = [
@@ -124,80 +143,304 @@ export function createLangfuseRecorder(
     return undefined;
   }
 
-  const processor = processorOverride ?? new LangfuseSpanProcessor({
-    publicKey: config.publicKey!,
-    secretKey: config.secretKey!,
-    baseUrl: config.baseUrl!,
-    environment: config.environment,
-    ...(config.release ? { release: config.release } : {}),
-    // 默认过滤器只放行 Langfuse 官方 tracer 名的 span，自建 tracer 会被静默丢弃；
-    // 本 provider 专用（不加载 Node 自动埋点），无噪声风险，全部放行。
-    shouldExportSpan: () => true,
-  });
-  const provider = new BasicTracerProvider({ spanProcessors: [processor] });
-  const tracer = provider.getTracer("ticket-doctor");
-  const registry = new Map<string, AttemptRecord>();
   let warnCount = 0;
   const warnThrottled = (message: string, err: unknown): void => {
     if (warnCount >= 3) return;
     warnCount += 1;
     console.warn(`[ticket-doctor] 观测采集异常（已忽略，不影响业务）：${message}`, err instanceof Error ? err.message : err);
   };
+  let ownedProvider: BasicTracerProvider | undefined;
+  let provider: TracerProvider;
+  try {
+    if (opts?.tracerProvider) {
+      provider = opts.tracerProvider;
+    } else {
+      const processor = processorOverride ?? new LangfuseSpanProcessor({
+        publicKey: config.publicKey!,
+        secretKey: config.secretKey!,
+        baseUrl: config.baseUrl!,
+        environment: config.environment,
+        ...(config.release ? { release: config.release } : {}),
+      });
+      ownedProvider = new BasicTracerProvider({ spanProcessors: [processor] });
+      provider = ownedProvider;
+    }
+  } catch (err) {
+    warnThrottled("initialize", err);
+    return undefined;
+  }
 
-  const childCtx = (parent: Span, base: Context = ROOT_CONTEXT) => trace.setSpan(base, parent);
-  /** 评测模式：捕获调用时刻的 active context（Langfuse SDK 实验 item 根 span 所在 context）。 */
-  const activeBase = (): Context => {
-    if (!opts?.joinActiveContext) return ROOT_CONTEXT;
+  const registry = new Map<string, AttemptRecord>();
+  // 长驻 Host 的 identity tombstone 有界；在飞 attempt 内所有逻辑节点保留至终态。
+  const completedAttempts = new Set<string>();
+  const maxPendingEvents = 256;
+  const maxCompletedAttempts = 1024;
+  let closed = false;
+  let shutdownPromise: Promise<void> | undefined;
+
+  /** SDK provider 是进程 singleton；仅同步创建期间切换，finally 恢复，不能跨 await。 */
+  const withRecorderProvider = <T>(fn: () => T): T => {
+    const previousGlobal = trace.getTracerProvider();
+    const previous = getLangfuseTracerProvider();
+    setLangfuseTracerProvider(provider);
     try {
-      const ctx = context.active();
-      return trace.getSpan(ctx) ? ctx : ROOT_CONTEXT;
-    } catch {
-      return ROOT_CONTEXT;
+      return fn();
+    } finally {
+      // 默认 global 回退应恢复为 null，不能把当前 Proxy 固定成 isolated provider。
+      setLangfuseTracerProvider(previous === previousGlobal ? null : previous);
     }
   };
 
-  /** model/tool 事件的父节点：诊断挂在 attempt agent，审计挂在对应 audit agent。 */
-  const resolveParent = (
-    rec: AttemptRecord,
-    identity: ObservationRunIdentity,
-    parentLogicalId: string | undefined,
-  ): Span | undefined => {
-    if (parentLogicalId === undefined) return undefined;
-    if (parentLogicalId === identityKey(identity)) return rec.agent;
-    return rec.auditAgents.get(parentLogicalId);
+  const eventDate = (timestamp: string | number | undefined): Date | undefined => {
+    const millis = typeof timestamp === "string" ? Date.parse(timestamp) : timestamp;
+    return millis !== undefined && Number.isFinite(millis) ? new Date(millis) : undefined;
   };
 
-  const startObservation = (
-    name: string,
-    type: "generation" | "tool" | "agent" | "span",
-    parent: Span,
-    attrs: Record<string, unknown>,
-    timestamp?: number,
-    base: Context = ROOT_CONTEXT,
-  ): Span =>
-    tracer.startSpan(
-      name,
-      { attributes: createObservationAttributes(type, attrs), ...(timestamp ? { startTime: timestamp } : {}) },
-      childCtx(parent, base),
-    );
+  const activeBase = (): Context => {
+    if (!opts?.joinActiveContext) return ROOT_CONTEXT;
+    const active = context.active();
+    return trace.getSpan(active) ? active : ROOT_CONTEXT;
+  };
 
-  const endWithStatus = (span: Span, status: ObservationStatus, message?: string): void => {
-    span.setStatus(
-      status === "ok"
-        ? { code: SpanStatusCode.OK }
-        : { code: SpanStatusCode.ERROR, message: message ?? status },
-    );
-    span.end();
+  const createNode = (
+    name: string,
+    type: NodeRecord["type"],
+    attrs: LangfuseObservationAttributes,
+    base: Context,
+    parent?: NodeRecord,
+    timestamp?: string | number,
+    parentLogicalId?: string,
+  ): NodeRecord => {
+    const startTime = eventDate(timestamp);
+    const attributes = { environment: config.environment, ...attrs };
+    const observation = withRecorderProvider(() => context.with(base, () => {
+      // 5.13.1 的父 observation.startObservation 不接受 startTime。
+      // 有事件时间时用顶层 SDK API + 显式 parentSpanContext，保留 IPC 原始时间。
+      if (parent && !startTime) {
+        switch (type) {
+          case "generation": return parent.observation.startObservation(name, attributes, { asType: "generation" });
+          case "tool": return parent.observation.startObservation(name, attributes, { asType: "tool" });
+          case "agent": return parent.observation.startObservation(name, attributes, { asType: "agent" });
+          case "span": return parent.observation.startObservation(name, attributes);
+        }
+      }
+      const options = {
+        ...(startTime ? { startTime } : {}),
+        ...(parent ? { parentSpanContext: parent.observation.otelSpan.spanContext() } : {}),
+      };
+      switch (type) {
+        case "generation": return startObservation(name, attributes, { ...options, asType: "generation" });
+        case "tool": return startObservation(name, attributes, { ...options, asType: "tool" });
+        case "agent": return startObservation(name, attributes, { ...options, asType: "agent" });
+        case "span": return startObservation(name, attributes, options);
+      }
+    }));
+    return { observation, type, metadata: attrs.metadata ?? {}, parentLogicalId, ended: false };
+  };
+
+  const updateNode = (node: NodeRecord, attrs: LangfuseObservationAttributes): void => {
+    if (node.ended) return;
+    if (attrs.metadata) node.metadata = { ...node.metadata, ...attrs.metadata };
+    node.observation.update({ ...attrs, ...(attrs.metadata ? { metadata: node.metadata } : {}) });
+  };
+
+  const finishNode = (
+    node: NodeRecord,
+    status: ObservationStatus,
+    message?: string,
+    timestamp?: string | number,
+  ): void => {
+    if (node.ended) return;
+    const endTime = eventDate(timestamp);
+    try {
+      updateNode(node, { level: levelOf(status), ...(message ? { statusMessage: message } : {}) });
+      // SDK level/statusMessage 没有 OTel status.code 的等价项；保留错误状态兼容。
+      node.observation.otelSpan.setStatus(
+        status === "ok"
+          ? { code: SpanStatusCode.OK }
+          : { code: SpanStatusCode.ERROR, message: message ?? status },
+      );
+    } catch (err) {
+      warnThrottled("finishObservation", err);
+    } finally {
+      node.ended = true;
+      node.endedAt = endTime?.getTime() ?? Date.now();
+      try {
+        node.observation.end(endTime);
+      } catch (err) {
+        warnThrottled("endObservation", err);
+      }
+    }
+  };
+
+  const closeAttempt = (k: string, rec: AttemptRecord, outcome: AttemptOutcome): void => {
+    registry.delete(k);
+    completedAttempts.add(k);
+    if (completedAttempts.size > maxCompletedAttempts) completedAttempts.delete(completedAttempts.values().next().value!);
+    for (const node of rec.children.values()) finishNode(node, "error", "attempt_terminal");
+    for (const node of rec.auditAgents.values()) finishNode(node, "error", "attempt_terminal");
+    finishNode(rec.agent, outcome.status, outcome.error);
+    try {
+      updateNode(rec.root, { output: outcome });
+      // 保留旧平台/evaluator 的 trace IO；实验 trace 的根 IO 由 runExperiment 拥有。
+      if (!opts?.joinActiveContext) rec.root.observation.setTraceIO({ output: outcome });
+    } catch (err) {
+      warnThrottled("attemptOutput", err);
+    } finally {
+      finishNode(rec.root, outcome.status, outcome.error);
+      rec.children.clear();
+      rec.auditAgents.clear();
+      rec.pending.length = 0;
+    }
+  };
+
+  const resolveParent = (rec: AttemptRecord, k: string, parentLogicalId: string | undefined): NodeRecord | undefined =>
+    parentLogicalId === k ? rec.agent : parentLogicalId ? rec.auditAgents.get(parentLogicalId) : undefined;
+
+  const matchesEnd = (node: NodeRecord, event: ObservationEvent, type: NodeRecord["type"]): boolean =>
+    node.type === type && (event.parentLogicalId === undefined || event.parentLogicalId === node.parentLogicalId);
+
+  /** true=已处理或应丢弃，false=依赖尚未到达，加入有界 pending。 */
+  const processEvent = (rec: AttemptRecord, k: string, event: ObservationEvent): boolean => {
+    switch (event.kind) {
+      case "phase_start": {
+        if (event.phase === "audit") {
+          if (event.logicalObservationId === k || rec.auditAgents.has(event.logicalObservationId) || rec.children.has(event.logicalObservationId)) return true;
+          if (event.parentLogicalId !== undefined && event.parentLogicalId !== k) return true;
+          const round = typeof event.metadata?.round === "number" ? event.metadata.round : undefined;
+          const node = createNode(
+            round !== undefined ? `audit#${round + 1}` : "audit",
+            "agent",
+            { input: event.input ?? null, metadata: event.metadata },
+            rec.base,
+            rec.root,
+            event.timestamp,
+            k,
+          );
+          rec.auditAgents.set(event.logicalObservationId, node);
+          return true;
+        }
+        if (event.logicalObservationId !== k || rec.agentStarted || rec.agent.ended) return true;
+        rec.agentStarted = true;
+        updateNode(rec.agent, { input: event.input ?? null, metadata: event.metadata });
+        return true;
+      }
+      case "phase_end": {
+        const node = event.phase === "audit" ? rec.auditAgents.get(event.logicalObservationId) : rec.agent;
+        if (event.phase === "attempt" && event.logicalObservationId !== k) return true;
+        if (!node) return !rec.children.has(event.logicalObservationId) && event.logicalObservationId !== k ? false : true;
+        if (!matchesEnd(node, event, "agent") || node.ended) return true;
+        try {
+          updateNode(node, { output: event.output ?? null, metadata: event.metadata });
+        } finally {
+          finishNode(node, event.status, event.error, event.timestamp);
+        }
+        return true;
+      }
+      case "model_start":
+      case "tool_start": {
+        if (event.logicalObservationId === k || rec.children.has(event.logicalObservationId) || rec.auditAgents.has(event.logicalObservationId)) return true;
+        if (!event.parentLogicalId || event.parentLogicalId === event.logicalObservationId) return true;
+        const parent = resolveParent(rec, k, event.parentLogicalId);
+        if (!parent) return rec.children.has(event.parentLogicalId);
+        // 接受先结束父节点、后到达的历史子事件；不接受父节点结束后的新调用。
+        const startedAt = eventDate(event.timestamp)?.getTime();
+        if (parent.ended && startedAt !== undefined && startedAt > parent.endedAt!) return true;
+        let node: NodeRecord;
+        if (event.kind === "model_start") {
+          node = createNode("model-request", "generation", {
+            input: event.input ?? null,
+            model: event.model,
+            modelParameters: {},
+            // prompt 原生关联只属于主诊断 generation，审计/压缩不关联。
+            ...(opts?.prompt && parent === rec.agent && event.callPurpose === "diagnosis"
+              ? { prompt: { ...opts.prompt, isFallback: false } }
+              : {}),
+            metadata: {
+              callPurpose: event.callPurpose,
+              captureLevel: event.captureLevel,
+              provider: event.provider ?? null,
+              ...(event.metadata ?? {}),
+            },
+            // 没有真实首个输出时刻，不伪造 completionStartTime（OQ-42）。
+          }, rec.base, parent, event.timestamp, event.parentLogicalId);
+        } else {
+          node = createNode(event.tool, "tool", {
+            input: event.input ?? null,
+            metadata: { toolCallId: event.toolCallId, ...(event.metadata ?? {}) },
+          }, rec.base, parent, event.timestamp, event.parentLogicalId);
+          node.toolCallId = event.toolCallId;
+        }
+        rec.children.set(event.logicalObservationId, node);
+        return true;
+      }
+      case "model_end":
+      case "tool_end": {
+        const node = rec.children.get(event.logicalObservationId);
+        if (!node) return rec.auditAgents.has(event.logicalObservationId) || event.logicalObservationId === k;
+        const type = event.kind === "model_end" ? "generation" : "tool";
+        if (!matchesEnd(node, event, type) || node.ended) return true;
+        if (event.kind === "tool_end" && node.toolCallId !== event.toolCallId) return true;
+        try {
+          if (event.kind === "model_end") {
+            updateNode(node, {
+              output: event.output ?? null,
+              metadata: {
+                stopReason: event.stopReason ?? null,
+                errorMessage: event.errorMessage ?? null,
+                usageAvailable: event.usage !== undefined,
+                ...(event.metadata ?? {}),
+              },
+              ...(event.usage ? {
+                usageDetails: {
+                  input: event.usage.inputTokens,
+                  output: event.usage.outputTokens,
+                  cache_read: event.usage.cacheReadTokens,
+                  cache_write: event.usage.cacheWriteTokens,
+                  total: event.usage.totalTokens,
+                },
+              } : {}),
+            });
+          } else {
+            updateNode(node, {
+              output: event.output ?? null,
+              metadata: {
+                toolCallId: event.toolCallId,
+                outputChars: event.outputChars ?? null,
+                durationMs: event.durationMs,
+                ...(event.metadata ?? {}),
+              },
+            });
+          }
+        } finally {
+          finishNode(node, event.status, event.kind === "model_end" ? event.errorMessage : event.error, event.timestamp);
+        }
+        return true;
+      }
+    }
+  };
+
+  const drainPending = (rec: AttemptRecord, k: string): void => {
+    let progressed: boolean;
+    do {
+      progressed = false;
+      const events = rec.pending;
+      rec.pending = [];
+      for (const event of events) {
+        if (processEvent(rec, k, event)) progressed = true;
+        else rec.pending.push(event);
+      }
+    } while (progressed && rec.pending.length > 0);
   };
 
   return {
     beginAttempt(identity, meta) {
+      let root: NodeRecord | undefined;
+      let agent: NodeRecord | undefined;
       try {
         const k = identityKey(identity);
-        if (registry.has(k)) return undefined;
-        const base = activeBase();
-        // 评测模式（joinActiveContext）：trace 级的 input/name/metadata 归实验 item 根 span 所有，
-        // 本节点只带 observation 级信息——否则多轮 `diagnose-turn` 会互相覆盖实验根的名称/输入/metadata（plan §6）。
+        if (closed || registry.has(k) || completedAttempts.has(k)) return undefined;
+        let base = activeBase();
         const rootScope = {
           runId: identity.runId,
           attemptId: identity.attemptId,
@@ -205,27 +448,38 @@ export function createLangfuseRecorder(
           service: meta.service ?? null,
           environment: meta.environment ?? null,
         };
-        const rootAttrs: Attributes = opts?.joinActiveContext
-          ? {
-              ...createObservationAttributes("span", { input: meta.question, metadata: rootScope }),
-              [LF.ENVIRONMENT]: config.environment,
-              ...(config.release ? { [LF.RELEASE]: config.release } : {}),
+        root = createNode("diagnose-turn", "span", { input: meta.question, metadata: rootScope }, base);
+        // SDK observation attrs 尚无 release 字段，保留原有 release 标识。
+        if (config.release) root.observation.otelSpan.setAttribute(LF.RELEASE, config.release);
+        if (!opts?.joinActiveContext) {
+          root.observation.setTraceIO({ input: meta.question });
+          const rootSpan = root.observation.otelSpan;
+          base = context.with(trace.setSpan(base, rootSpan), () => propagateAttributes({
+            traceName: "diagnose-turn",
+            sessionId: identity.investigationId,
+          }, () => {
+            // 生产显式 IPC 链不安装全局 ALS。5.13.1 propagation 需要 active context；
+            // 无 context manager 时只回退 SDK 无法等价设置的 name/session。
+            if (trace.getSpan(context.active()) !== rootSpan) {
+              rootSpan.setAttribute(LF.TRACE_NAME, "diagnose-turn");
+              rootSpan.setAttribute(LF.TRACE_SESSION_ID, identity.investigationId);
             }
-          : {
-              ...createTraceAttributes({ input: meta.question }),
-              [LF.TRACE_NAME]: "diagnose-turn",
-              [LF.TRACE_SESSION_ID]: identity.investigationId,
-              [LF.TRACE_METADATA]: jsonAttr(rootScope),
-              [LF.ENVIRONMENT]: config.environment,
-              ...(config.release ? { [LF.RELEASE]: config.release } : {}),
-            };
-        const root = tracer.startSpan("diagnose-turn", { attributes: rootAttrs }, base);
-        const agent = startObservation("diagnosis-attempt", "agent", root, {
+            return context.active();
+          }));
+          // propagateAttributes.metadata 只支持短字符串，原有 number/null trace metadata 保留。
+          rootSpan.setAttribute(LF.TRACE_METADATA, jsonAttr(rootScope));
+        }
+        // 评测 base 不被改写，保留 experiment/item attrs；业务节点只更新自己的 observation IO。
+        agent = createNode("diagnosis-attempt", "agent", {
           metadata: { attemptId: identity.attemptId, generation: identity.generation, engine: meta.engine, service: meta.service ?? null },
-        }, undefined, base);
-        registry.set(k, { root, agent, children: new Map(), auditAgents: new Map(), agentEnded: false, base });
+        }, base, root, undefined, k);
+        registry.set(k, {
+          root, agent, children: new Map(), auditAgents: new Map(), agentStarted: false, pending: [], base,
+        });
         return k;
       } catch (err) {
+        if (agent) finishNode(agent, "error", "observation_initialization_failed");
+        if (root) finishNode(root, "error", "observation_initialization_failed");
         warnThrottled("beginAttempt", err);
         return undefined;
       }
@@ -233,207 +487,50 @@ export function createLangfuseRecorder(
 
     record(event, identity) {
       try {
-        const rec = registry.get(identityKey(identity));
-        if (!rec) return;
-        switch (event.kind) {
-          case "phase_start": {
-            if (event.phase === "audit") {
-              // 独立审计会话：在 trace 根下建兄弟 agent 节点（每轮一个 audit#n）。
-              const round = typeof event.metadata?.round === "number" ? (event.metadata.round as number) : undefined;
-              const span = startObservation(
-                round !== undefined ? `audit#${round + 1}` : "audit",
-                "agent",
-                rec.root,
-                { input: event.input ?? null, metadata: event.metadata },
-                undefined,
-                rec.base,
-              );
-              rec.auditAgents.set(event.logicalObservationId, span);
-              return;
-            }
-            if (event.logicalObservationId !== identityKey(identity)) return;
-            rec.agent.setAttributes(
-              createObservationAttributes("agent", {
-                input: event.input ?? null,
-                metadata: event.metadata,
-              }),
-            );
-            return;
-          }
-          case "phase_end": {
-            if (event.phase === "audit") {
-              const span = rec.auditAgents.get(event.logicalObservationId);
-              if (!span) return;
-              rec.auditAgents.delete(event.logicalObservationId);
-              span.setAttributes(
-                createObservationAttributes("agent", {
-                  output: event.output ?? null,
-                  metadata: event.metadata,
-                  level: levelOf(event.status),
-                  ...(event.error ? { statusMessage: event.error } : {}),
-                }),
-              );
-              endWithStatus(span, event.status, event.error);
-              return;
-            }
-            if (event.logicalObservationId !== identityKey(identity)) return;
-            rec.agent.setAttributes(
-              createObservationAttributes("agent", {
-                output: event.output ?? null,
-                metadata: event.metadata,
-                level: levelOf(event.status),
-                ...(event.error ? { statusMessage: event.error } : {}),
-              }),
-            );
-            endWithStatus(rec.agent, event.status, event.error);
-            rec.agentEnded = true;
-            return;
-          }
-          case "model_start": {
-            const parent = resolveParent(rec, identity, event.parentLogicalId);
-            if (!parent) return;
-            const span = startObservation(
-              "model-request",
-              "generation",
-              parent,
-              {
-                input: event.input ?? null,
-                model: event.model,
-                modelParameters: {},
-                // plan §5：仅主诊断 generation 关联原生 prompt；审计（parent=audit agent）
-                // 与压缩（callPurpose=compaction）不关联，避免错误归到诊断提示词。
-                ...(opts?.prompt && parent === rec.agent && event.callPurpose === "diagnosis"
-                  ? { prompt: { name: opts.prompt.name, version: opts.prompt.version, isFallback: false } }
-                  : {}),
-                metadata: {
-                  callPurpose: event.callPurpose,
-                  captureLevel: event.captureLevel,
-                  provider: event.provider ?? null,
-                  ...(event.metadata ?? {}),
-                },
-                // 不设 completionStartTime（OQ-42）：拿不到真正的“首个输出到达时刻”，
-                // 用请求开始时刻填充会让界面 TTFT ≈ 0 且不可信；按“宁缺毋假”省略该指标。
-                // 方案 A（订阅 session 的 message_update，取首个 text/thinking delta）见 OQ-42，未实施。
-                // generation 的总时延 / usage / 输出内容不受影响，均为可靠值。
-              },
-              Date.parse(event.timestamp),
-              rec.base,
-            );
-            rec.children.set(event.logicalObservationId, span);
-            return;
-          }
-          case "model_end": {
-            const span = rec.children.get(event.logicalObservationId);
-            if (!span) return;
-            rec.children.delete(event.logicalObservationId);
-            span.setAttributes(
-              createObservationAttributes("generation", {
-                output: event.output ?? null,
-                metadata: {
-                  stopReason: event.stopReason ?? null,
-                  errorMessage: event.errorMessage ?? null,
-                  usageAvailable: event.usage !== undefined,
-                  ...(event.metadata ?? {}),
-                },
-                ...(event.usage
-                  ? {
-                      usageDetails: {
-                        input: event.usage.inputTokens,
-                        output: event.usage.outputTokens,
-                        cache_read: event.usage.cacheReadTokens,
-                        cache_write: event.usage.cacheWriteTokens,
-                        total: event.usage.totalTokens,
-                      },
-                    }
-                  : {}),
-                level: levelOf(event.status),
-                ...(event.errorMessage ? { statusMessage: event.errorMessage } : {}),
-              }),
-            );
-            endWithStatus(span, event.status, event.errorMessage);
-            return;
-          }
-          case "tool_start": {
-            const parent = resolveParent(rec, identity, event.parentLogicalId);
-            if (!parent) return;
-            const span = startObservation(
-              event.tool,
-              "tool",
-              parent,
-              { input: event.input ?? null, metadata: { toolCallId: event.toolCallId, ...(event.metadata ?? {}) } },
-              Date.parse(event.timestamp),
-              rec.base,
-            );
-            rec.children.set(event.logicalObservationId, span);
-            return;
-          }
-          case "tool_end": {
-            const span = rec.children.get(event.logicalObservationId);
-            if (!span) return;
-            rec.children.delete(event.logicalObservationId);
-            span.setAttributes(
-              createObservationAttributes("tool", {
-                output: event.output ?? null,
-                metadata: {
-                  toolCallId: event.toolCallId,
-                  outputChars: event.outputChars ?? null,
-                  durationMs: event.durationMs,
-                  ...(event.metadata ?? {}),
-                },
-                level: levelOf(event.status),
-                ...(event.error ? { statusMessage: event.error } : {}),
-              }),
-            );
-            endWithStatus(span, event.status, event.error);
-            return;
-          }
+        const k = identityKey(identity);
+        const rec = registry.get(k);
+        if (!rec || closed) return;
+        if (!processEvent(rec, k, event)) {
+          if (rec.pending.length < maxPendingEvents) rec.pending.push(event);
+          else warnThrottled("pendingEvents", "乱序事件缓存已满，忽略无法关联的事件");
         }
+        drainPending(rec, k);
       } catch (err) {
         warnThrottled(`record(${event.kind})`, err);
       }
     },
 
     recordAuditApplication(identity, data) {
+      let node: NodeRecord | undefined;
       try {
         const rec = registry.get(identityKey(identity));
-        if (!rec) return;
-        const span = startObservation(
-          "audit-apply",
-          "span",
-          rec.root,
-          {
-            input: data.audit ?? { failure: data.failure ?? null },
-            output: { corrections: data.report.corrections, completeness: data.report.completeness },
-            metadata: { policyVersion: data.policyVersion, auditRounds: data.auditRounds ?? 0 },
-          },
-          data.startedAt,
-          rec.base,
-        );
-        span.end();
+        if (!rec || closed) return;
+        node = createNode("audit-apply", "span", {
+          input: data.audit ?? { failure: data.failure ?? null },
+          output: { corrections: data.report.corrections, completeness: data.report.completeness },
+          metadata: { policyVersion: data.policyVersion, auditRounds: data.auditRounds ?? 0 },
+        }, rec.base, rec.root, data.startedAt);
       } catch (err) {
         warnThrottled("recordAuditApplication", err);
+      } finally {
+        if (node) finishNode(node, "ok");
       }
     },
 
     recordReportValidation(identity, data) {
+      let node: NodeRecord | undefined;
       try {
         const rec = registry.get(identityKey(identity));
-        if (!rec) return;
-        const span = startObservation(
-          "report-validation",
-          "span",
-          rec.root,
-          {
-            input: data.draft ?? null,
-            output: { issues: data.report.corrections, report: data.report },
-            metadata: { durationMs: Date.now() - data.startedAt },
-          },
-          data.startedAt,
-          rec.base,
-        );
-        span.end();
+        if (!rec || closed) return;
+        node = createNode("report-validation", "span", {
+          input: data.draft ?? null,
+          output: { issues: data.report.corrections, report: data.report },
+          metadata: { durationMs: Date.now() - data.startedAt },
+        }, rec.base, rec.root, data.startedAt);
       } catch (err) {
         warnThrottled("recordReportValidation", err);
+      } finally {
+        if (node) finishNode(node, "ok");
       }
     },
 
@@ -441,61 +538,36 @@ export function createLangfuseRecorder(
       try {
         const k = identityKey(identity);
         const rec = registry.get(k);
-        if (!rec) return;
-        registry.delete(k);
-        // 异常路径残留的在飞子观测：以 ERROR 收敛，不留悬挂节点。
-        for (const span of rec.children.values()) {
-          span.setStatus({ code: SpanStatusCode.ERROR, message: "attempt_terminal" });
-          span.end();
-        }
-        rec.children.clear();
-        for (const span of rec.auditAgents.values()) {
-          span.setStatus({ code: SpanStatusCode.ERROR, message: "attempt_terminal" });
-          span.end();
-        }
-        rec.auditAgents.clear();
-        // agent 兜底关闭：正常路径 phase_end 已关；异常/提前终态路径在这里收敛。
-        if (!rec.agentEnded) {
-          rec.agent.setAttributes(
-            createObservationAttributes("agent", {
-              level: levelOf(outcome.status),
-              ...(outcome.error ? { statusMessage: outcome.error } : {}),
-            }),
-          );
-          rec.agent.setStatus(
-            outcome.status === "ok"
-              ? { code: SpanStatusCode.OK }
-              : { code: SpanStatusCode.ERROR, message: outcome.error ?? outcome.status },
-          );
-          rec.agent.end();
-          rec.agentEnded = true;
-        }
-        // 评测模式下 output 只挂 observation，避免覆盖实验根 span 的 trace output。
-        rec.root.setAttributes(
-          opts?.joinActiveContext
-            ? createObservationAttributes("span", { output: outcome })
-            : createTraceAttributes({ output: outcome }),
-        );
-        rec.root.setStatus(
-          outcome.status === "ok"
-            ? { code: SpanStatusCode.OK }
-            : { code: SpanStatusCode.ERROR, message: outcome.error ?? outcome.status },
-        );
-        rec.root.end();
+        if (rec) closeAttempt(k, rec, outcome);
       } catch (err) {
         warnThrottled("endAttempt", err);
       }
     },
 
-    async shutdown() {
-      const timeout = new Promise<void>((resolve) => setTimeout(resolve, config.shutdownMs));
-      await Promise.race([
-        provider
-          .forceFlush()
-          .then(() => provider.shutdown())
-          .catch((err: unknown) => warnThrottled("shutdown", err)),
-        timeout,
-      ]);
+    shutdown() {
+      if (shutdownPromise) return shutdownPromise;
+      closed = true;
+      for (const [k, rec] of registry) {
+        closeAttempt(k, rec, { status: "aborted", kind: "observability_shutdown", error: "observability_shutdown" });
+      }
+      // 共享实验 provider 的队列与关闭由进程拥有者处理；recorder 只结束自己的节点。
+      if (!ownedProvider) return shutdownPromise = Promise.resolve();
+      const owner = ownedProvider;
+      shutdownPromise = (async () => {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          await Promise.race([
+            owner.forceFlush()
+              .catch((err: unknown) => warnThrottled("forceFlush", err))
+              .then(() => owner.shutdown())
+              .catch((err: unknown) => warnThrottled("shutdown", err)),
+            new Promise<void>((resolve) => { timer = setTimeout(resolve, config.shutdownMs); }),
+          ]);
+        } finally {
+          if (timer) clearTimeout(timer);
+        }
+      })();
+      return shutdownPromise;
     },
   };
 }

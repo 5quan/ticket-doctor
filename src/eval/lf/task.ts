@@ -2,7 +2,6 @@
 // task 由 dataset.runExperiment 逐 item 调用；本模块把 item 路由到本地冻结材料 +
 // runCase 执行核心，并把结果整理为可读回的 output 载荷。
 // 全程固定同一提示词版本；过程捕获由 recorder（joinActiveContext）挂到实验 trace 下。
-import { context as otelContext } from "@opentelemetry/api";
 import { join } from "node:path";
 import type { AppConfig } from "../../config/index.ts";
 import type { ObservationRecorder } from "../../observability/langfuse.ts";
@@ -103,10 +102,9 @@ export function makeTicketDoctorTask(opts: EvalTaskOptions): (item: { input: unk
         systemPrompt: opts.prompt.compiled,
         ...(firstRoundQuestion ? { firstRoundQuestion } : {}),
         outDir: join(opts.outDir, caseId),
-        // plan §6：接入 SDK task 的父 context——executeRun 在 task 的 async 链内同步调用
-        // beginAttempt，active context 即实验 item 根 span 的 context。
+        // SDK runExperiment 的 item 根 observation 和实验属性通过全局 ALS context manager
+        // 沿本 async 链传到 executeRun.beginAttempt，由 joinActiveContext 捕获。
         recorder: opts.recorder,
-        otelParentContext: otelContext.active(),
       });
       return {
         protocolVersion: SMOKE_PROTOCOL,

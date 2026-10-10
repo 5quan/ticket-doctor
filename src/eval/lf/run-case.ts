@@ -68,8 +68,6 @@ export interface RunCaseOptions {
   firstRoundQuestion?: string;
   /** 实验输出目录（trace.jsonl / artifacts.json 落盘，仅调试与导出用）。 */
   outDir: string;
-  /** 观测接入：SDK task 的 active context（本案例成为实验 item trace 的子节点，plan §6）。 */
-  otelParentContext?: import("@opentelemetry/api").Context;
   /** Langfuse 观测记录器（plan §6 过程捕获）：提供时传入生产编排链路。 */
   recorder?: ObservationRecorder;
 }
