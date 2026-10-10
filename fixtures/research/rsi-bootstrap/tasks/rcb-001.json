@@ -1,0 +1,11 @@
+{
+  "schema": "rsi-bootstrap-task/v0",
+  "caseId": "rcb-001",
+  "question": "paymentservice 在 2026-06-19T10:25:00Z 告警：paymentservice 5xx error ratio above 2% (observed 71%)。请调查故障原因，列出支持与反证，并说明现有材料的判断边界；材料不足时说明需补充什么。",
+  "occurredAt": null,
+  "service": "paymentservice",
+  "materialView": "frozen-public-only",
+  "sourceType": "public-simulated-or-reconstructed",
+  "receivedAt": "2026-06-19T10:25:00Z",
+  "alertFiredAt": "2026-06-19T10:25:00Z"
+}

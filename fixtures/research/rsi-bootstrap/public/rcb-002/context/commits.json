@@ -1,0 +1,417 @@
+[
+  {
+    "sha": "27009e0fdfad3ecd87cd95a31a278c6ab17aa605",
+    "author": "jdoe",
+    "timestamp": "2026-06-18T14:01:46Z",
+    "message": "fix: guard against negative quantity in cart",
+    "files_changed": [
+      "pkg/cart/validate.go"
+    ],
+    "diff": "@@ func ValidateQty(q int) error {\n-\treturn nil\n+\tif q < 0 {\n+\t\treturn ErrNegativeQty\n+\t}\n+\treturn nil\n }"
+  },
+  {
+    "sha": "02de4bdd9b3caa62bbe0f875f94cfc69de259151",
+    "author": "lena.fischer",
+    "timestamp": "2026-06-18T14:02:34Z",
+    "message": "style: gofmt and goimports across repo",
+    "files_changed": [
+      "pkg/cart/cart.go",
+      "pkg/cart/cart_test.go"
+    ],
+    "diff": null
+  },
+  {
+    "sha": "e315e6f1cec4cd65aee2d81e24a07649b1faa53e",
+    "author": "yuki.tanaka",
+    "timestamp": "2026-06-18T14:05:58Z",
+    "message": "chore: bump go.mod dependencies",
+    "files_changed": [
+      "go.mod",
+      "go.sum"
+    ],
+    "diff": "@@ require (\n-\tgithub.com/jackc/pgx/v5 v5.5.4\n+\tgithub.com/jackc/pgx/v5 v5.5.5\n-\tgoogle.golang.org/grpc v1.62.0\n+\tgoogle.golang.org/grpc v1.62.1\n )"
+  },
+  {
+    "sha": "f34060747d8d0e43b276dae9668308908ee9e096",
+    "author": "wei.zhang",
+    "timestamp": "2026-06-18T14:09:26Z",
+    "message": "docs: update API reference for orders endpoint",
+    "files_changed": [
+      "docs/api/orders.md"
+    ],
+    "diff": null
+  },
+  {
+    "sha": "89753f881fd1551f282ac09c0f8db2bfddbb1bdf",
+    "author": "sofia.marino",
+    "timestamp": "2026-06-18T14:17:57Z",
+    "message": "test: golden files for invoice rendering",
+    "files_changed": [
+      "pkg/invoice/testdata/golden.json"
+    ],
+    "diff": null
+  },
+  {
+    "sha": "e6b966afa8069aa209a1eec93611663d9a2819c8",
+    "author": "amir.haddad",
+    "timestamp": "2026-06-18T14:20:58Z",
+    "message": "test: fuzz the SKU parser",
+    "files_changed": [
+      "pkg/sku/parse_fuzz_test.go"
+    ],
+    "diff": null
+  },
+  {
+    "sha": "df2128a751ea04e0365806cea31b1fcc7c56d904",
+    "author": "lena.fischer",
+    "timestamp": "2026-06-18T14:25:51Z",
+    "message": "fix: handle empty slice in pagination helper",
+    "files_changed": [
+      "pkg/paginate/paginate.go"
+    ],
+    "diff": "@@ func Page(items []T, n int) [][]T {\n+\tif len(items) == 0 {\n+\t\treturn nil\n+\t}\n \tout := make([][]T, 0, len(items)/n+1)"
+  },
+  {
+    "sha": "6cb13f1315da1159497d70fd35d8f41913f62720",
+    "author": "deepak.rao",
+    "timestamp": "2026-06-18T14:30:15Z",
+    "message": "refactor: collapse duplicate validation funcs",
+    "files_changed": [
+      "pkg/validate/validate.go"
+    ],
+    "diff": null
+  },
+  {
+    "sha": "e990505dddaecf03d89f26da6415b4a3dd96cc75",
+    "author": "lena.fischer",
+    "timestamp": "2026-06-18T14:41:10Z",
+    "message": "test: increase coverage on retry backoff",
+    "files_changed": [
+      "pkg/retry/backoff_test.go"
+    ],
+    "diff": null
+  },
+  {
+    "sha": "c12583a13a9768b4ba5309dd43314a8d138616f5",
+    "author": "wei.zhang",
+    "timestamp": "2026-06-18T14:41:52Z",
+    "message": "chore: pin golangci-lint to v1.61",
+    "files_changed": [
+      ".golangci.yml"
+    ],
+    "diff": null
+  },
+  {
+    "sha": "00d3424d1e2aba939972952e4ec71e8f4b241feb",
+    "author": "lena.fischer",
+    "timestamp": "2026-06-18T14:49:22Z",
+    "message": "docs: document feature flag lifecycle",
+    "files_changed": [
+      "docs/flags.md"
+    ],
+    "diff": null
+  },
+  {
+    "sha": "bfc964f064e1892254a1214053cd6a8f8b5d0a36",
+    "author": "lena.fischer",
+    "timestamp": "2026-06-18T14:57:49Z",
+    "message": "test: add integration test for graceful shutdown",
+    "files_changed": [
+      "cmd/server/shutdown_test.go"
+    ],
+    "diff": null
+  },
+  {
+    "sha": "559e94ce37a7b4b6053149c40ba8a5bc9113ca6e",
+    "author": "deepak.rao",
+    "timestamp": "2026-06-18T14:58:00Z",
+    "message": "refactor: build line item view models in order assembler",
+    "files_changed": [
+      "services/checkout/order.go",
+      "services/checkout/catalog_client.go"
+    ],
+    "diff": "@@ services/checkout/order.go: func (a *Assembler) AssembleOrder(ctx context.Context, cart *Cart) (*Order, error) {\n \torder := &Order{ID: cart.ID}\n-\t// previously the cart already carried denormalized catalog fields\n-\tfor _, li := range cart.Items {\n-\t\torder.Lines = append(order.Lines, LineItem{SKU: li.SKU, Name: li.Name, Price: li.Price})\n-\t}\n+\tfor _, li := range cart.Items {\n+\t\titem, err := a.catalog.GetItem(ctx, li.SKU)\n+\t\tif err != nil {\n+\t\t\treturn nil, err\n+\t\t}\n+\t\torder.Lines = append(order.Lines, LineItem{SKU: li.SKU, Name: item.Name, Price: item.Price})\n+\t}\n \treturn order, nil\n }\n@@ services/checkout/catalog_client.go: new method\n+func (c *catalogClient) GetItem(ctx context.Context, sku string) (*Item, error) {\n+\trow := c.db.QueryRowContext(ctx, \"SELECT * FROM catalog_items WHERE sku = $1\", sku)\n+\treturn scanItem(row)\n+}"
+  },
+  {
+    "sha": "e51689080e683331fdef28d67f3939022e9270de",
+    "author": "deepak.rao",
+    "timestamp": "2026-06-18T14:59:10Z",
+    "message": "perf: preallocate buffer in JSON encoder",
+    "files_changed": [
+      "pkg/codec/json.go"
+    ],
+    "diff": "@@ func Encode(v any) ([]byte, error) {\n-\tbuf := bytes.Buffer{}\n+\tbuf := bytes.Buffer{}\n+\tbuf.Grow(512)\n \tenc := json.NewEncoder(&buf)"
+  },
+  {
+    "sha": "db5e56f2e1f50445d4c90040f50a7589b0908c58",
+    "author": "grace.kim",
+    "timestamp": "2026-06-18T14:59:40Z",
+    "message": "feat(frontend): restyle checkout button and cart badge",
+    "files_changed": [
+      "services/frontend/static/checkout.css",
+      "services/frontend/templates/cart.html"
+    ],
+    "diff": "@@ services/frontend/static/checkout.css\n-.btn-checkout { background: #2b6; padding: 8px 12px; }\n+.btn-checkout { background: #19a974; padding: 10px 16px; border-radius: 8px; }\n+.cart-badge { font-weight: 600; }"
+  },
+  {
+    "sha": "104aa6a7065337724d6a10af0d096fef15f55a0e",
+    "author": "yuki.tanaka",
+    "timestamp": "2026-06-18T15:02:33Z",
+    "message": "fix: off-by-one in batch chunking",
+    "files_changed": [
+      "pkg/batch/chunk.go"
+    ],
+    "diff": "@@ func Chunk(n, size int) int {\n-\treturn n / size\n+\treturn (n + size - 1) / size\n }"
+  },
+  {
+    "sha": "78ad41355be70805bbf2985d5642a80ed842e056",
+    "author": "deepak.rao",
+    "timestamp": "2026-06-18T15:00:55Z",
+    "message": "refactor: tidy checkout PlaceOrder handler",
+    "files_changed": [
+      "services/checkout/handler.go"
+    ],
+    "diff": "@@ services/checkout/handler.go: func (h *Handler) PlaceOrder(w http.ResponseWriter, r *http.Request) {\n-\tvar req PlaceOrderRequest\n-\tif err := json.NewDecoder(r.Body).Decode(&req); err != nil {\n-\t\thttp.Error(w, err.Error(), 400)\n-\t\treturn\n-\t}\n-\tcart, err := h.carts.Load(r.Context(), req.CartID)\n-\tif err != nil { http.Error(w, err.Error(), 500); return }\n-\torder, err := h.assembler.AssembleOrder(r.Context(), cart)\n-\tif err != nil { http.Error(w, err.Error(), 500); return }\n-\twriteJSON(w, order)\n+\treq, err := decodeRequest[PlaceOrderRequest](r)\n+\tif err != nil {\n+\t\twriteError(w, http.StatusBadRequest, err)\n+\t\treturn\n+\t}\n+\tcart, err := h.carts.Load(r.Context(), req.CartID)\n+\tif err != nil {\n+\t\twriteError(w, http.StatusInternalServerError, err)\n+\t\treturn\n+\t}\n+\torder, err := h.assembler.AssembleOrder(r.Context(), cart)\n+\tif err != nil {\n+\t\twriteError(w, http.StatusInternalServerError, err)\n+\t\treturn\n+\t}\n+\twriteJSON(w, order)\n }"
+  },
+  {
+    "sha": "f813c87a76150ab789800526d7eeefdbd43a3fbd",
+    "author": "wei.zhang",
+    "timestamp": "2026-06-18T15:11:33Z",
+    "message": "chore: update CODEOWNERS",
+    "files_changed": [
+      "CODEOWNERS"
+    ],
+    "diff": null
+  },
+  {
+    "sha": "0b3f0a1618abff1518dde3d75000983924113472",
+    "author": "grace.kim",
+    "timestamp": "2026-06-18T15:12:59Z",
+    "message": "feat: support gzip request bodies",
+    "files_changed": [
+      "internal/middleware/gzip.go"
+    ],
+    "diff": null
+  },
+  {
+    "sha": "dc56b311c93dfcab15f296440e581d061bf3551a",
+    "author": "fatima.zahra",
+    "timestamp": "2026-06-18T15:15:50Z",
+    "message": "ci: cache go build in GitHub Actions",
+    "files_changed": [
+      ".github/workflows/build.yml"
+    ],
+    "diff": null
+  },
+  {
+    "sha": "61c7718c512b4ab0b8bb8f054f30a864b507114a",
+    "author": "lena.fischer",
+    "timestamp": "2026-06-18T15:23:05Z",
+    "message": "refactor: move DTOs into api/types",
+    "files_changed": [
+      "api/types/types.go"
+    ],
+    "diff": null
+  },
+  {
+    "sha": "069a79e9ac48772cd4708ef43f24ccb10757dd2f",
+    "author": "sofia.marino",
+    "timestamp": "2026-06-18T15:29:42Z",
+    "message": "chore: rotate staging TLS cert",
+    "files_changed": [
+      "deploy/staging/tls.yaml"
+    ],
+    "diff": null
+  },
+  {
+    "sha": "f12fb8c98fc92d78438878228adcc752fc6725a6",
+    "author": "yuki.tanaka",
+    "timestamp": "2026-06-18T15:34:20Z",
+    "message": "test: add table-driven tests for currency conversion",
+    "files_changed": [
+      "pkg/money/convert_test.go"
+    ],
+    "diff": null
+  },
+  {
+    "sha": "6ecc34e7bd658608f85e479ba9fa5148395f3f78",
+    "author": "wei.zhang",
+    "timestamp": "2026-06-18T15:38:11Z",
+    "message": "chore: upgrade base image to distroless:nonroot",
+    "files_changed": [
+      "Dockerfile"
+    ],
+    "diff": null
+  },
+  {
+    "sha": "a992f0af7c152ffbb763e43957afaf6af307f247",
+    "author": "wei.zhang",
+    "timestamp": "2026-06-18T15:39:03Z",
+    "message": "refactor: rename internal package observability->telemetry",
+    "files_changed": [
+      "internal/telemetry/telemetry.go"
+    ],
+    "diff": null
+  },
+  {
+    "sha": "e571de1315aec13fac40cb50f4f096734a2639cf",
+    "author": "priya.nair",
+    "timestamp": "2026-06-18T15:41:16Z",
+    "message": "perf: reuse sync.Pool for buffers in encoder",
+    "files_changed": [
+      "pkg/codec/pool.go"
+    ],
+    "diff": null
+  },
+  {
+    "sha": "1672b65647aa5259c05284aaeabb67336b0d4bcd",
+    "author": "ivan.petrov",
+    "timestamp": "2026-06-18T15:43:34Z",
+    "message": "chore: tidy imports in product service",
+    "files_changed": [
+      "services/product/main.go"
+    ],
+    "diff": null
+  },
+  {
+    "sha": "353fe9817028fd4ff308afeacf0a12b8b507363c",
+    "author": "yuki.tanaka",
+    "timestamp": "2026-06-18T15:47:45Z",
+    "message": "feat: emit OTel span attributes for user_id",
+    "files_changed": [
+      "internal/trace/attrs.go"
+    ],
+    "diff": null
+  },
+  {
+    "sha": "79d7195182d643d4f1ebe947bec48fee7da90910",
+    "author": "grace.kim",
+    "timestamp": "2026-06-18T15:50:28Z",
+    "message": "feat: add prometheus histogram for cache hits",
+    "files_changed": [
+      "pkg/cache/metrics.go"
+    ],
+    "diff": null
+  },
+  {
+    "sha": "ecb9b0ea8241c7a36b7a717b417796c56eb4b26b",
+    "author": "lena.fischer",
+    "timestamp": "2026-06-18T15:50:30Z",
+    "message": "fix: correct typo in error message",
+    "files_changed": [
+      "internal/errors/messages.go"
+    ],
+    "diff": null
+  },
+  {
+    "sha": "333d5818b584916f0a047499f0138b0800bd1730",
+    "author": "lena.fischer",
+    "timestamp": "2026-06-18T15:54:15Z",
+    "message": "fix: close response body in health checker",
+    "files_changed": [
+      "internal/health/check.go"
+    ],
+    "diff": null
+  },
+  {
+    "sha": "ea28cbbd42d8135cb03994e5b5f7456029c2122a",
+    "author": "wei.zhang",
+    "timestamp": "2026-06-18T15:55:29Z",
+    "message": "feat: add structured logging fields to request middleware",
+    "files_changed": [
+      "internal/middleware/log.go"
+    ],
+    "diff": null
+  },
+  {
+    "sha": "e8ea006ea6a9cae6a9ab5635188fc75576ba4c78",
+    "author": "amir.haddad",
+    "timestamp": "2026-06-18T15:57:54Z",
+    "message": "refactor: simplify config loading with viper",
+    "files_changed": [
+      "internal/config/load.go"
+    ],
+    "diff": null
+  },
+  {
+    "sha": "ade91053498e9791805908bfa2e916bf76527559",
+    "author": "deepak.rao",
+    "timestamp": "2026-06-18T16:06:43Z",
+    "message": "feat: add /readyz endpoint",
+    "files_changed": [
+      "internal/health/ready.go"
+    ],
+    "diff": null
+  },
+  {
+    "sha": "b2511ff74f57c6efa4be8b363fce5a1b7fac3835",
+    "author": "marta.kowalski",
+    "timestamp": "2026-06-18T16:07:43Z",
+    "message": "refactor: extract response writer helper",
+    "files_changed": [
+      "internal/httputil/writer.go"
+    ],
+    "diff": null
+  },
+  {
+    "sha": "3f50b697a3bcca1e9c826cf40d0cf01979ef2ba0",
+    "author": "jdoe",
+    "timestamp": "2026-06-18T16:26:06Z",
+    "message": "chore: lazy-init metrics registry",
+    "files_changed": [
+      "pkg/cache/registry.go"
+    ],
+    "diff": null
+  },
+  {
+    "sha": "9cc9d4aaab9a82670f122c862f2386f40bc4cf92",
+    "author": "noah.bergstrom",
+    "timestamp": "2026-06-18T16:34:07Z",
+    "message": "docs: clarify env var precedence",
+    "files_changed": [
+      "README.md"
+    ],
+    "diff": null
+  },
+  {
+    "sha": "93bb4443fd968d4b616577d137ee2a1e85783dcb",
+    "author": "grace.kim",
+    "timestamp": "2026-06-18T16:35:23Z",
+    "message": "feat: add request id propagation header",
+    "files_changed": [
+      "internal/middleware/reqid.go"
+    ],
+    "diff": null
+  },
+  {
+    "sha": "1de1e37ab1eb0f79497b45dc429b45265c1aa6d3",
+    "author": "wei.zhang",
+    "timestamp": "2026-06-18T16:50:38Z",
+    "message": "docs: add runbook for deploy rollback",
+    "files_changed": [
+      "docs/runbooks/rollback.md"
+    ],
+    "diff": null
+  },
+  {
+    "sha": "a7fac093bd2e8efdeab6818a95aa81cb60d5e70e",
+    "author": "ivan.petrov",
+    "timestamp": "2026-06-18T16:58:06Z",
+    "message": "fix: guard against negative quantity in cart",
+    "files_changed": [
+      "pkg/cart/validate.go"
+    ],
+    "diff": null
+  },
+  {
+    "sha": "fd917abf845abba9d3b9765856d67cb3bdd36319",
+    "author": "yuki.tanaka",
+    "timestamp": "2026-06-18T16:58:08Z",
+    "message": "style: gofmt and goimports across repo",
+    "files_changed": [
+      "pkg/cart/cart.go",
+      "pkg/cart/cart_test.go"
+    ],
+    "diff": null
+  }
+]

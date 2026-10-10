@@ -1,0 +1,20 @@
+[
+  {
+    "timestamp": "2026-06-20T13:42:00Z",
+    "service": "inventoryservice",
+    "commit_sha": "c7d2e9a3f1b04658e8a72c0d9b5e34176af2c801",
+    "version": "v2026.06.20-1340"
+  },
+  {
+    "timestamp": "2026-06-20T13:49:00Z",
+    "service": "shippingservice",
+    "commit_sha": "ba9484cecab7dc64c69915a99277f714884b326d",
+    "version": "v2026.06.20-1348"
+  },
+  {
+    "timestamp": "2026-06-20T13:49:40Z",
+    "service": "orderservice",
+    "commit_sha": "76005bb9118b9af36cf360279e3ec2ef8442e1a9",
+    "version": "v2026.06.20-1349"
+  }
+]
