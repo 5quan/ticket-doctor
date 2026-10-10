@@ -39,6 +39,10 @@ npm run evolve:materials:build                  # 装配 case-v2/truth-v2 + cata
 npm run evolve:review                           # 列出 split/admission/rubric 指纹/复核状态
 npm run evolve:review:record -- --case rcb-001 --reviewer <name> --decision approved|changes_requested [--revise]
 npm run evolve:review:verify                    # 校验 admitted 案例都有匹配批准记录
+npm run evolve:dataset:preflight                # Langfuse 连通/鉴权/Dataset API
+npm run evolve:dataset:seed                     # 组装数据集载荷（dry-run，不触网）
+npm run evolve:dataset:seed -- --sync           # 推送已准入案例到 Langfuse（幂等 upsert）
+npm run evolve:dataset:verify                   # 从服务器读回核对 item 数量与 id
 ```
 
 输出：材料在 `data/evolve/rsi-bootstrap/`，协议案例在 `data/eval-v2/`（`data/` 已被 gitignore，可重建）；复核批准记录在 `evolve/reviews/`（**入库**，重建后按指纹自动重新应用准入）。
@@ -56,7 +60,7 @@ npm run evolve:review:verify                    # 校验 admitted 案例都有�
 ## 4. 尚未完成
 
 1. **人工复核**：工具就绪，但批准动作必须由人完成（当前三例均 `qualified`、未复核）。
-2. **Langfuse 导入**：`buildBootstrapDataset` 已能产出 admitted 案例的 dataset item（`ticket-doctor-rsi-bootstrap-v1`），但尚未推送/同步到服务器。
+2. **Langfuse 导入**：已完成——`ticket-doctor-rsi-bootstrap-v1` 已同步 3 条（train×2/validation×1），`evolve:dataset:verify` 读回一致；只导入 admitted 案例，私有 truth 不进 item input。
 3. **多轮 / 补证 / 反证材料**：首批为单轮 log-only；方案 §4.4 的 FastAPI 历史故障与多轮材料未做。
 4. **隔离**：holdout 材料仍在同一 checkout；正式搜索 job 需要独立读取授权，现有目录划分不构成进程权限隔离。
 

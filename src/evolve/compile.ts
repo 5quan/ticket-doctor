@@ -68,3 +68,13 @@ export function compileCandidate(rulesText: string): CompiledCandidate {
     basePromptHash,
   };
 }
+
+/**
+ * 基线编译：不加任何外部规则，直接用当前生产内置提示词（方案 §8 第 3 步）。
+ * 与候选同一执行路径，但 rulesText 为空、无附加段落。
+ */
+export function compileBaseline(): CompiledCandidate {
+  const compiledPrompt = buildSystemPrompt();
+  const hash = sha256Bytes(compiledPrompt);
+  return { rulesText: "", compiledPrompt, rulesHash: sha256Bytes(""), compiledPromptHash: hash, basePromptHash: hash };
+}

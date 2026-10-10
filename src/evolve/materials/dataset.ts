@@ -8,8 +8,10 @@
 // 这正是"未审定不得进入运行"的门禁。
 
 import { join } from "node:path";
+import type { LangfuseClient } from "@langfuse/client";
 import { loadCatalog, loadCase, loadRoundMessage, loadTruth, type CatalogEntry } from "../../eval/lf/internals/load.ts";
 import { casePublicHash } from "../../eval/lf/seed.ts";
+import { sha256Bytes } from "../../eval/lf/internals/hash.ts";
 import { assertAdmissionIntegrity } from "./review.ts";
 import type { CaseDescriptorV2, TruthFileV2 } from "../../eval/lf/internals/types.ts";
 
@@ -47,7 +49,13 @@ export interface BootstrapDatasetItem {
     services: string[];
     casePublicHash: string;
     protocolVersion: string;
+    itemId: string;
   };
+}
+
+/** 确定性 item id：同 caseId 同 id（upsert 幂等）。 */
+export function bootstrapItemId(caseId: string): string {
+  return sha256Bytes(`rsi-bootstrap\u0000${caseId}`).slice(0, 32);
 }
 
 export interface BootstrapDatasetBuild {
@@ -95,8 +103,56 @@ export function buildBootstrapDataset(evalRoot: string, projectRoot: string, opt
         services: firstRound.services,
         casePublicHash: casePublicHash(evalRoot, caseDesc),
         protocolVersion: BOOTSTRAP_PROTOCOL,
+        itemId: bootstrapItemId(caseDesc.caseId),
       },
     });
   }
   return { datasetName: BOOTSTRAP_DATASET, items, skipped };
+}
+
+export interface BootstrapSeedResult {
+  datasetName: string;
+  datasetId: string | null;
+  synced: boolean;
+  items: Array<{ caseId: string; itemId: string; ok: boolean; error?: string }>;
+  skipped: BootstrapDatasetBuild["skipped"];
+}
+
+/**
+ * 把已准入案例同步到 Langfuse Dataset（幂等 upsert）。默认 dry-run（sync=false）只组装不触网。
+ * 注意：Dataset 版本只冻结 item 内容，不冻结服务器文件——运行时由 task 侧核材料 hash。
+ */
+export async function seedBootstrapDataset(
+  lf: LangfuseClient,
+  evalRoot: string,
+  projectRoot: string,
+  opts: { sync?: boolean; reviewRoot?: string } = {},
+): Promise<BootstrapSeedResult> {
+  const built = buildBootstrapDataset(evalRoot, projectRoot, { reviewRoot: opts.reviewRoot });
+  const result: BootstrapSeedResult = { datasetName: BOOTSTRAP_DATASET, datasetId: null, synced: opts.sync === true, items: [], skipped: built.skipped };
+  if (opts.sync) {
+    const ds = (await lf.api.datasets.create({
+      name: BOOTSTRAP_DATASET,
+      description: "ticket-doctor 自改进启动集：RootCauseBench 公开模拟案例（train/validation），仅准入案例纳入",
+    })) as { id?: string };
+    result.datasetId = ds.id ?? null;
+  }
+  for (const item of built.items) {
+    const itemId = item.metadata.itemId;
+    try {
+      if (opts.sync) {
+        await lf.api.datasetItems.create({
+          datasetName: BOOTSTRAP_DATASET,
+          id: itemId,
+          input: item.input as unknown,
+          expectedOutput: item.expectedOutput as unknown,
+          metadata: item.metadata as unknown,
+        });
+      }
+      result.items.push({ caseId: item.metadata.caseId, itemId, ok: true });
+    } catch (err) {
+      result.items.push({ caseId: item.metadata.caseId, itemId, ok: false, error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+  return result;
 }

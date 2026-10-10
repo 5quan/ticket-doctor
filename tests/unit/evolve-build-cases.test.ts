@@ -11,7 +11,7 @@ import { test } from "node:test";
 import { loadRsiBootstrapManifest, selectFirstBatch } from "../../src/evolve/materials/catalog.ts";
 import { materializeCase } from "../../src/evolve/materials/materialize.ts";
 import { buildBootstrapCases, MATERIAL_VIEW } from "../../src/evolve/materials/build-cases.ts";
-import { buildBootstrapDataset, listRsiCases } from "../../src/evolve/materials/dataset.ts";
+import { buildBootstrapDataset, bootstrapItemId, listRsiCases, seedBootstrapDataset } from "../../src/evolve/materials/dataset.ts";
 import { loadCase, loadCatalog, loadTruth, loadRoundMessage } from "../../src/eval/lf/internals/load.ts";
 import { validatePairing } from "../../src/eval/lf/internals/schema.ts";
 import { rubricHash, writeReview, type RubricReview } from "../../src/evolve/materials/review.ts";
@@ -91,4 +91,18 @@ test("数据集 builder：经复核准入后才纳入，input 不含私有内容
   assert.ok(item.expectedOutput.rounds[0]!.requiredFacts.length > 0);
   // listRsiCases 读得到全部 3 条（含被跳过的草稿）。
   assert.equal(listRsiCases(evalRoot, ROOT).length, 3);
+});
+
+test("数据集 seed dry-run：只组装不触网，itemId 确定且准入过滤生效", async () => {
+  const { evalRoot, materialsRoot, reviewRoot } = setup();
+  for (const caseId of ["rcb-001", "rcb-004", "rcb-007"]) {
+    const truth = loadTruth(evalRoot, loadCatalog(evalRoot).cases.find((e) => e.caseId === caseId)!);
+    writeReview(ROOT, { schemaVersion: "rsi-rubric-review/v0", caseId, rubricHash: rubricHash(truth), reviewer: "t", reviewedAt: "t", decision: "approved" }, { reviewRoot });
+  }
+  buildBootstrapCases(ROOT, evalRoot, undefined, { materialsRoot, reviewRoot });
+  const res = await seedBootstrapDataset(null as unknown as import("@langfuse/client").LangfuseClient, evalRoot, ROOT, { reviewRoot });
+  assert.equal(res.synced, false);
+  assert.deepEqual(res.items.map((i) => i.caseId).sort(), ["rcb-001", "rcb-004", "rcb-007"]);
+  assert.equal(res.skipped.length, 0);
+  assert.equal(res.items[0]!.itemId, bootstrapItemId(res.items[0]!.caseId));
 });

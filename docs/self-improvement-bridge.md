@@ -15,10 +15,12 @@
 
 ## 2. 协议（§6.1）
 
-请求：`{ runId, candidateId, rulesText, caseIds, split, repeat, captureTraces, budget?, budgetMode? }`
-结果：`{ ...hash, items: BatchItemResult[], cases: BatchCaseResult[], budget, stoppedByBudget }`
+请求：`{ runId, candidateId, rulesText, caseIds, split, repeat, captureTraces, budget?, budgetMode?, baseline? }`
+结果：`{ ...hash, baseline, items: BatchItemResult[], cases: BatchCaseResult[], budget, stoppedByBudget }`
 
 护栏（已实现并测试）：
+
+- **基线模式**：`baseline: true` 时不加任何外部规则，直接用当前生产内置提示词（`rulesText` 可省略）；与候选同一执行路径，供 §8 第 3 步跑基线。
 
 - **不重复注入**：桥梁传给执行层的是 `compileCandidate(rulesText).compiledPrompt`（基础 + 规则），不是把完整 prompt 再当规则拼一次。
 - **只接受批准 ID**：`caseIds` 必须属于该 `split` 的可运行清单（admitted）；未知/重复/非有限数一律 `BatchProtocolError`（CLI 退出码 2）。
@@ -39,6 +41,10 @@
 ```bash
 # 负路径示例（未准入案例会被拒绝，退出码 2）
 echo '{"runId":"r1","candidateId":"c1","rulesText":"...规则...","caseIds":["rcb-001"],"split":"train","repeat":1}' \
+  | node --experimental-strip-types scripts/evolve-batch.ts
+
+# 基线（不加规则，直接用生产提示词）
+echo '{"runId":"baseline-1","candidateId":"baseline","baseline":true,"caseIds":["rcb-001","rcb-004","rcb-007"],"split":"train","repeat":3,"captureTraces":true}' \
   | node --experimental-strip-types scripts/evolve-batch.ts
 ```
 
