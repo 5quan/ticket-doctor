@@ -18,6 +18,7 @@ import {
   verifyRsiBootstrapHashes,
 } from "../src/evolve/materials/catalog.ts";
 import { EVOLVE_MATERIALS_ROOT, materializeCases } from "../src/evolve/materials/materialize.ts";
+import { buildBootstrapCases } from "../src/evolve/materials/build-cases.ts";
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 
@@ -85,10 +86,24 @@ function cmdConvert(): number {
   return 0;
 }
 
+function cmdBuild(): number {
+  const evalRoot = arg("eval-root")
+    ? (isAbsolute(arg("eval-root")!) ? arg("eval-root")! : resolve(ROOT, arg("eval-root")!))
+    : join(ROOT, "data", "eval-v2");
+  const { manifest, built } = buildBootstrapCases(ROOT, evalRoot);
+  console.log(`[evolve:materials] 装配 ${built.length} 案例 → ${evalRoot}`);
+  console.log("[evolve:materials] admission=qualified / review=provisional：不得进入正式运行，数据集 builder 只纳入 admitted。");
+  for (const c of manifest.cases) {
+    console.log(`  ${c.caseId} [${c.split}] services=${c.services.join(",")} caseHash=${c.casePublicHash.slice(0, 12)}… truthHash=${c.truthHash.slice(0, 12)}…`);
+  }
+  return 0;
+}
+
 function usage(): void {
   console.log(`用法：
   npm run evolve:materials:verify
-  npm run evolve:materials:convert [--case rcb-001 | --all] [--out <dir>]`);
+  npm run evolve:materials:convert [--case rcb-001 | --all] [--out <dir>]
+  npm run evolve:materials:build [--eval-root <dir>]`);
 }
 
 const cmd = process.argv[2];
@@ -96,6 +111,7 @@ let code: number;
 switch (cmd) {
   case "verify": code = cmdVerify(); break;
   case "convert": code = cmdConvert(); break;
+  case "build": code = cmdBuild(); break;
   default: usage(); code = 2; break;
 }
 process.exit(code);

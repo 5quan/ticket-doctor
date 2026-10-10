@@ -29,10 +29,10 @@ export function loadCatalog(evalV2Root: string): Catalog {
   return raw;
 }
 
-export function loadCase(evalV2Root: string, entry: CatalogEntry, projectRoot: string): CaseDescriptorV2 {
+export function loadCase(evalV2Root: string, entry: CatalogEntry, projectRoot: string, opts?: { requireAdmitted?: boolean }): CaseDescriptorV2 {
   const caseDir = join(evalV2Root, entry.publicDir);
   const raw = JSON.parse(readFileSync(join(caseDir, "case.json"), "utf8")) as unknown;
-  const result = validateCaseDescriptor(raw, { caseDir, projectRoot });
+  const result = validateCaseDescriptor(raw, { caseDir, projectRoot, requireAdmitted: opts?.requireAdmitted });
   if (!result.ok) throw schemaError("case.json", result.errors);
   return result.value;
 }
