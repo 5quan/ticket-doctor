@@ -1,0 +1,11 @@
+{
+  "schema": "rsi-bootstrap-task/v0",
+  "caseId": "rcb-004",
+  "question": "gatewayservice 在 2026-09-14T10:21:00Z 告警：gatewayservice 401 unauthorized ratio above 5%; valid sessions being rejected and multiple downstream services also rejecting tokens。请调查故障原因，列出支持与反证，并说明现有材料的判断边界；材料不足时说明需补充什么。",
+  "occurredAt": null,
+  "service": "gatewayservice",
+  "materialView": "frozen-public-only",
+  "sourceType": "public-simulated-or-reconstructed",
+  "receivedAt": "2026-09-14T10:21:00Z",
+  "alertFiredAt": "2026-09-14T10:21:00Z"
+}

@@ -1,0 +1,2 @@
+# Frozen evaluation materials are validated by hashes and retain their original bytes.
+fixtures/research/rsi-bootstrap/** -text -whitespace

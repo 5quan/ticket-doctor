@@ -1,0 +1,865 @@
+{
+  "schemaVersion": "rsi-bootstrap-manifest/v0",
+  "createdAt": "2026-10-09",
+  "sourceRepo": "https://github.com/edgedelta/root-cause-bench",
+  "sourceCommit": "c2f9b4aae67b092803c7c7d85e3e27facb528f0f",
+  "license": "Apache-2.0",
+  "status": "local-review-draft-not-imported-not-model-evaluated",
+  "cases": [
+    {
+      "caseId": "rcb-001",
+      "upstreamScenario": "payment-nil-deref-panic",
+      "familyId": "optional-field-dereference",
+      "split": "train",
+      "sourceType": "public-simulated-or-reconstructed",
+      "reviewStatus": "needs-review",
+      "task": "tasks/rcb-001.json",
+      "agentMaterialDir": "public/rcb-001",
+      "graderTruth": "private/rcb-001/ground_truth.json",
+      "fullGitSourceAvailable": false,
+      "codeVersionEvaluation": "not-applicable"
+    },
+    {
+      "caseId": "rcb-002",
+      "upstreamScenario": "checkout-latency-n-plus-one",
+      "familyId": "query-amplification",
+      "split": "train",
+      "sourceType": "public-simulated-or-reconstructed",
+      "reviewStatus": "needs-review",
+      "task": "tasks/rcb-002.json",
+      "agentMaterialDir": "public/rcb-002",
+      "graderTruth": "private/rcb-002/ground_truth.json",
+      "fullGitSourceAvailable": false,
+      "codeVersionEvaluation": "not-applicable"
+    },
+    {
+      "caseId": "rcb-003",
+      "upstreamScenario": "inventory-connection-pool-exhaustion",
+      "familyId": "connection-pool-capacity",
+      "split": "train",
+      "sourceType": "public-simulated-or-reconstructed",
+      "reviewStatus": "needs-review",
+      "task": "tasks/rcb-003.json",
+      "agentMaterialDir": "public/rcb-003",
+      "graderTruth": "private/rcb-003/ground_truth.json",
+      "fullGitSourceAvailable": false,
+      "codeVersionEvaluation": "not-applicable"
+    },
+    {
+      "caseId": "rcb-004",
+      "upstreamScenario": "auth-jwt-validation-regression",
+      "familyId": "authentication-validation",
+      "split": "train",
+      "sourceType": "public-simulated-or-reconstructed",
+      "reviewStatus": "needs-review",
+      "task": "tasks/rcb-004.json",
+      "agentMaterialDir": "public/rcb-004",
+      "graderTruth": "private/rcb-004/ground_truth.json",
+      "fullGitSourceAvailable": false,
+      "codeVersionEvaluation": "not-applicable"
+    },
+    {
+      "caseId": "rcb-005",
+      "upstreamScenario": "recommendation-memory-leak",
+      "familyId": "unbounded-history-retention",
+      "split": "validation",
+      "sourceType": "public-simulated-or-reconstructed",
+      "reviewStatus": "needs-review",
+      "task": "tasks/rcb-005.json",
+      "agentMaterialDir": "public/rcb-005",
+      "graderTruth": "private/rcb-005/ground_truth.json",
+      "fullGitSourceAvailable": false,
+      "codeVersionEvaluation": "not-applicable"
+    },
+    {
+      "caseId": "rcb-006",
+      "upstreamScenario": "grpc-deadline-too-tight",
+      "familyId": "deadline-budget",
+      "split": "validation",
+      "sourceType": "public-simulated-or-reconstructed",
+      "reviewStatus": "needs-review",
+      "task": "tasks/rcb-006.json",
+      "agentMaterialDir": "public/rcb-006",
+      "graderTruth": "private/rcb-006/ground_truth.json",
+      "fullGitSourceAvailable": false,
+      "codeVersionEvaluation": "not-applicable"
+    },
+    {
+      "caseId": "rcb-007",
+      "upstreamScenario": "dashboard-db-schema-missing-table",
+      "familyId": "schema-migration",
+      "split": "validation",
+      "sourceType": "public-simulated-or-reconstructed",
+      "reviewStatus": "needs-review",
+      "task": "tasks/rcb-007.json",
+      "agentMaterialDir": "public/rcb-007",
+      "graderTruth": "private/rcb-007/ground_truth.json",
+      "fullGitSourceAvailable": false,
+      "codeVersionEvaluation": "not-applicable"
+    },
+    {
+      "caseId": "rcb-008",
+      "upstreamScenario": "payment-refund-poison-batch",
+      "familyId": "poison-message",
+      "split": "holdout",
+      "sourceType": "public-simulated-or-reconstructed",
+      "reviewStatus": "needs-review",
+      "task": "tasks/rcb-008.json",
+      "agentMaterialDir": "public/rcb-008",
+      "graderTruth": "private/rcb-008/ground_truth.json",
+      "fullGitSourceAvailable": false,
+      "codeVersionEvaluation": "not-applicable"
+    },
+    {
+      "caseId": "rcb-009",
+      "upstreamScenario": "tls-cert-expiry",
+      "familyId": "certificate-lifecycle",
+      "split": "holdout",
+      "sourceType": "public-simulated-or-reconstructed",
+      "reviewStatus": "needs-review",
+      "task": "tasks/rcb-009.json",
+      "agentMaterialDir": "public/rcb-009",
+      "graderTruth": "private/rcb-009/ground_truth.json",
+      "fullGitSourceAvailable": false,
+      "codeVersionEvaluation": "not-applicable"
+    }
+  ],
+  "files": [
+    {
+      "path": "LICENSE",
+      "sourcePath": "LICENSE",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/LICENSE",
+      "bytes": 11347,
+      "sha256": "d774720c63ee74573c3e6da385cbe89adad7f6124aea860efc44ccd6aca35fd7",
+      "gitBlobSha": "b01b5e8da1e77e10523f356c1648d9530d73e576"
+    },
+    {
+      "path": "private/rcb-001/ground_truth.json",
+      "sourcePath": "datasets/rootcausebench/payment-nil-deref-panic/tests/ground_truth.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/payment-nil-deref-panic/tests/ground_truth.json",
+      "bytes": 425,
+      "sha256": "5eab93c4cec6bdecf2d17c66ec80eac4011c1a3653a12d305c9d33c153b15f18",
+      "gitBlobSha": "94b18d0661cff9cf55df525a65302ff3d62cdc67"
+    },
+    {
+      "path": "private/rcb-002/ground_truth.json",
+      "sourcePath": "datasets/rootcausebench/checkout-latency-n-plus-one/tests/ground_truth.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/checkout-latency-n-plus-one/tests/ground_truth.json",
+      "bytes": 1525,
+      "sha256": "946566535fee04708c01ba36e53cdd393ae95f9b03810b7b9d7de9f403419995",
+      "gitBlobSha": "3257ba9820bd3f5dd463b276995e85f42ccd479e"
+    },
+    {
+      "path": "private/rcb-003/ground_truth.json",
+      "sourcePath": "datasets/rootcausebench/inventory-connection-pool-exhaustion/tests/ground_truth.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/inventory-connection-pool-exhaustion/tests/ground_truth.json",
+      "bytes": 1573,
+      "sha256": "63aa1e5ec2c0a7f269d453f34926de792070baf76cd7e7e117699ee94da8ac81",
+      "gitBlobSha": "8297988d7ea4d803b7e6eb5456201e087899fce8"
+    },
+    {
+      "path": "private/rcb-004/ground_truth.json",
+      "sourcePath": "datasets/rootcausebench/auth-jwt-validation-regression/tests/ground_truth.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/auth-jwt-validation-regression/tests/ground_truth.json",
+      "bytes": 2854,
+      "sha256": "2db6e897586bf6996a429f0d6a0da31502b08d8fa3cf48edeef7f932176af55f",
+      "gitBlobSha": "52f596ee73d98801d56ef8fe73dc8a6f2a2e710e"
+    },
+    {
+      "path": "private/rcb-005/ground_truth.json",
+      "sourcePath": "datasets/rootcausebench/recommendation-memory-leak/tests/ground_truth.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/recommendation-memory-leak/tests/ground_truth.json",
+      "bytes": 1528,
+      "sha256": "9b909172bc8cd75088e3fc6132ac12740ae813434ee89089af8ba57e6d63f4f7",
+      "gitBlobSha": "09894986834868a4375593f9d89cd6383fab5b15"
+    },
+    {
+      "path": "private/rcb-006/ground_truth.json",
+      "sourcePath": "datasets/rootcausebench/grpc-deadline-too-tight/tests/ground_truth.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/grpc-deadline-too-tight/tests/ground_truth.json",
+      "bytes": 2853,
+      "sha256": "3c2bfe262edd5119743f270e557e0c96d914063488a187028d5f96280b9ae3ca",
+      "gitBlobSha": "fdca9d2f37a167d4119e9686353ddccf07f07b03"
+    },
+    {
+      "path": "private/rcb-007/ground_truth.json",
+      "sourcePath": "datasets/rootcausebench/dashboard-db-schema-missing-table/tests/ground_truth.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/dashboard-db-schema-missing-table/tests/ground_truth.json",
+      "bytes": 1271,
+      "sha256": "3ce0ad26c93fb100e8c96df807e6deb36c2712d90e376f0364f0947d8d30e3bc",
+      "gitBlobSha": "a00a4efb89abdab0f334e1cf1411ae74c3a07a49"
+    },
+    {
+      "path": "private/rcb-008/ground_truth.json",
+      "sourcePath": "datasets/rootcausebench/payment-refund-poison-batch/tests/ground_truth.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/payment-refund-poison-batch/tests/ground_truth.json",
+      "bytes": 5551,
+      "sha256": "9583407304a123545da7627eef7224446082bb1581652f847d54f713b2402604",
+      "gitBlobSha": "5938728b5b121699859a57e466425583fc0c346e"
+    },
+    {
+      "path": "private/rcb-009/ground_truth.json",
+      "sourcePath": "datasets/rootcausebench/tls-cert-expiry/tests/ground_truth.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/tls-cert-expiry/tests/ground_truth.json",
+      "bytes": 3383,
+      "sha256": "b268121649fca14dbe3b2e21c3911721e1bfc48c7c10dd8184e7cb8aa6d4f2bb",
+      "gitBlobSha": "4e2d3f75f8964b76979d6639a530b5cdaa214e97"
+    },
+    {
+      "path": "public/rcb-001/alert.json",
+      "sourcePath": "datasets/rootcausebench/payment-nil-deref-panic/environment/data/alert.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/payment-nil-deref-panic/environment/data/alert.json",
+      "bytes": 285,
+      "sha256": "b283b186b6f8328fddc8f34e44de98fd8e1c3bf0b8d34fa9e9fc4e9cbf25df78",
+      "gitBlobSha": "d904f58eb844f41a02bb446c8e211441de8e14da"
+    },
+    {
+      "path": "public/rcb-001/context/commits.json",
+      "sourcePath": "datasets/rootcausebench/payment-nil-deref-panic/environment/data/context/commits.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/payment-nil-deref-panic/environment/data/context/commits.json",
+      "bytes": 5699,
+      "sha256": "515f36e2569858ca5c347b7c90c91946af33409f5beb959b41fde03942a09fd8",
+      "gitBlobSha": "aeb743568e1becb698420ee696caa01bd5fa739d"
+    },
+    {
+      "path": "public/rcb-001/context/deploys.json",
+      "sourcePath": "datasets/rootcausebench/payment-nil-deref-panic/environment/data/context/deploys.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/payment-nil-deref-panic/environment/data/context/deploys.json",
+      "bytes": 355,
+      "sha256": "27c80b1d7311051248e2629501c335dcabb64e7ecf9dcbc97670e87ac520610f",
+      "gitBlobSha": "f3d6d05e473dd1677845e68cd97254ad5d5f80ac"
+    },
+    {
+      "path": "public/rcb-001/context/flags.json",
+      "sourcePath": "datasets/rootcausebench/payment-nil-deref-panic/environment/data/context/flags.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/payment-nil-deref-panic/environment/data/context/flags.json",
+      "bytes": 185,
+      "sha256": "0c9e449a3ece5520372d42dbad4f9b5a4ffe8a96c1b792ee90b949139340429a",
+      "gitBlobSha": "f005db1e7c451e725fd084b20e7fa4c5d1fb23fb"
+    },
+    {
+      "path": "public/rcb-001/logs.ndjson",
+      "sourcePath": "datasets/rootcausebench/payment-nil-deref-panic/environment/data/logs.ndjson",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/payment-nil-deref-panic/environment/data/logs.ndjson",
+      "bytes": 29275,
+      "sha256": "cc03faf7b5ff5ea261725c58809cc98aea4e7f9d97698bfc43d0582816758f3d",
+      "gitBlobSha": "90c26264057f7e90517f2789f63c634d0d0f4099"
+    },
+    {
+      "path": "public/rcb-001/metrics.csv",
+      "sourcePath": "datasets/rootcausebench/payment-nil-deref-panic/environment/data/metrics.csv",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/payment-nil-deref-panic/environment/data/metrics.csv",
+      "bytes": 22058,
+      "sha256": "d6be1b65770f85b04e38f339de880d9a49b7861aa296932e867c53055b908802",
+      "gitBlobSha": "11ea5a5527e440fe403707f091201bb84c1c3b53"
+    },
+    {
+      "path": "public/rcb-001/patterns.json",
+      "sourcePath": "datasets/rootcausebench/payment-nil-deref-panic/environment/data/patterns.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/payment-nil-deref-panic/environment/data/patterns.json",
+      "bytes": 569,
+      "sha256": "bdaa4bd62a37a2bc4ebf1f19d3a361235f284b07b8050aad0fb52b45dfb8c44f",
+      "gitBlobSha": "1506a4742bda5bb0dbb19ee63e893052a6302316"
+    },
+    {
+      "path": "public/rcb-001/traces.json",
+      "sourcePath": "datasets/rootcausebench/payment-nil-deref-panic/environment/data/traces.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/payment-nil-deref-panic/environment/data/traces.json",
+      "bytes": 723,
+      "sha256": "af83e0296fd6d2edea4be4c709f189ba38db384378964f4bb47e0a3b5519c67f",
+      "gitBlobSha": "320d37923c426a9af29c9b5e325b35d50c9dc0df"
+    },
+    {
+      "path": "public/rcb-002/alert.json",
+      "sourcePath": "datasets/rootcausebench/checkout-latency-n-plus-one/environment/data/alert.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/checkout-latency-n-plus-one/environment/data/alert.json",
+      "bytes": 282,
+      "sha256": "55094ab810ac09ec5afeabaf2e2baf01a13e35af76eb1238fa7509e775e74e80",
+      "gitBlobSha": "fbc892a39cb0dd4bc44372abe3bfbb9885930fc1"
+    },
+    {
+      "path": "public/rcb-002/context/commits.json",
+      "sourcePath": "datasets/rootcausebench/checkout-latency-n-plus-one/environment/data/context/commits.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/checkout-latency-n-plus-one/environment/data/context/commits.json",
+      "bytes": 13968,
+      "sha256": "9353a492e94d646c46b1eda5dac9af109738f32d8ae399ebcf02f3d31f6bc2ce",
+      "gitBlobSha": "78eacbc61f78f384cd2a9e74f1aee85aa2332030"
+    },
+    {
+      "path": "public/rcb-002/context/deploys.json",
+      "sourcePath": "datasets/rootcausebench/checkout-latency-n-plus-one/environment/data/context/deploys.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/checkout-latency-n-plus-one/environment/data/context/deploys.json",
+      "bytes": 722,
+      "sha256": "9445511e3213c55ad97b749c2ad4984248e2e4c8b0b544f745c502171c118d83",
+      "gitBlobSha": "413c62b61571c94be88aaa08418b8a8b4bd6ccf7"
+    },
+    {
+      "path": "public/rcb-002/context/flags.json",
+      "sourcePath": "datasets/rootcausebench/checkout-latency-n-plus-one/environment/data/context/flags.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/checkout-latency-n-plus-one/environment/data/context/flags.json",
+      "bytes": 344,
+      "sha256": "9f94c134a4f274c265d34415288d1cc08f6a7ebaf5c60f8b5e511d3f9f39a20a",
+      "gitBlobSha": "6d2867882773292e76f6951c38d55921fa7badd0"
+    },
+    {
+      "path": "public/rcb-002/logs.ndjson",
+      "sourcePath": "datasets/rootcausebench/checkout-latency-n-plus-one/environment/data/logs.ndjson",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/checkout-latency-n-plus-one/environment/data/logs.ndjson",
+      "bytes": 30067,
+      "sha256": "f776f6be305ed5af3e1bc2ffcdbc7a7715bffc1b2ee069bd777dad19778c694e",
+      "gitBlobSha": "a69dd038974873cd77984e45bd90cf97392f3f9b"
+    },
+    {
+      "path": "public/rcb-002/metrics.csv",
+      "sourcePath": "datasets/rootcausebench/checkout-latency-n-plus-one/environment/data/metrics.csv",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/checkout-latency-n-plus-one/environment/data/metrics.csv",
+      "bytes": 30230,
+      "sha256": "cb3e35fc6a5e0d14ebfa1d374bc260e05fa0be912193f4fdbc75394dcbfbd5fa",
+      "gitBlobSha": "fa3c93bb01360cf26a0f5ef4e67e42ddb27aad58"
+    },
+    {
+      "path": "public/rcb-002/patterns.json",
+      "sourcePath": "datasets/rootcausebench/checkout-latency-n-plus-one/environment/data/patterns.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/checkout-latency-n-plus-one/environment/data/patterns.json",
+      "bytes": 915,
+      "sha256": "dd9823ee93b1821cad5e2f4c2fe9888a85c05b12efe020e158abf6266aa3071d",
+      "gitBlobSha": "967f0258bb658e1d90faa24bd36a62c3d973835b"
+    },
+    {
+      "path": "public/rcb-002/traces.json",
+      "sourcePath": "datasets/rootcausebench/checkout-latency-n-plus-one/environment/data/traces.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/checkout-latency-n-plus-one/environment/data/traces.json",
+      "bytes": 11279,
+      "sha256": "9a67d550bf83eff0902139ec7c841d783ada6b117e16af08daa254c6031cc6ff",
+      "gitBlobSha": "3306170c9a0fc512399a5485e976180cc25f6893"
+    },
+    {
+      "path": "public/rcb-003/alert.json",
+      "sourcePath": "datasets/rootcausebench/inventory-connection-pool-exhaustion/environment/data/alert.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/inventory-connection-pool-exhaustion/environment/data/alert.json",
+      "bytes": 324,
+      "sha256": "386189b0899fdfdefb06d3bb3ad15de9a845fcb2ca2c2da4a11639a85f9cd5a7",
+      "gitBlobSha": "4b7b0c8c87a1fa74a68e2ec5628374fc04b5341d"
+    },
+    {
+      "path": "public/rcb-003/context/commits.json",
+      "sourcePath": "datasets/rootcausebench/inventory-connection-pool-exhaustion/environment/data/context/commits.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/inventory-connection-pool-exhaustion/environment/data/context/commits.json",
+      "bytes": 16314,
+      "sha256": "189840d009ec85cc408c394348d8b18320045eb35ca80925658a025bb4f4b80b",
+      "gitBlobSha": "35d3ce188a5ed5ab4129d371d151c7c62d90896b"
+    },
+    {
+      "path": "public/rcb-003/context/deploys.json",
+      "sourcePath": "datasets/rootcausebench/inventory-connection-pool-exhaustion/environment/data/context/deploys.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/inventory-connection-pool-exhaustion/environment/data/context/deploys.json",
+      "bytes": 541,
+      "sha256": "9778ce72712b1d948f259faf642a61daf0d4ec7b370b4b3dac60bfc74d05f1d6",
+      "gitBlobSha": "67355662395b79ff62011cb6c47048b5c98bd1cb"
+    },
+    {
+      "path": "public/rcb-003/context/flags.json",
+      "sourcePath": "datasets/rootcausebench/inventory-connection-pool-exhaustion/environment/data/context/flags.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/inventory-connection-pool-exhaustion/environment/data/context/flags.json",
+      "bytes": 351,
+      "sha256": "b2069886c43acc1ecbaaccd9464a472b9b659297ac0fc1c2a8e070e79f2e5468",
+      "gitBlobSha": "73d19b2d3a2c35785c57e7270ab26072b57d7b6c"
+    },
+    {
+      "path": "public/rcb-003/logs.ndjson",
+      "sourcePath": "datasets/rootcausebench/inventory-connection-pool-exhaustion/environment/data/logs.ndjson",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/inventory-connection-pool-exhaustion/environment/data/logs.ndjson",
+      "bytes": 37234,
+      "sha256": "60ac96e1b6b85b959a4ed8640ecc9ce302677ea0921d70e00bd2742ef4794175",
+      "gitBlobSha": "254b97c1b43021a3231041bc6e75e89db7195cc2"
+    },
+    {
+      "path": "public/rcb-003/metrics.csv",
+      "sourcePath": "datasets/rootcausebench/inventory-connection-pool-exhaustion/environment/data/metrics.csv",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/inventory-connection-pool-exhaustion/environment/data/metrics.csv",
+      "bytes": 70656,
+      "sha256": "5dc5866f8095bf95015eb37e5cafbe71f4e7bc57890a5e931398dfae0908a463",
+      "gitBlobSha": "07908b668849b59a597454de24643dfacfa693cb"
+    },
+    {
+      "path": "public/rcb-003/patterns.json",
+      "sourcePath": "datasets/rootcausebench/inventory-connection-pool-exhaustion/environment/data/patterns.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/inventory-connection-pool-exhaustion/environment/data/patterns.json",
+      "bytes": 1110,
+      "sha256": "d0a2e3607605e3b29e2bd7e527492406b549030342e8d0d7f54a5fc0adde91e5",
+      "gitBlobSha": "f5ba41070ee9037388fb20cb334e0f8043494a0a"
+    },
+    {
+      "path": "public/rcb-003/traces.json",
+      "sourcePath": "datasets/rootcausebench/inventory-connection-pool-exhaustion/environment/data/traces.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/inventory-connection-pool-exhaustion/environment/data/traces.json",
+      "bytes": 1015,
+      "sha256": "fd241f17a32b9992110c7f196d200646a19a05d90a88456410bb482e417c7817",
+      "gitBlobSha": "f4095b8ac99bd8804edf7deb2c2afc22e05112f7"
+    },
+    {
+      "path": "public/rcb-004/alert.json",
+      "sourcePath": "datasets/rootcausebench/auth-jwt-validation-regression/environment/data/alert.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/auth-jwt-validation-regression/environment/data/alert.json",
+      "bytes": 376,
+      "sha256": "d93cd0943a57d7624108fe50670fd652a2a7257b7fe03120a7e91dd562ec71be",
+      "gitBlobSha": "abfb1e67331e93ccf534367979e76e55c720dc19"
+    },
+    {
+      "path": "public/rcb-004/context/commits.json",
+      "sourcePath": "datasets/rootcausebench/auth-jwt-validation-regression/environment/data/context/commits.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/auth-jwt-validation-regression/environment/data/context/commits.json",
+      "bytes": 11472,
+      "sha256": "4d5b55875bfab570e4a963ad15f0d688109e0745698d32dc977e57e6070567e0",
+      "gitBlobSha": "8dc57d1b07baf558f5e57d1dab1e28f96bda12ba"
+    },
+    {
+      "path": "public/rcb-004/context/deploys.json",
+      "sourcePath": "datasets/rootcausebench/auth-jwt-validation-regression/environment/data/context/deploys.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/auth-jwt-validation-regression/environment/data/context/deploys.json",
+      "bytes": 534,
+      "sha256": "1a63bba2ff736649dd4619f2d24dc531f44db17f57167c36ced0524e6d1c1f91",
+      "gitBlobSha": "90ba554ea8e87ef0e6509ca23afc277acec4d415"
+    },
+    {
+      "path": "public/rcb-004/context/flags.json",
+      "sourcePath": "datasets/rootcausebench/auth-jwt-validation-regression/environment/data/context/flags.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/auth-jwt-validation-regression/environment/data/context/flags.json",
+      "bytes": 347,
+      "sha256": "481ba1c68dfe5c4f1473334b4dbf08fe848065108c1d30db8d014afab0fc05e9",
+      "gitBlobSha": "919766ce3cb7ab1af6b575f4b323af1cf0af77af"
+    },
+    {
+      "path": "public/rcb-004/logs.ndjson",
+      "sourcePath": "datasets/rootcausebench/auth-jwt-validation-regression/environment/data/logs.ndjson",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/auth-jwt-validation-regression/environment/data/logs.ndjson",
+      "bytes": 42665,
+      "sha256": "4626fca71c9c21527d1f322c221de40709b622fc1b4d42e11dbeb62699a777b3",
+      "gitBlobSha": "9ad7d2772b23da948177f58bf46f51b5200c7ab2"
+    },
+    {
+      "path": "public/rcb-004/metrics.csv",
+      "sourcePath": "datasets/rootcausebench/auth-jwt-validation-regression/environment/data/metrics.csv",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/auth-jwt-validation-regression/environment/data/metrics.csv",
+      "bytes": 58887,
+      "sha256": "07dec5919bdbad9ff16aeaa1b2115d1533faec1f82a55916c4b0aa84419bb011",
+      "gitBlobSha": "d948846146c363adc0e246a45f8f6d03d923ae22"
+    },
+    {
+      "path": "public/rcb-004/patterns.json",
+      "sourcePath": "datasets/rootcausebench/auth-jwt-validation-regression/environment/data/patterns.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/auth-jwt-validation-regression/environment/data/patterns.json",
+      "bytes": 1243,
+      "sha256": "5dad64e9fc220b31f1ac8e4577b7158eff054fbd9fda922b7c83bc07bbcf7284",
+      "gitBlobSha": "b5532ca9852c15d4cb3e1ef826ecda2863fc71d6"
+    },
+    {
+      "path": "public/rcb-004/traces.json",
+      "sourcePath": "datasets/rootcausebench/auth-jwt-validation-regression/environment/data/traces.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/auth-jwt-validation-regression/environment/data/traces.json",
+      "bytes": 3001,
+      "sha256": "17f7d628f23ae60c75b743c7daadb0327f6f124b141ad93733bc960740d342fd",
+      "gitBlobSha": "568905f7cd3a6f69012f7261c65440a17a1b9e4a"
+    },
+    {
+      "path": "public/rcb-005/alert.json",
+      "sourcePath": "datasets/rootcausebench/recommendation-memory-leak/environment/data/alert.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/recommendation-memory-leak/environment/data/alert.json",
+      "bytes": 311,
+      "sha256": "03d42700fbd0a8a0887977d53d8c33353ddcc7fde8237b9cf9bc3fae221bd6a2",
+      "gitBlobSha": "afafc3a006686bfbf5d0340f36339142f190f579"
+    },
+    {
+      "path": "public/rcb-005/context/commits.json",
+      "sourcePath": "datasets/rootcausebench/recommendation-memory-leak/environment/data/context/commits.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/recommendation-memory-leak/environment/data/context/commits.json",
+      "bytes": 13759,
+      "sha256": "928eae93677625030edb8c5811c74093be8b996977650528cbccb1aa153aeb66",
+      "gitBlobSha": "c5e5e8c64392afc95955eaa06c767e4003cd2eea"
+    },
+    {
+      "path": "public/rcb-005/context/deploys.json",
+      "sourcePath": "datasets/rootcausebench/recommendation-memory-leak/environment/data/context/deploys.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/recommendation-memory-leak/environment/data/context/deploys.json",
+      "bytes": 549,
+      "sha256": "af1fbccbe600a9ff5cc9238d989e9c1f74980a3ef315c60b87f45537dcf9a995",
+      "gitBlobSha": "901e1b14f69a089e0f8bdd04735e1707c4260e5f"
+    },
+    {
+      "path": "public/rcb-005/context/flags.json",
+      "sourcePath": "datasets/rootcausebench/recommendation-memory-leak/environment/data/context/flags.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/recommendation-memory-leak/environment/data/context/flags.json",
+      "bytes": 173,
+      "sha256": "9d44ac63fd23e3566eeab699202dcead9d175d2014d628cd40f45a8ee29052de",
+      "gitBlobSha": "accfc9e153e4aafa1cd59e6700e0b9b778e565f8"
+    },
+    {
+      "path": "public/rcb-005/logs.ndjson",
+      "sourcePath": "datasets/rootcausebench/recommendation-memory-leak/environment/data/logs.ndjson",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/recommendation-memory-leak/environment/data/logs.ndjson",
+      "bytes": 21568,
+      "sha256": "a84b678116cb0cb86facb11f1a1b360cc2fb41b97a87135d9b225e8df598c3b1",
+      "gitBlobSha": "8bda1f3d700643df9bf03408b25bbd66f0173d11"
+    },
+    {
+      "path": "public/rcb-005/metrics.csv",
+      "sourcePath": "datasets/rootcausebench/recommendation-memory-leak/environment/data/metrics.csv",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/recommendation-memory-leak/environment/data/metrics.csv",
+      "bytes": 60704,
+      "sha256": "aebb6af6171b178b5b04b5009f21a422f15f8272108c551c6bc0ccce0259cc90",
+      "gitBlobSha": "a1fd02a71c44989ab87f792556a19f9f658264e0"
+    },
+    {
+      "path": "public/rcb-005/patterns.json",
+      "sourcePath": "datasets/rootcausebench/recommendation-memory-leak/environment/data/patterns.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/recommendation-memory-leak/environment/data/patterns.json",
+      "bytes": 944,
+      "sha256": "9084f0cd675f2e9831d945c97bc3cab278a0060a95f98daadf0c057aaa5be019",
+      "gitBlobSha": "f4df9e77849034b70b8386c78781fa10eba9de83"
+    },
+    {
+      "path": "public/rcb-005/traces.json",
+      "sourcePath": "datasets/rootcausebench/recommendation-memory-leak/environment/data/traces.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/recommendation-memory-leak/environment/data/traces.json",
+      "bytes": 756,
+      "sha256": "721fc49bc34af943c2444e7eaf2528c904839ab00c0f1d898ce8ea6e4d189c69",
+      "gitBlobSha": "600bfc4a98c25d7c0b1088a464562855bae23dfc"
+    },
+    {
+      "path": "public/rcb-006/alert.json",
+      "sourcePath": "datasets/rootcausebench/grpc-deadline-too-tight/environment/data/alert.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/grpc-deadline-too-tight/environment/data/alert.json",
+      "bytes": 295,
+      "sha256": "fd629edb00f35a5a7281afd590b35baf17d7767cb282c77b2c4c7c154463cdc7",
+      "gitBlobSha": "1bd9c28cd31e132878455d13eab70bfa652db546"
+    },
+    {
+      "path": "public/rcb-006/context/commits.json",
+      "sourcePath": "datasets/rootcausebench/grpc-deadline-too-tight/environment/data/context/commits.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/grpc-deadline-too-tight/environment/data/context/commits.json",
+      "bytes": 13207,
+      "sha256": "c76b14d1d82cfb674294fe82e519383ad2b468f41837bb747e18f458037480a9",
+      "gitBlobSha": "5fe34599a48d68ef9335701626a057b2335814b2"
+    },
+    {
+      "path": "public/rcb-006/context/deploys.json",
+      "sourcePath": "datasets/rootcausebench/grpc-deadline-too-tight/environment/data/context/deploys.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/grpc-deadline-too-tight/environment/data/context/deploys.json",
+      "bytes": 733,
+      "sha256": "6fb26055fd9e35c688108bedf54e5eda707a188e08e49e70e954102544ca5354",
+      "gitBlobSha": "0993a0eb845ff11f9e3257d1dec695b1e0d90563"
+    },
+    {
+      "path": "public/rcb-006/context/flags.json",
+      "sourcePath": "datasets/rootcausebench/grpc-deadline-too-tight/environment/data/context/flags.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/grpc-deadline-too-tight/environment/data/context/flags.json",
+      "bytes": 344,
+      "sha256": "138edebe5db1d458f0362cf83840d020b9a743acf636197bcf59b4c51f4c220f",
+      "gitBlobSha": "f85871853049b5a04a3561bdae5eb8e5d7dabf39"
+    },
+    {
+      "path": "public/rcb-006/logs.ndjson",
+      "sourcePath": "datasets/rootcausebench/grpc-deadline-too-tight/environment/data/logs.ndjson",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/grpc-deadline-too-tight/environment/data/logs.ndjson",
+      "bytes": 41750,
+      "sha256": "82681d269280322dd42376eb78bb2c56a72f4df61f77c52200d0d53c3905a872",
+      "gitBlobSha": "8332a92c1cd8a0704e6bdbdaf0220e305a23527e"
+    },
+    {
+      "path": "public/rcb-006/metrics.csv",
+      "sourcePath": "datasets/rootcausebench/grpc-deadline-too-tight/environment/data/metrics.csv",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/grpc-deadline-too-tight/environment/data/metrics.csv",
+      "bytes": 31838,
+      "sha256": "7906ab70f0ec2a5267e21017c43bcaf04ecf20414541dd5cc716d8f538db5a8a",
+      "gitBlobSha": "607b6d0b63d4bde528b74206fa77ad5a596c64e9"
+    },
+    {
+      "path": "public/rcb-006/patterns.json",
+      "sourcePath": "datasets/rootcausebench/grpc-deadline-too-tight/environment/data/patterns.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/grpc-deadline-too-tight/environment/data/patterns.json",
+      "bytes": 990,
+      "sha256": "300d702bf350c9ba6db636cf8f05119e0886e54b26d6b9f8320103d1f3833638",
+      "gitBlobSha": "aade4d08f136f47810bd15c1abd5d74aee7ddcdb"
+    },
+    {
+      "path": "public/rcb-006/traces.json",
+      "sourcePath": "datasets/rootcausebench/grpc-deadline-too-tight/environment/data/traces.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/grpc-deadline-too-tight/environment/data/traces.json",
+      "bytes": 2331,
+      "sha256": "7aa3edf2ea5ca328cb5e5be18f42380ae368c620c4665f07de234dd975f0850b",
+      "gitBlobSha": "08a59b7da5b9bb95a2dd075a9ebb0ca204747b77"
+    },
+    {
+      "path": "public/rcb-007/alert.json",
+      "sourcePath": "datasets/rootcausebench/dashboard-db-schema-missing-table/environment/data/alert.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/dashboard-db-schema-missing-table/environment/data/alert.json",
+      "bytes": 324,
+      "sha256": "616643da1d73698d4fb79bfdd58eecebba983f87591ecb5d01c514ba8bf91ce2",
+      "gitBlobSha": "862cca1f8c272f877dbb7b188e36b4909e426a2e"
+    },
+    {
+      "path": "public/rcb-007/context/commits.json",
+      "sourcePath": "datasets/rootcausebench/dashboard-db-schema-missing-table/environment/data/context/commits.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/dashboard-db-schema-missing-table/environment/data/context/commits.json",
+      "bytes": 5782,
+      "sha256": "902083abe4f22c449cdce99ba292bc093728352929706a1959eb18133fab32d3",
+      "gitBlobSha": "1ace57d81452f2671bc2a151c9b3472ab1c0c64c"
+    },
+    {
+      "path": "public/rcb-007/context/deploys.json",
+      "sourcePath": "datasets/rootcausebench/dashboard-db-schema-missing-table/environment/data/context/deploys.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/dashboard-db-schema-missing-table/environment/data/context/deploys.json",
+      "bytes": 359,
+      "sha256": "026771d01755a578e306054364e1cbdf3a7c9da9f145ade47eaf2f7a695985fa",
+      "gitBlobSha": "26507a5319a47fdda47255f2dcfa7c88b0488c4b"
+    },
+    {
+      "path": "public/rcb-007/context/flags.json",
+      "sourcePath": "datasets/rootcausebench/dashboard-db-schema-missing-table/environment/data/context/flags.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/dashboard-db-schema-missing-table/environment/data/context/flags.json",
+      "bytes": 179,
+      "sha256": "179aa22e579211ab50f7176a31602a469ba40ee861cc6c2af8ba7866c0435a45",
+      "gitBlobSha": "3a7c3f243aba52795d28cd7eec4b163c461a7f90"
+    },
+    {
+      "path": "public/rcb-007/logs.ndjson",
+      "sourcePath": "datasets/rootcausebench/dashboard-db-schema-missing-table/environment/data/logs.ndjson",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/dashboard-db-schema-missing-table/environment/data/logs.ndjson",
+      "bytes": 7322,
+      "sha256": "ae9b45f8992ede3d24c9c05864ae9b93df4c25a6cca7ebfe4ec3c21f652c1611",
+      "gitBlobSha": "a4bd0c0b5c04edcb599054912bf7b7c4c5d805ad"
+    },
+    {
+      "path": "public/rcb-007/metrics.csv",
+      "sourcePath": "datasets/rootcausebench/dashboard-db-schema-missing-table/environment/data/metrics.csv",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/dashboard-db-schema-missing-table/environment/data/metrics.csv",
+      "bytes": 4167,
+      "sha256": "61ef5491f1482fa4ecb854ad4a81fca7e3f83e9b28cdce03e45135457e88189b",
+      "gitBlobSha": "b25028a6f81f3a6001371acf2752e2c8c34ec899"
+    },
+    {
+      "path": "public/rcb-007/patterns.json",
+      "sourcePath": "datasets/rootcausebench/dashboard-db-schema-missing-table/environment/data/patterns.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/dashboard-db-schema-missing-table/environment/data/patterns.json",
+      "bytes": 390,
+      "sha256": "44748ee0539897dc172c0398dd952546752c477a42e7d6e80484ef58e7b40bda",
+      "gitBlobSha": "a4ebe0d601581d6042a99f25ac4b551dbc0eb7f0"
+    },
+    {
+      "path": "public/rcb-007/traces.json",
+      "sourcePath": "datasets/rootcausebench/dashboard-db-schema-missing-table/environment/data/traces.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/dashboard-db-schema-missing-table/environment/data/traces.json",
+      "bytes": 587,
+      "sha256": "6fc38241b2ce380afdb4ef62d226285eec67d716d02594fbc1cd0bd958a5d185",
+      "gitBlobSha": "8c7393f0cc1efa324f8037aed18b33e57eab8250"
+    },
+    {
+      "path": "public/rcb-008/alert.json",
+      "sourcePath": "datasets/rootcausebench/payment-refund-poison-batch/environment/data/alert.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/payment-refund-poison-batch/environment/data/alert.json",
+      "bytes": 300,
+      "sha256": "71211a10c8a6ef0e5caf710f10a46e5176a480265bbd58a784f3c954158270ca",
+      "gitBlobSha": "08e755b4bdff2db0d9dee7ea2bd6eff74422a891"
+    },
+    {
+      "path": "public/rcb-008/context/commits.json",
+      "sourcePath": "datasets/rootcausebench/payment-refund-poison-batch/environment/data/context/commits.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/payment-refund-poison-batch/environment/data/context/commits.json",
+      "bytes": 12322,
+      "sha256": "ea610bfabf9efb7513048babfa0f58c987f343c1bb2d2fa9e367d992d5346402",
+      "gitBlobSha": "2bceee6fb5db3d54ad0affcb4aed2185f2a8caca"
+    },
+    {
+      "path": "public/rcb-008/context/deploys.json",
+      "sourcePath": "datasets/rootcausebench/payment-refund-poison-batch/environment/data/context/deploys.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/payment-refund-poison-batch/environment/data/context/deploys.json",
+      "bytes": 2385,
+      "sha256": "36b966d280f437b9c00d1e72a7efdac14bf09b96cdbda11493f1ce11f31f6209",
+      "gitBlobSha": "4ec8455e6cbdcec87cbf0e7c52792cb99d2cdca3"
+    },
+    {
+      "path": "public/rcb-008/context/flags.json",
+      "sourcePath": "datasets/rootcausebench/payment-refund-poison-batch/environment/data/context/flags.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/payment-refund-poison-batch/environment/data/context/flags.json",
+      "bytes": 3,
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "gitBlobSha": "fe51488c7066f6687ef680d6bfaa4f7768ef205c"
+    },
+    {
+      "path": "public/rcb-008/logs.ndjson",
+      "sourcePath": "datasets/rootcausebench/payment-refund-poison-batch/environment/data/logs.ndjson",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/payment-refund-poison-batch/environment/data/logs.ndjson",
+      "bytes": 592644,
+      "sha256": "7b507ffef7c0df71475f55fec4f613968c722b7e904a24cdcccad399c51f2ffa",
+      "gitBlobSha": "b876be22f1552a684f57f143ffbc78b5ce7ad1c7"
+    },
+    {
+      "path": "public/rcb-008/metrics.csv",
+      "sourcePath": "datasets/rootcausebench/payment-refund-poison-batch/environment/data/metrics.csv",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/payment-refund-poison-batch/environment/data/metrics.csv",
+      "bytes": 72742,
+      "sha256": "a740af82a93a2a20910541908bee6ba6675877d9ef23d7efe25534d639824377",
+      "gitBlobSha": "de7fba8fc3b3227c22aa7f24a4a5059a2e5f0edc"
+    },
+    {
+      "path": "public/rcb-008/patterns.json",
+      "sourcePath": "datasets/rootcausebench/payment-refund-poison-batch/environment/data/patterns.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/payment-refund-poison-batch/environment/data/patterns.json",
+      "bytes": 1515,
+      "sha256": "2c060b73dfb2dfedb9c1aa643d08e131b239d30f372ef09260e2134aff92d4ac",
+      "gitBlobSha": "21648becd9044e0ad4eeb590ab24e91762678caf"
+    },
+    {
+      "path": "public/rcb-008/traces.json",
+      "sourcePath": "datasets/rootcausebench/payment-refund-poison-batch/environment/data/traces.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/payment-refund-poison-batch/environment/data/traces.json",
+      "bytes": 9520,
+      "sha256": "55e5f3f79b4938c804ab95d6df2b633249eb1d3f217221369f11905b36acdb81",
+      "gitBlobSha": "023fbc380e89849d4ab1223c282bf01d097a37f4"
+    },
+    {
+      "path": "public/rcb-009/alert.json",
+      "sourcePath": "datasets/rootcausebench/tls-cert-expiry/environment/data/alert.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/tls-cert-expiry/environment/data/alert.json",
+      "bytes": 612,
+      "sha256": "3b28f1d6d275b470fe644a58dbbd02cf004ec4989ba4e6d51aae06d98cc20adf",
+      "gitBlobSha": "edef67a49d286193ff86c6c32bfd36a8448aff3c"
+    },
+    {
+      "path": "public/rcb-009/context/commits.json",
+      "sourcePath": "datasets/rootcausebench/tls-cert-expiry/environment/data/context/commits.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/tls-cert-expiry/environment/data/context/commits.json",
+      "bytes": 10162,
+      "sha256": "296566f084fdf0074d8e78e90fe3b9706395d01430c6d45208707e1d31c844f9",
+      "gitBlobSha": "a27d356c222287c4cf297ce9e28d2c01438105f5"
+    },
+    {
+      "path": "public/rcb-009/context/deploys.json",
+      "sourcePath": "datasets/rootcausebench/tls-cert-expiry/environment/data/context/deploys.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/tls-cert-expiry/environment/data/context/deploys.json",
+      "bytes": 884,
+      "sha256": "11e24e8e876729e197ec74d3431b6d2a9e7c6c9e95645e32a980c7a2fbb7d3c2",
+      "gitBlobSha": "34cab2d2c2710ed98d565e9ea76c276421942fb0"
+    },
+    {
+      "path": "public/rcb-009/context/flags.json",
+      "sourcePath": "datasets/rootcausebench/tls-cert-expiry/environment/data/context/flags.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/tls-cert-expiry/environment/data/context/flags.json",
+      "bytes": 347,
+      "sha256": "dc78bb7d5aa6ac4d4088ad2e89266576c1791281d59bff84891f709778c265f6",
+      "gitBlobSha": "bcfe2cca4ffb1d10a0c7a5fe9d915613b608f851"
+    },
+    {
+      "path": "public/rcb-009/logs.ndjson",
+      "sourcePath": "datasets/rootcausebench/tls-cert-expiry/environment/data/logs.ndjson",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/tls-cert-expiry/environment/data/logs.ndjson",
+      "bytes": 41220,
+      "sha256": "0d8b211442a04102299ddd0b0591238816c4a65696474e58878c6357cccd2be6",
+      "gitBlobSha": "a15ab2308eab5646df46440ae3bab2f004412f89"
+    },
+    {
+      "path": "public/rcb-009/metrics.csv",
+      "sourcePath": "datasets/rootcausebench/tls-cert-expiry/environment/data/metrics.csv",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/tls-cert-expiry/environment/data/metrics.csv",
+      "bytes": 38965,
+      "sha256": "59d0523265227a774024552968b9b72fbf70d208bd2483c539911e9394d3a6b9",
+      "gitBlobSha": "cf1d6cce0d3d26247be49027cea4cf2430a3bd27"
+    },
+    {
+      "path": "public/rcb-009/patterns.json",
+      "sourcePath": "datasets/rootcausebench/tls-cert-expiry/environment/data/patterns.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/tls-cert-expiry/environment/data/patterns.json",
+      "bytes": 1686,
+      "sha256": "14d347e889bf8b218443ddf3c74d84b935ba5ad750b510e3ffec83539183331e",
+      "gitBlobSha": "7049b46b4ec3eeb9b082d2378906ed8326caa77b"
+    },
+    {
+      "path": "public/rcb-009/traces.json",
+      "sourcePath": "datasets/rootcausebench/tls-cert-expiry/environment/data/traces.json",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/datasets/rootcausebench/tls-cert-expiry/environment/data/traces.json",
+      "bytes": 16253,
+      "sha256": "bf1225483afa1bc686776de33bdf45d088c5d03d54ea33e0c011fe28104cb4c6",
+      "gitBlobSha": "b7a643920bc4b53e7737833c576945bfb76de70b"
+    },
+    {
+      "path": "tasks/rcb-001.json",
+      "sourcePath": null,
+      "sourceUrl": null,
+      "bytes": 552,
+      "sha256": "b11a8bb32b4249e0ff7ddbab0fc2860f72bbc67b7daf180f47aefe6e6b4f1de9",
+      "transformation": "Question and receivedAt derived only from upstream alert fields; incident onset not independently verified, occurredAt=null; no truth injected"
+    },
+    {
+      "path": "tasks/rcb-002.json",
+      "sourcePath": null,
+      "sourceUrl": null,
+      "bytes": 546,
+      "sha256": "92f38b09762dd180630cd80e362b6bd75fd01b19181d246bd30ba21be052c511",
+      "transformation": "Question and receivedAt derived only from upstream alert fields; incident onset not independently verified, occurredAt=null; no truth injected"
+    },
+    {
+      "path": "tasks/rcb-003.json",
+      "sourcePath": null,
+      "sourceUrl": null,
+      "bytes": 585,
+      "sha256": "d45ca7570c39a0dd1968c5bdf3a0321b3e1d7f624faad289bfc8146d9904d6d9",
+      "transformation": "Question and receivedAt derived only from upstream alert fields; incident onset not independently verified, occurredAt=null; no truth injected"
+    },
+    {
+      "path": "tasks/rcb-004.json",
+      "sourcePath": null,
+      "sourceUrl": null,
+      "bytes": 630,
+      "sha256": "117b66baca785c125588eb425954644c8e35b2e3ca90d4d3f6dd3af86caf2d8e",
+      "transformation": "Question and receivedAt derived only from upstream alert fields; incident onset not independently verified, occurredAt=null; no truth injected"
+    },
+    {
+      "path": "tasks/rcb-005.json",
+      "sourcePath": null,
+      "sourceUrl": null,
+      "bytes": 595,
+      "sha256": "688c4c423898ea55d6739640ca15f1e18eec3f5754581383f170742dae3200b2",
+      "transformation": "Question and receivedAt derived only from upstream alert fields; incident onset not independently verified, occurredAt=null; no truth injected"
+    },
+    {
+      "path": "tasks/rcb-006.json",
+      "sourcePath": null,
+      "sourceUrl": null,
+      "bytes": 572,
+      "sha256": "faf24dd80ac587b5aa989cb2b487f061e48028c6849c0c1f2e989b9441ac44a5",
+      "transformation": "Question and receivedAt derived only from upstream alert fields; incident onset not independently verified, occurredAt=null; no truth injected"
+    },
+    {
+      "path": "tasks/rcb-007.json",
+      "sourcePath": null,
+      "sourceUrl": null,
+      "bytes": 593,
+      "sha256": "ab317ec7d012cd3be7b38478629bd9c2d148da482d5595b0b217980a9a2c54de",
+      "transformation": "Question and receivedAt derived only from upstream alert fields; incident onset not independently verified, occurredAt=null; no truth injected"
+    },
+    {
+      "path": "tasks/rcb-008.json",
+      "sourcePath": null,
+      "sourceUrl": null,
+      "bytes": 546,
+      "sha256": "d99b283d16833d6847350d57dd014713abcf52abe536d00e7aaea17d6b6eea2d",
+      "transformation": "Question and receivedAt derived only from upstream alert fields; incident onset not independently verified, occurredAt=null; no truth injected"
+    },
+    {
+      "path": "tasks/rcb-009.json",
+      "sourcePath": null,
+      "sourceUrl": null,
+      "bytes": 563,
+      "sha256": "6f900820ff4d9aeb3fd175a60a482bdeaed6b8717728dbf18aefecb6cc3be47e",
+      "transformation": "Question and receivedAt derived only from upstream alert fields; incident onset not independently verified, occurredAt=null; no truth injected"
+    },
+    {
+      "path": "upstream-README.md",
+      "sourcePath": "README.md",
+      "sourceUrl": "https://raw.githubusercontent.com/edgedelta/root-cause-bench/c2f9b4aae67b092803c7c7d85e3e27facb528f0f/README.md",
+      "bytes": 18048,
+      "sha256": "14818b0fa15e114474159ecadb84922b0c2e9d4f34f2506e2ee8b52a2190bae8",
+      "gitBlobSha": "5bfaa0622a6cd83b37eda6766e41fa5ab331bdf4"
+    }
+  ]
+}
