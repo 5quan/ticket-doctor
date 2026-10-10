@@ -6,7 +6,7 @@
 //
 // 本工具只记录人类审阅结论，不代替人工判断；未复核前案例保持 qualified。
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { bootstrapSpec, BOOTSTRAP_SPECS } from "../src/evolve/materials/rubrics.ts";
@@ -112,11 +112,61 @@ function cmdVerify(): number {
   return 0;
 }
 
+function cmdPacket(): number {
+  const caseId = arg("case");
+  if (!caseId) throw new Error("--case 必填");
+  const spec = bootstrapSpec(caseId);
+  if (!spec) throw new Error(`${caseId} 不是首批案例`);
+  const root = evalRoot();
+  const taskPath = join(ROOT, "fixtures/research/rsi-bootstrap/tasks", `${caseId}.json`);
+  const oraclePath = join(ROOT, "fixtures/research/rsi-bootstrap/private", caseId, "ground_truth.json");
+  const task = JSON.parse(readFileSync(taskPath, "utf8")) as { question: string; receivedAt: string };
+  const truth = readTruth(root, caseId);
+  const oracle = existsSync(oraclePath) ? (JSON.parse(readFileSync(oraclePath, "utf8")) as Record<string, unknown>) : {};
+  const viewDir = join(root, "public", caseId, "round-1");
+  const logs = existsSync(viewDir) ? readdirSync(viewDir).filter((f) => f.endsWith(".log")).sort() : [];
+  const logText = new Map(logs.map((f) => [f, readFileSync(join(viewDir, f), "utf8")]));
+  const countAll = (needle: string): number => [...logText.values()].reduce((a, t) => a + t.split("\n").filter((l) => l.includes(needle)).length, 0);
+
+  console.log(`\n===== 复核包 ${caseId} [${spec.split}] family=${spec.familyId} =====`);
+  console.log(`rubric 指纹：${rubricHash(truth)}`);
+  console.log(`公开服务：${spec.services.join(", ")}；公开日志：${logs.join(", ")}`);
+  console.log(`\n--- 工单（Agent 实际看到的首轮问题）---\n${task.question}`);
+  console.log(`\n--- 待复核 rubric（provisional）---`);
+  for (const r of truth.rounds) {
+    console.log(`允许产出：${r.allowedOutcomes.join(", ")}；允许判断深度：${r.allowedClaimDepth}`);
+    console.log("必需事实（每条必须在报告字段中出现）：");
+    for (const f of r.requiredFacts) {
+      const hits = f.concepts.flat().map((c) => `${c}:${countAll(c)}`).join(" ");
+      console.log(`  · ${f.factId} 字段=${f.where.join("/")} 概念组=${JSON.stringify(f.concepts)} 日志命中 ${hits}`);
+    }
+    console.log("禁用断言（出现即硬失败，须确认这是真诱饵）：");
+    if (r.forbiddenRules.length === 0) console.log("  （无）");
+    for (const rule of r.forbiddenRules) console.log(`  · ${rule.ruleId} 概念组=${JSON.stringify(rule.assertAnyOf)}`);
+    console.log("证据需求（四层可见性 B∧C1∧D）：");
+    for (const req of r.evidenceRequirements) console.log(`  · ${req.requirementId} 需要 locator: ${req.supportsAnyOf.flatMap((g) => g.allOf).join(",")}`);
+  }
+  console.log("\n证据定位（在公开日志中的可见次数）：");
+  for (const loc of truth.locators) {
+    if (loc.kind === "log") console.log(`  · ${loc.locatorId} “${loc.keyContent}” → 命中 ${countAll(loc.keyContent)} 行（${loc.fileName ?? "任意"}）`);
+  }
+  console.log("\n--- oracle（制作侧，仅复核人可见，绝不进 Agent 输入）---");
+  console.log(JSON.stringify(oracle, null, 2));
+  console.log(`\n--- 复核建议 ---`);
+  console.log("1) 逐条确认必需事实能否从上面日志推出，且不超出 allowedClaimDepth；");
+  console.log("2) 逐条确认禁用断言是公开材料里的真实诱饵，且不会误伤正确表述；");
+  console.log("3) 确认每条证据定位在公开日志中确实可见（命中 0 需说明原因）；");
+  console.log("4) 确认题面不含 oracle/答案信息；");
+  console.log(`记录：npm run evolve:review:record -- --case ${caseId} --reviewer <你的名字> --decision approved|changes_requested [--notes \"...\"]`);
+  return 0;
+}
+
 function usage(): void {
   console.log(`用法：
   npm run evolve:review                                   # 列出复核状态
   npm run evolve:review:record -- --case rcb-001 --reviewer <name> --decision approved|changes_requested [--notes "..."] [--revise]
-  npm run evolve:review:verify`);
+  npm run evolve:review:verify
+  npm run evolve:review:packet -- --case rcb-001   # 打印复核包（工单+日志+rubric+oracle）`);
 }
 
 const cmd = process.argv[2];
@@ -125,6 +175,7 @@ try {
   switch (cmd) {
     case "list": code = cmdList(); break;
     case "record": code = cmdRecord(); break;
+    case "packet": code = cmdPacket(); break;
     case "verify": code = cmdVerify(); break;
     default: usage(); code = 2; break;
   }
