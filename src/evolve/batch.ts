@@ -6,7 +6,7 @@
 //
 // repeat 不改变 case 数：一个 case = 一个均值分数，全部原始 trial 保留在 items 里（§6.2）。
 
-import { compileCandidate, type CompiledCandidate } from "./compile.ts";
+import { compileBaseline, compileCandidate, type CompiledCandidate } from "./compile.ts";
 import { gradeCase } from "./grade.ts";
 import { BudgetLedger, type BudgetLimits, type BudgetSnapshot, type UsageRecord } from "./budget.ts";
 import type { CaseRunResult } from "../eval/lf/run-case.ts";
@@ -21,6 +21,8 @@ export interface BatchRequest {
   runId: string;
   candidateId: string;
   rulesText: string;
+  /** true = 基线：不加外部规则，直接用当前生产内置提示词（rulesText 忽略）。 */
+  baseline?: boolean;
   caseIds: string[];
   split: "train" | "validation" | "holdout";
   repeat: number;
@@ -56,6 +58,7 @@ export interface BatchOutcome {
   runId: string;
   candidateId: string;
   rulesText: string;
+  baseline: boolean;
   rulesHash: string;
   basePromptHash: string;
   compiledPromptHash: string;
@@ -83,7 +86,9 @@ export function parseBatchRequest(raw: unknown, opts: { allowedCaseIds: Readonly
   const r = raw as Record<string, unknown>;
   if (!isStr(r.runId)) throw new BatchProtocolError("runId 缺失");
   if (!isStr(r.candidateId)) throw new BatchProtocolError("candidateId 缺失");
-  if (typeof r.rulesText !== "string") throw new BatchProtocolError("rulesText 必须是字符串");
+  if (r.baseline !== undefined && typeof r.baseline !== "boolean") throw new BatchProtocolError("baseline 必须是 boolean");
+  const baseline = r.baseline === true;
+  if (!baseline && typeof r.rulesText !== "string") throw new BatchProtocolError("rulesText 必须是字符串（baseline=true 时可省略）");
   if (!["train", "validation", "holdout"].includes(String(r.split))) throw new BatchProtocolError(`split 非法：${String(r.split)}`);
   if (!Array.isArray(r.caseIds) || r.caseIds.length === 0) throw new BatchProtocolError("caseIds 必须是非空数组");
   const caseIds = r.caseIds.map((c) => (isStr(c) ? c : ""));
@@ -111,7 +116,8 @@ export function parseBatchRequest(raw: unknown, opts: { allowedCaseIds: Readonly
   return {
     runId: r.runId,
     candidateId: r.candidateId,
-    rulesText: r.rulesText,
+    rulesText: typeof r.rulesText === "string" ? r.rulesText : "",
+    baseline,
     caseIds,
     split: r.split as BatchRequest["split"],
     repeat: repeat as number,
@@ -167,7 +173,7 @@ export interface BatchDeps {
  * 个别模型/工具失败产出 task_error 记录与失败分，不终止（§6.1.3）。
  */
 export async function runBatch(request: BatchRequest, deps: BatchDeps): Promise<BatchOutcome> {
-  const compiled: CompiledCandidate = compileCandidate(request.rulesText);
+  const compiled: CompiledCandidate = request.baseline ? compileBaseline() : compileCandidate(request.rulesText);
   const budget = new BudgetLedger(request.budget ?? {}, request.budgetMode ?? "monitor");
   const items: BatchItemResult[] = [];
   let stoppedByBudget = false;
@@ -222,6 +228,7 @@ export async function runBatch(request: BatchRequest, deps: BatchDeps): Promise<
     runId: request.runId,
     candidateId: request.candidateId,
     rulesText: compiled.rulesText,
+    baseline: request.baseline === true,
     rulesHash: compiled.rulesHash,
     basePromptHash: compiled.basePromptHash,
     compiledPromptHash: compiled.compiledPromptHash,

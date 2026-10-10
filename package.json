@@ -28,6 +28,9 @@
     "evolve:review:record": "node --experimental-strip-types scripts/evolve-review.ts record",
     "evolve:review:verify": "node --experimental-strip-types scripts/evolve-review.ts verify",
     "evolve:review:packet": "node --experimental-strip-types scripts/evolve-review.ts packet",
+    "evolve:dataset:preflight": "node --experimental-strip-types scripts/evolve-dataset.ts preflight",
+    "evolve:dataset:seed": "node --experimental-strip-types scripts/evolve-dataset.ts seed",
+    "evolve:dataset:verify": "node --experimental-strip-types scripts/evolve-dataset.ts verify",
     "docs:check": "node scripts/check-docs.mjs",
     "test:go": "cd adapters/go && go test ./...",
     "pretest": "node scripts/init-demo-repo.mjs && node scripts/init-eval-fixture.mjs"

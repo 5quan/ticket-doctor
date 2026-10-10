@@ -205,6 +205,22 @@ test("汇总：一个 case 一个均值分，原始 trial 全保留", () => {
   assert.equal(cases.find((c) => c.caseId === "b")!.meanScore, 0);
 });
 
+test("基线模式：baseline=true 不加规则，直接用生产内置提示词", async () => {
+  const req = parseBatchRequest({ runId: "b", candidateId: "baseline", baseline: true, caseIds: ["a"], split: "train", repeat: 1 }, { allowedCaseIds: new Set(["a"]) });
+  assert.equal(req.baseline, true);
+  assert.equal(req.rulesText, "");
+  const seen: string[] = [];
+  const outcome = await runBatch(req, {
+    runTrial: async ({ compiledPrompt }) => {
+      seen.push(compiledPrompt);
+      return { result: runResult({ report: { summary: "x", confirmedFacts: [], hypotheses: [] } }), truth: truthWith({}) };
+    },
+  });
+  assert.equal(seen[0], buildSystemPrompt());
+  assert.equal(outcome.baseline, true);
+  assert.equal(outcome.compiledPromptHash, sha256Bytes(buildSystemPrompt()));
+});
+
 test("批量：个别失败记 task_error 不终止；系统性失败终止整轮", async () => {
   const truth = truthWith({ requiredFacts: [{ factId: "f1", concepts: [["panic"]], where: ["summary"] }] });
   const good = runResult({ report: { summary: "panic", confirmedFacts: [], hypotheses: [] } });
