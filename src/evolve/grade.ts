@@ -54,9 +54,46 @@ export function groupSatisfied(text: string, group: string[]): boolean {
   return group.some((lit) => literalAsserted(text, lit));
 }
 
-/** 概念组序列（组间 AND）：全部组满足。 */
+/** 概念组序列（组间 AND）：全部组满足（用于必需事实，允许跨字段/跨句）。 */
 export function groupsSatisfied(text: string, groups: string[][]): boolean {
   return groups.every((g) => groupSatisfied(text, g));
+}
+
+/** 某字面量被断言的**位置**（否定窗口内的出现不计）。 */
+export function assertedPositions(text: string, literal: string): number[] {
+  const hay = text.toLowerCase();
+  const needle = literal.toLowerCase();
+  const out: number[] = [];
+  let from = 0;
+  while (true) {
+    const idx = hay.indexOf(needle, from);
+    if (idx < 0) break;
+    const window = hay.slice(Math.max(0, idx - NEGATION_WINDOW), idx);
+    if (!NEGATION_RE.test(window)) out.push(idx);
+    from = idx + needle.length;
+  }
+  return out;
+}
+
+/** 概念组内全部被断言字面量的位置并集（已排序）。 */
+export function groupPositions(text: string, group: string[]): number[] {
+  const set = new Set<number>();
+  for (const lit of group) for (const p of assertedPositions(text, lit)) set.add(p);
+  return [...set].sort((a, b) => a - b);
+}
+
+/**
+ * 禁用断言：所有概念组必须在同一“断言窗口”内**共现**（默认 40 字）。
+ * 必需事实用 groupsSatisfied（可跨句）；禁用断言必须共现，否则会把
+ * “下游服务是受害者” + “另一处说真正根因”这种正确报告误伤成硬失败。
+ */
+export function groupsColocated(text: string, groups: string[][], window = 40): boolean {
+  const positions = groups.map((g) => groupPositions(text, g));
+  if (positions.some((p) => p.length === 0)) return false;
+  for (const p of positions[0]!) {
+    if (positions.every((ps) => ps.some((q) => Math.abs(q - p) <= window))) return true;
+  }
+  return false;
 }
 
 /** 从报告对象提取指定字段的可匹配文本。 */
@@ -140,7 +177,7 @@ export function gradeCase(result: CaseRunResult, truth: TruthFileV2): GradeResul
     const forbiddenTriggered: string[] = [];
     for (const rule of rt.forbiddenRules) {
       const fields = rule.where.map((f) => reportFieldText(round.report, f)).join("\n");
-      if (groupsSatisfied(fields, rule.assertAnyOf)) {
+      if (groupsColocated(fields, rule.assertAnyOf)) {
         forbiddenTriggered.push(rule.ruleId);
         hardFailures.push(`forbidden_assertion:${round.roundId}/${rule.ruleId}`);
         boundary = 0;

@@ -140,6 +140,19 @@ test("评分：禁用断言触发即硬失败并置 0；否定表述不误伤", 
   assert.equal(ok.hardFailures.length, 0);
 });
 
+test("评分：禁用断言须同窗口共现，跨句正确表述不误伤", () => {
+  const truth = truthWith({ forbiddenRules: [{ ruleId: "forbid-downstream", where: ["summary", "confirmedFacts", "hypotheses"], assertAnyOf: [["checkoutservice", "frontend"], ["根因", "root cause"]] }] });
+  // 正确报告：先提下游受害者，另一处用“根因”描述真正原因——不得误伤。
+  const good = gradeCase(
+    runResult({ report: { summary: "paymentservice 出现 panic，checkoutservice 与 frontend 为下游受害者。", confirmedFacts: [], hypotheses: [{ cause: "paymentservice 未校验可选字段，空指针 panic 是根因" }] } }),
+    truth,
+  );
+  assert.equal(good.hardFailures.length, 0, good.hardFailures.join(","));
+  // 同句把下游当根因仍触发。
+  const bad = gradeCase(runResult({ report: { summary: "checkoutservice 是根因", confirmedFacts: [], hypotheses: [] } }), truth);
+  assert.ok(bad.hardFailures.some((h) => h.includes("forbidden_assertion")));
+});
+
 test("评分：错误 SHA 引用是硬失败", () => {
   const g = gradeCase(runResult({ report: { summary: "x", confirmedFacts: [], hypotheses: [] }, citations: [{ stage: "validated", rawId: "E1", resolved: true, wrongSha: true }] }), truthWith({}));
   assert.ok(g.hardFailures.some((h) => h.includes("citation_invalid")));
