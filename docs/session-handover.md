@@ -52,6 +52,15 @@
 > 校验；`prompt_injection` 四态（actual_request_verified/config_only/not_called/mismatch）并回读 generation 原生 prompt name/version。
 > 真实两轮实验（`baseline-v1-r3` / `candidate-v2-r3`）已跑通并严格读回（原生关联 27/27、34/34）。
 > **人工复核：队列 30 条全 PENDING（先前 API 联通测试分已删），需真人评分；语义质量 unscored，不作质量结论。**详见该方案文档。
+>
+> **2026-10-11 更新（自改进 RSI，GEPA 之前全部完成）**：仓库已收敛为单分支 `main`（旧分支用 `archive/*` tag 保留）。
+> 自改进方案（`docs/self-improvement-implementation-plan.md`）已执行到「开始使用 GEPA 自进化之前」：
+> **交付 A** 材料/协议/9 例 rubric/人工复核准入工具（7 例准入，holdout 2 例保留）；**交付 B** 评测桥梁
+> （候选编译/确定性评分/预算账本/批量协议 `evolve:batch`）；**冻结基线 v2**（真实 pi，21 trial，`rcb-003` 0.85、`rcb-006` 0.67，
+> 存在可复现缺口）；**冻结搜索配置** `evolve/config/search-v1.json`（`evolve:config:verify`）；Langfuse 数据集 7 条已同步。
+> 环境已备：Node 24.9 + Python 3.13 + gepa 0.1.4（`scripts/evolve-env-setup.sh`）。
+> **下一步 = 交付 C：Python GEPAAdapter**。**接手先读 `docs/self-improvement-handover.md`。**
+> 交付记录：`docs/self-improvement-{materials,bridge,baseline,search-config}.md`。
 
 ---
 
