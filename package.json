@@ -33,6 +33,8 @@
     "evolve:dataset:verify": "node --experimental-strip-types scripts/evolve-dataset.ts verify",
     "evolve:config:show": "node --experimental-strip-types scripts/evolve-config.ts show",
     "evolve:config:verify": "node --experimental-strip-types scripts/evolve-config.ts verify",
+    "evolve:gepa:test": "${GEPA_PYTHON:-/opt/venvs/ticket-doctor-gepa/bin/python} -m unittest tools.evolve.tests.test_adapter",
+    "evolve:gepa": "${GEPA_PYTHON:-/opt/venvs/ticket-doctor-gepa/bin/python} -m tools.evolve.optimize",
     "docs:check": "node scripts/check-docs.mjs",
     "test:go": "cd adapters/go && go test ./...",
     "pretest": "node scripts/init-demo-repo.mjs && node scripts/init-eval-fixture.mjs"

@@ -11,3 +11,7 @@ fixtures/evals/*/repo/.git/
 
 # Go 适配器构建产物（go build -o adapter .）
 adapters/go/adapter
+
+# Python（自改进交付 C 适配器）
+__pycache__/
+*.pyc

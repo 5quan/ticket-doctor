@@ -43,20 +43,19 @@
 
 - **冻结基线 v2**（真实 pi，deepseek-flash，21 trial，1,180,879 token）：`docs/self-improvement-baseline.md`。`rcb-003` 稳定 0.85（缺上游证据），`rcb-006` 0.67（把正常延迟误判为根因），其余满分——**存在可复现缺口**。
 - **冻结搜索配置** `evolve/config/search-v1.json` + `src/evolve/config.ts` + `evolve:config:{show,verify}`：`docs/self-improvement-search-config.md`。
+- **交付 C 适配器**：`tools/evolve/`（GEPAAdapter + 反射 LM + optimize 入口）+ `npm run evolve:gepa[:test]`；环境见 `scripts/evolve-env-setup.sh`。
 - Langfuse 数据集 `ticket-doctor-rsi-bootstrap-v1` 已同步 7 条（`evolve:dataset:*`）。
 
 仓库约定：所有改动经分支 + PR 合入 `main`；`main` 是唯一分支。
 
 ## 3. 剩余需要实现的
 
-### C：GEPA 搜索（下一步）
+### C：GEPA 搜索
 
-1. **Python `GEPAAdapter`**（放 `tools/evolve/`）：
-   - `evaluate(batch, candidate, capture_traces)`：以子进程参数数组 + stdin 调用 `scripts/evolve-batch.ts`（不要拼 shell）；候选 = `{"diagnosis_rules": "规则全文"}`。
-   - `make_reflective_dataset(candidate, eval_batch, components_to_update)`：整理输入、实际输出与**具体失败反馈**。
-   - 参考 `docs/self-improvement-implementation-plan.md` §6.1/§6.2；读完 `evolve/config/search-v1.json` 的 `gepa` 参数。
-2. **请求前预算拦截**（方案 §8）：当前无统一可拒绝的模型 transport，账本默认 `monitor`；要硬限额需接统一 gateway。
-3. **候选选择/报告（交付 D）**：接受/拒绝、逐例差异、成本、待审制品、发布与回滚入口。
+1. **Python `GEPAAdapter`**：✅ 已实现（`tools/evolve/`，见其 `README.md`）：`evaluate` 按 split 分组子进程调桥梁；`make_reflective_dataset` 产出反思样本；holdout 案例直接拒绝；token 累计 + `MaxTokensStopper`。5 项单测通过（`npm run evolve:gepa:test`）。
+   **剩余：用真实反射 LM 跑一次搜索**：`npm run evolve:gepa -- --config evolve/config/search-v1.json`（需 `DEEPSEEK_API_KEY` 与预算；产物在 `data/evolve/gepa/<run>/`）。
+2. **请求前预算拦截**（方案 §8）：当前账本 `monitor`，`MaxTokensStopper` 只在 trial 间停止；要请求前硬限需接统一 gateway。
+3. **候选选择/报告（交付 D）**：接受/拒绝、逐例差异、成本、待审制品、发布与回滚入口（`tools/evolve/optimize.py` 已出 `report.json`/`best-rules.md` 与 `adopt/keep` 初步结论）。
 
 ### 仍缺
 
