@@ -11,9 +11,9 @@
 | 模块 | 作用 |
 |---|---|
 | `src/evolve/materials/convert.ts` | NDJSON → 每服务 `.log`：原 `timestamp`/`severity`/`msg` 原样，附加字段（`trace_id`/`http.route`/`stack`…）按键排序入消息，多行折叠单行；逐行记录原始 NDJSON 行号；非法行整体失败 |
-| `src/evolve/materials/catalog.ts` | 读冻结清单 `fixtures/research/rsi-bootstrap/manifest.json`，核对 92 文件 sha256/字节，检查 split 卫生（同 family 不跨 split），首批 `rcb-001/004/007` |
+| `src/evolve/materials/catalog.ts` | 读冻结清单 `fixtures/research/rsi-bootstrap/manifest.json`，核对 92 文件 sha256/字节，检查 split 卫生（同 family 不跨 split） |
 | `src/evolve/materials/materialize.ts` | 物化到 `data/evolve/rsi-bootstrap/<caseId>/round-1/logs/`，写 `mapping.json`、`materials.json` |
-| `src/evolve/materials/rubrics.ts` | 三例的**暂定**私有 rubric（`provisional=true`）：允许结论、必需事实、禁用断言、证据需求、回写要求 |
+| `src/evolve/materials/rubrics.ts` | 9 例的**暂定**私有 rubric（`provisional=true`）：允许结论、必需事实、禁用断言、证据需求、回写要求；`FIRST_BATCH_SPECS` 保留首三例 |
 | `src/evolve/materials/build-cases.ts` | 装配 `prediagnosis-case-v2` + `prediagnosis-truth-v2`（`data/eval-v2/public|private/<caseId>`），合并 catalog，写 `cases-manifest.json` |
 | `src/evolve/materials/dataset.ts` | 通用数据集 builder：**只纳入 admitted**，其余显式跳过（当前 0 条） |
 
@@ -27,13 +27,13 @@
 
 - Agent 可见日志视图**只含 `<service>.log`**；`mapping.json` 在同级 `round-1/` 之外，私有 rubric 与 `root-cause.md` 在 `private/`。
 - 变更 diff、部署、flags、metrics、traces、patterns 只登记为归档附件 `readable=false`，不进日志视图。
-- 首批 `rcb-001`、`rcb-004`（train）与 `rcb-007`（validation）；全部 `reviewStatus=needs-review`、`admission=qualified`、`review.provisional=true`。
+- 全部 9 例 `reviewStatus=needs-review` 起草完成；train `rcb-001~004` 与 validation `rcb-005~007` 经复核准入（`review.provisional=false`），holdout `rcb-008/009` 仍 `qualified`。
 
 ## 2. 命令
 
 ```bash
 npm run evolve:materials:verify                 # 核对冻结包 hash 与 split 卫生（只读）
-npm run evolve:materials:convert                # 转换首批 3 例
+npm run evolve:materials:convert                # 转换 9 例（或 --case <id>）
 npm run evolve:materials:convert -- --all       # 全部 9 例
 npm run evolve:materials:build                  # 装配 case-v2/truth-v2 + catalog + 数据集清单
 npm run evolve:review                           # 列出 split/admission/rubric 指纹/复核状态
@@ -59,7 +59,7 @@ npm run evolve:dataset:verify                   # 从服务器读回核对 item 
 
 ## 4. 尚未完成
 
-1. **人工复核**：工具就绪，但批准动作必须由人完成（当前三例均 `qualified`、未复核）。
+1. **人工复核**：工具就绪。train `rcb-001~004` 与 validation `rcb-005~007` 已批准准入（reviewer=5quan）；holdout `rcb-008/009` 已起草但**未准入**，留最终验收。
 2. **Langfuse 导入**：已完成——`ticket-doctor-rsi-bootstrap-v1` 已同步 3 条（train×2/validation×1），`evolve:dataset:verify` 读回一致；只导入 admitted 案例，私有 truth 不进 item input。
 3. **多轮 / 补证 / 反证材料**：首批为单轮 log-only；方案 §4.4 的 FastAPI 历史故障与多轮材料未做。
 4. **隔离**：holdout 材料仍在同一 checkout；正式搜索 job 需要独立读取授权，现有目录划分不构成进程权限隔离。

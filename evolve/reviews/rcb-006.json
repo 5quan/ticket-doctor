@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "rsi-rubric-review/v0",
+  "caseId": "rcb-006",
+  "rubricHash": "9ad66f836184f76dafa916026600560bdefdee67044e3d001d2b4ecfb253e4f9",
+  "reviewer": "5quan",
+  "reviewedAt": "2026-10-11T03:17:55.359Z",
+  "decision": "approved",
+  "notes": "AI 预审通过 + 用户授权记录（事实/诱饵/定位/题面与公开日志、oracle 已核对）"
+}
