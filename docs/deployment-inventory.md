@@ -53,7 +53,7 @@
 | systemd 单元 | `/etc/systemd/system/ticket-doctor-{host,adapter}.service` | 副本已入库 `deploy/systemd/` |
 | Langfuse 密钥 | `/opt/ticket-doctor/deploy/langfuse/.env`（chmod 600） | 模板 `deploy/langfuse/.env.example`；含 Postgres/MinIO/ClickHouse/Redis 密码与 `LANGFUSE_INIT_*` |
 | Langfuse 数据 | Docker 命名卷 `langfuse_langfuse_{postgres,clickhouse,clickhouse_logs,minio,redis}_data` | 现网在 `/data/docker/volumes/`；约 3.3G（ClickHouse 最大） |
-| Go 适配器二进制 | `/opt/ticket-doctor/adapters/go/adapter` | 可 `cd adapters/go && go build -o adapter .` 重建 |
+| Go 适配器二进制 | `/opt/ticket-doctor/adapters/go/adapter` | 迁移包已含预编译二进制（同架构可直接用，**无需装 Go**）；也可 `cd adapters/go && go build -o adapter .` 重建 |
 
 **不要迁移**：旧 `ticketing-*` 演示栈容器（与本项目无关）、`archive/*` 分支（已在 tag）、`node_modules`（重装）。
 

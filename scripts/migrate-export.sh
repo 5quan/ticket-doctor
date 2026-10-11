@@ -41,6 +41,13 @@ echo "[export] 收集 compose 与 systemd 单元"
 cp -a "$ROOT/deploy/langfuse/compose.yml" "$ROOT/deploy/langfuse/compose.mirror.cn.yml" "$STAGE/deploy-langfuse/"
 cp -a "$ROOT/deploy/systemd/." "$STAGE/systemd/"
 
+# 预编译适配器二进制（带它新机就不需要装 Go；同架构 Linux 可直接用）
+if [ -x "$ROOT/adapters/go/adapter" ]; then
+  echo "[export] 收集预编译适配器二进制"
+  mkdir -p "$STAGE/adapters-go"
+  cp -a "$ROOT/adapters/go/adapter" "$STAGE/adapters-go/adapter"
+fi
+
 if [ "$WITH_DATA" = 1 ]; then
   echo "[export] 打包 data/（Host 运行数据）"
   tar -C "$ROOT" -czf "$STAGE/data.tgz" data
