@@ -59,8 +59,29 @@
 
 ## 5. 新服务器启动步骤
 
-前置：Ubuntu、root/sudo、Docker + Compose、Node 22+（Host 用）、Go 1.22+（仅重建适配器用）；网络能到 GitHub / DeepSeek / 飞书（Langfuse 镜像按国内环境走镜像源，见 `docs/self-host-langfuse-runbook.md`）。
+### 5.0 一键搬运（推荐）
 
+旧机打包（含密钥，走加密通道传输）：
+
+```bash
+# 只要密钥与运行数据（约 100M）
+bash scripts/migrate-export.sh --with-data -o /tmp/td-migration.tar.gz
+# 连 Langfuse 历史一起搬（约 3.3G）
+bash scripts/migrate-export.sh --with-data --with-langfuse -o /tmp/td-migration.tar.gz
+scp /tmp/td-migration.tar.gz new-host:/tmp/
+```
+
+新机还原（先 clone + `npm ci`）：
+
+```bash
+sudo bash scripts/migrate-restore.sh /tmp/td-migration.tar.gz [--with-langfuse]
+```
+
+脚本只搬运密钥与数据，不含密钥值；细节见脚本头部注释。下面 5.1 是手工版。
+
+### 5.1 手工步骤
+
+前置：Ubuntu、root/sudo、Docker + Compose、Node 22+（Host 用）、Go 1.22+（仅重建适配器用）；网络能到 GitHub / DeepSeek / 飞书（Langfuse 镜像按国内环境走镜像源，见 `docs/self-host-langfuse-runbook.md`）。
 ```bash
 # 1) 代码
 sudo mkdir -p /opt && cd /opt
