@@ -31,6 +31,8 @@
     "evolve:dataset:preflight": "node --experimental-strip-types scripts/evolve-dataset.ts preflight",
     "evolve:dataset:seed": "node --experimental-strip-types scripts/evolve-dataset.ts seed",
     "evolve:dataset:verify": "node --experimental-strip-types scripts/evolve-dataset.ts verify",
+    "evolve:config:show": "node --experimental-strip-types scripts/evolve-config.ts show",
+    "evolve:config:verify": "node --experimental-strip-types scripts/evolve-config.ts verify",
     "docs:check": "node scripts/check-docs.mjs",
     "test:go": "cd adapters/go && go test ./...",
     "pretest": "node scripts/init-demo-repo.mjs && node scripts/init-eval-fixture.mjs"
