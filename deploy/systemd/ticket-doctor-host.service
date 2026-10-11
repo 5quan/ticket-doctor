@@ -1,0 +1,16 @@
+[Unit]
+Description=ticket-doctor Host (Web API + 调度 + Langfuse 观测)
+After=network-online.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/opt/ticket-doctor
+ExecStart=/usr/bin/npm run host
+Restart=on-failure
+RestartSec=5
+# 日志进 journald（docker 之外的本机服务）
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
