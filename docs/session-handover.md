@@ -59,7 +59,8 @@
 > （候选编译/确定性评分/预算账本/批量协议 `evolve:batch`）；**冻结基线 v2**（真实 pi，21 trial，`rcb-003` 0.85、`rcb-006` 0.67，
 > 存在可复现缺口）；**冻结搜索配置** `evolve/config/search-v1.json`（`evolve:config:verify`）；Langfuse 数据集 7 条已同步。
 > 环境已备：Node 24.9 + Python 3.13 + gepa 0.1.4（`scripts/evolve-env-setup.sh`）。
-> **下一步 = 交付 C：Python GEPAAdapter**。**接手先读 `docs/self-improvement-handover.md`。**
+> **交付 C 适配器已实现**（`tools/evolve/`，`npm run evolve:gepa[:test]`）；**下一步 = 用真实反射 LM 跑一次搜索 + 交付 D 审核发布**。
+> **接手先读 `docs/self-improvement-handover.md`。**
 > 交付记录：`docs/self-improvement-{materials,bridge,baseline,search-config}.md`。
 > 服务器到期换机看 [资源与迁移清单](deployment-inventory.md)（服务/端口/密钥/启动步骤/Langfuse 数据迁移）。
 
