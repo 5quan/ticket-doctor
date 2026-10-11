@@ -11,6 +11,7 @@ import { test } from "node:test";
 import { loadRsiBootstrapManifest, selectFirstBatch } from "../../src/evolve/materials/catalog.ts";
 import { materializeCase } from "../../src/evolve/materials/materialize.ts";
 import { buildBootstrapCases } from "../../src/evolve/materials/build-cases.ts";
+import { FIRST_BATCH_SPECS } from "../../src/evolve/materials/rubrics.ts";
 import { buildBootstrapDataset } from "../../src/evolve/materials/dataset.ts";
 import {
   ReviewError,
@@ -31,7 +32,7 @@ function setup() {
   const evalRoot = mkdtempSync(join(tmpdir(), "evolve-rev-eval-"));
   const reviewRoot = mkdtempSync(join(tmpdir(), "evolve-rev-store-"));
   for (const c of selectFirstBatch(loadRsiBootstrapManifest(ROOT))) materializeCase(ROOT, materialsRoot, c);
-  buildBootstrapCases(ROOT, evalRoot, undefined, { materialsRoot, reviewRoot });
+  buildBootstrapCases(ROOT, evalRoot, FIRST_BATCH_SPECS, { materialsRoot, reviewRoot });
   return { materialsRoot, evalRoot, reviewRoot };
 }
 
@@ -78,7 +79,7 @@ test("重建不丢批准：approved 指纹一致则 case.json 置 admitted 且 r
   // 初次未复核 → qualified
   assert.equal(JSON.parse(readFileSync(join(evalRoot, "public", "rcb-001", "case.json"), "utf8")).admission, "qualified");
   approve(reviewRoot, "rcb-001", rubricHash(truth));
-  buildBootstrapCases(ROOT, evalRoot, undefined, { materialsRoot, reviewRoot });
+  buildBootstrapCases(ROOT, evalRoot, FIRST_BATCH_SPECS, { materialsRoot, reviewRoot });
   const caseDesc = JSON.parse(readFileSync(join(evalRoot, "public", "rcb-001", "case.json"), "utf8")) as { admission: string };
   assert.equal(caseDesc.admission, "admitted");
   const t2 = readTruth(evalRoot, "rcb-001");

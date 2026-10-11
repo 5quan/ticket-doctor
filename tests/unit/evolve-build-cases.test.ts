@@ -11,6 +11,7 @@ import { test } from "node:test";
 import { loadRsiBootstrapManifest, selectFirstBatch } from "../../src/evolve/materials/catalog.ts";
 import { materializeCase } from "../../src/evolve/materials/materialize.ts";
 import { buildBootstrapCases, MATERIAL_VIEW } from "../../src/evolve/materials/build-cases.ts";
+import { FIRST_BATCH_SPECS } from "../../src/evolve/materials/rubrics.ts";
 import { buildBootstrapDataset, bootstrapItemId, listRsiCases, seedBootstrapDataset } from "../../src/evolve/materials/dataset.ts";
 import { loadCase, loadCatalog, loadTruth, loadRoundMessage } from "../../src/eval/lf/internals/load.ts";
 import { validatePairing } from "../../src/eval/lf/internals/schema.ts";
@@ -25,7 +26,7 @@ function setup() {
   const manifest = loadRsiBootstrapManifest(ROOT);
   const cases = selectFirstBatch(manifest);
   for (const c of cases) materializeCase(ROOT, materialsRoot, c);
-  buildBootstrapCases(ROOT, evalRoot, undefined, { materialsRoot, reviewRoot });
+  buildBootstrapCases(ROOT, evalRoot, FIRST_BATCH_SPECS, { materialsRoot, reviewRoot });
   return { materialsRoot, evalRoot, reviewRoot, cases };
 }
 
@@ -77,7 +78,7 @@ test("数据集 builder：经复核准入后才纳入，input 不含私有内容
   const truth = loadTruth(evalRoot, loadCatalog(evalRoot).cases.find((e) => e.caseId === "rcb-001")!);
   const review: RubricReview = { schemaVersion: "rsi-rubric-review/v0", caseId: "rcb-001", rubricHash: rubricHash(truth), reviewer: "tester", reviewedAt: "t", decision: "approved" };
   writeReview(ROOT, review, { reviewRoot });
-  buildBootstrapCases(ROOT, evalRoot, undefined, { materialsRoot, reviewRoot });
+  buildBootstrapCases(ROOT, evalRoot, FIRST_BATCH_SPECS, { materialsRoot, reviewRoot });
 
   const built = buildBootstrapDataset(evalRoot, ROOT, { reviewRoot });
   assert.equal(built.items.length, 1);
@@ -99,7 +100,7 @@ test("数据集 seed dry-run：只组装不触网，itemId 确定且准入过滤
     const truth = loadTruth(evalRoot, loadCatalog(evalRoot).cases.find((e) => e.caseId === caseId)!);
     writeReview(ROOT, { schemaVersion: "rsi-rubric-review/v0", caseId, rubricHash: rubricHash(truth), reviewer: "t", reviewedAt: "t", decision: "approved" }, { reviewRoot });
   }
-  buildBootstrapCases(ROOT, evalRoot, undefined, { materialsRoot, reviewRoot });
+  buildBootstrapCases(ROOT, evalRoot, FIRST_BATCH_SPECS, { materialsRoot, reviewRoot });
   const res = await seedBootstrapDataset(null as unknown as import("@langfuse/client").LangfuseClient, evalRoot, ROOT, { reviewRoot });
   assert.equal(res.synced, false);
   assert.deepEqual(res.items.map((i) => i.caseId).sort(), ["rcb-001", "rcb-004", "rcb-007"]);

@@ -9,7 +9,7 @@ import type { LogLocatorV2, RoundTruthV2 } from "../../eval/lf/internals/types.t
 export interface BootstrapCaseSpec {
   caseId: string;
   familyId: string;
-  split: "train" | "validation";
+  split: "train" | "validation" | "holdout";
   /** 该例公开日志里出现过的全部服务（本轮可查询白名单）。 */
   services: string[];
   /** 只读日志能达到的判断深度。 */
@@ -210,7 +210,305 @@ const SPEC_007: BootstrapCaseSpec = {
   notes: "validation 例：验证流程用；前端主题诱饵不要求 Agent 看见部署材料。",
 };
 
-export const BOOTSTRAP_SPECS: BootstrapCaseSpec[] = [SPEC_001, SPEC_004, SPEC_007];
+const SPEC_002: BootstrapCaseSpec = {
+  caseId: "rcb-002",
+  familyId: "n-plus-one",
+  split: "train",
+  services: ["cartservice", "checkoutservice", "frontend", "paymentservice", "productcatalogservice"],
+  allowedClaimDepth: "direct",
+  rootCauseRef: "root-cause.md",
+  rootCauseText: [
+    "# rcb-002 制作侧根因（私有）",
+    "",
+    "场景：checkout-latency-n-plus-one。PlaceOrder 循环内新增按行 catalog 查询",
+    "（SELECT * FROM catalog_items WHERE sku = $1），每请求 ~40+ 条查询，p99 飙升；",
+    "cartservice/frontend 为下游受害者，productcatalogservice 是被放大的受害方。",
+    "修复方式：回滚。",
+  ].join("\n"),
+  locators: [
+    { kind: "log", locatorId: "loc-checkout-slow", keyContent: "slow request: PlaceOrder exceeded", fileName: "checkoutservice.log" },
+    { kind: "log", locatorId: "loc-catalog-select", keyContent: "SELECT * FROM catalog_items WHERE sku", fileName: "checkoutservice.log" },
+    { kind: "log", locatorId: "loc-cart-upstream", keyContent: "upstream checkoutservice slow", fileName: "cartservice.log" },
+  ],
+  round: {
+    allowedOutcomes: ["report", "clarify"],
+    allowedClaimDepth: "direct",
+    requiredFacts: [
+      {
+        factId: "fact-nplus-one",
+        concepts: [["SELECT * FROM catalog_items", "catalog_items", "N+1", "n+1", "按行", "逐条", "循环查询", "per-item", "per-line"], ["checkoutservice", "PlaceOrder", "下单"]],
+        where: ["summary", "confirmedFacts", "hypotheses"],
+      },
+      {
+        factId: "fact-placeorder-slow",
+        concepts: [["slow request", "exceeded", "慢请求", "延迟", "超时"], ["checkoutservice", "PlaceOrder"]],
+        where: ["summary", "confirmedFacts", "hypotheses"],
+      },
+    ],
+    forbiddenRules: [
+      { ruleId: "forbid-catalog-root", where: ["hypotheses"], assertAnyOf: [["productcatalogservice", "productcatalog", "catalog service"], ["root cause", "根因", "根本原因", "问题出在"]], onlyWhenStatus: "supported" },
+      { ruleId: "forbid-cart-root", where: ["hypotheses"], assertAnyOf: [["cartservice", "cart service"], ["root cause", "根因", "根本原因"]], onlyWhenStatus: "supported" },
+    ],
+    forbiddenAssertions: ["不得把下游 cartservice/productcatalogservice 当成根因。"],
+    acceptableClaims: ["PlaceOrder 在循环内对 catalog 逐条查询（N+1），导致 p99 上升。"],
+    materialNeeds: [],
+    evidenceRequirements: [
+      { requirementId: "req-placeorder-slow", depth: "direct", supportsAnyOf: [{ allOf: ["loc-checkout-slow"] }] },
+      { requirementId: "req-nplus-one", depth: "direct", supportsAnyOf: [{ allOf: ["loc-catalog-select"] }] },
+    ],
+    contradictedClaims: [],
+    writebackRequirements: [{ reqId: "wb-nplus-one", concepts: [["catalog_items", "N+1", "逐条", "按行"], ["checkoutservice", "PlaceOrder"]] }],
+  },
+  notes: "N+1 查询：catalog_items SELECT 在日志中大量重复。productcatalog 是受害方。",
+};
+
+const SPEC_003: BootstrapCaseSpec = {
+  caseId: "rcb-003",
+  familyId: "connection-pool",
+  split: "train",
+  services: ["cartservice", "frontend", "inventoryservice", "orderservice", "shippingservice"],
+  allowedClaimDepth: "direct",
+  rootCauseRef: "root-cause.md",
+  rootCauseText: [
+    "# rcb-003 制作侧根因（私有）",
+    "",
+    "场景：inventory-connection-pool-exhaustion。共享 db 库把默认连接上限 50 降到 10，",
+    "inherits 该默认的 inventoryservice 池很快饱和，acquire 超时；cart/shipping 等上游被拖累。",
+    "修复方式：回滚共享库。",
+  ].join("\n"),
+  locators: [
+    { kind: "log", locatorId: "loc-inv-pool-exhausted", keyContent: "pgx pool: context deadline exceeded acquiring connection", fileName: "inventoryservice.log" },
+    { kind: "log", locatorId: "loc-inv-pool-wait", keyContent: "pgx pool: waited", fileName: "inventoryservice.log" },
+    { kind: "log", locatorId: "loc-inv-upstream", keyContent: "upstream inventoryservice timeout", fileName: "cartservice.log" },
+  ],
+  round: {
+    allowedOutcomes: ["report", "clarify"],
+    allowedClaimDepth: "direct",
+    requiredFacts: [
+      {
+        factId: "fact-pool-exhausted",
+        concepts: [["pool exhausted", "连接池", "pool", "acquire", "获取连接", "耗尽", "饱和"], ["inventoryservice", "数据库", "db", "pgx"]],
+        where: ["summary", "confirmedFacts", "hypotheses"],
+      },
+    ],
+    forbiddenRules: [
+      { ruleId: "forbid-upstream-root", where: ["hypotheses"], assertAnyOf: [["cartservice", "shippingservice", "shipping service"], ["root cause", "根因", "根本原因", "问题出在"]], onlyWhenStatus: "supported" },
+    ],
+    forbiddenAssertions: ["不得把上游 cartservice/shippingservice 的超时当成根因（它们是受害者）。"],
+    acceptableClaims: ["inventoryservice 的数据库连接池耗尽，acquire 超时，拖累上游。"],
+    materialNeeds: [],
+    evidenceRequirements: [
+      { requirementId: "req-pool-exhausted", depth: "direct", supportsAnyOf: [{ allOf: ["loc-inv-pool-exhausted"] }] },
+      { requirementId: "req-upstream-timeout", depth: "direct", supportsAnyOf: [{ allOf: ["loc-inv-upstream"] }] },
+    ],
+    contradictedClaims: [],
+    writebackRequirements: [{ reqId: "wb-pool", concepts: [["inventoryservice"], ["连接池", "pool", "acquire", "连接"]] }],
+  },
+  notes: "池耗尽：pool exhausted / waited 在 inventoryservice 日志大量出现。",
+};
+
+const SPEC_005: BootstrapCaseSpec = {
+  caseId: "rcb-005",
+  familyId: "memory-leak",
+  split: "validation",
+  services: ["adservice", "frontend", "productcatalogservice", "recommendationservice"],
+  allowedClaimDepth: "direct",
+  rootCauseRef: "root-cause.md",
+  rootCauseText: [
+    "# rcb-005 制作侧根因（私有）",
+    "",
+    "场景：recommendation-memory-leak。每次 Score() 向包级 slice 追加记录且无上限/淘汰，",
+    "RSS 持续增长至超限 OOMKilled；frontend 只是推荐位不可用的受害者。",
+    "修复方式：回滚。",
+  ].join("\n"),
+  locators: [
+    { kind: "log", locatorId: "loc-oom", keyContent: "OOMKilled", fileName: "recommendationservice.log" },
+    { kind: "log", locatorId: "loc-gc-growth", keyContent: "heap growing, forced GC did not reclaim", fileName: "recommendationservice.log" },
+    { kind: "log", locatorId: "loc-frontend-rail", keyContent: "recommendation rail failed to render", fileName: "frontend.log" },
+  ],
+  round: {
+    allowedOutcomes: ["report", "clarify"],
+    allowedClaimDepth: "direct",
+    requiredFacts: [
+      {
+        factId: "fact-oom",
+        concepts: [["OOMKilled", "memory limit", "内存", "RSS", "oom"], ["recommendationservice", "推荐"]],
+        where: ["summary", "confirmedFacts", "hypotheses"],
+      },
+      {
+        factId: "fact-gc-growth",
+        concepts: [["heap growing", "forced GC", "GC pause", "未回收", "增长", "泄漏", "leak"], ["recommendationservice", "内存", "heap"]],
+        where: ["summary", "confirmedFacts", "hypotheses"],
+      },
+    ],
+    forbiddenRules: [
+      { ruleId: "forbid-frontend-root", where: ["hypotheses"], assertAnyOf: [["frontend"], ["root cause", "根因", "根本原因", "问题出在"]], onlyWhenStatus: "supported" },
+    ],
+    forbiddenAssertions: ["不得把 frontend 推荐位渲染失败当成根因（它是受害者）。"],
+    acceptableClaims: ["recommendationservice 内存持续增长、GC 无法回收，超限被 OOMKilled。"],
+    materialNeeds: [],
+    evidenceRequirements: [
+      { requirementId: "req-oom", depth: "direct", supportsAnyOf: [{ allOf: ["loc-oom"] }] },
+      { requirementId: "req-gc-growth", depth: "direct", supportsAnyOf: [{ allOf: ["loc-gc-growth"] }] },
+    ],
+    contradictedClaims: [],
+    writebackRequirements: [{ reqId: "wb-memory", concepts: [["recommendationservice"], ["内存", "OOM", "泄漏", "GC"]] }],
+  },
+  notes: "延迟发作型内存泄漏：RSS/GC 证据可见；最近一次部署不一定是原因（仅日志时不可判）。",
+};
+
+const SPEC_006: BootstrapCaseSpec = {
+  caseId: "rcb-006",
+  familyId: "grpc-deadline",
+  split: "validation",
+  services: ["cartservice", "frontend", "paymentservice", "productcatalogservice", "recommendationservice"],
+  allowedClaimDepth: "direct",
+  rootCauseRef: "root-cause.md",
+  rootCauseText: [
+    "# rcb-006 制作侧根因（私有）",
+    "",
+    "场景：grpc-deadline-too-tight。catalog 调用的客户端 deadline 从 5s 收紧到 300ms，",
+    "低于 catalog 正常 p99（~400ms），导致 DeadlineExceeded；productcatalogservice 因客户端提前取消",
+    "而记录 CANCELLED，是被打断的一方而非变慢的一方。frontend 为下游受害者。修复：回滚。",
+  ].join("\n"),
+  locators: [
+    { kind: "log", locatorId: "loc-reco-deadline", keyContent: "catalog Fetch failed: rpc error: code = DeadlineExceeded", fileName: "recommendationservice.log" },
+    { kind: "log", locatorId: "loc-catalog-cancel", keyContent: "context canceled by client before completion", fileName: "productcatalogservice.log" },
+    { kind: "log", locatorId: "loc-frontend-rail", keyContent: "recommendation rail unavailable", fileName: "frontend.log" },
+  ],
+  round: {
+    allowedOutcomes: ["report", "clarify"],
+    allowedClaimDepth: "direct",
+    requiredFacts: [
+      {
+        factId: "fact-deadline",
+        concepts: [["DeadlineExceeded", "deadline exceeded", "deadline", "截止时间", "超时"], ["recommendationservice", "catalog", "推荐"]],
+        where: ["summary", "confirmedFacts", "hypotheses"],
+      },
+      {
+        factId: "fact-catalog-victim",
+        concepts: [["context canceled by client", "canceled", "cancelled", "取消"], ["productcatalogservice", "catalog"]],
+        where: ["summary", "confirmedFacts", "hypotheses"],
+      },
+    ],
+    forbiddenRules: [
+      { ruleId: "forbid-catalog-root", where: ["hypotheses"], assertAnyOf: [["productcatalogservice", "productcatalog", "catalog service"], ["root cause", "根因", "根本原因", "问题出在", "变慢"]], onlyWhenStatus: "supported" },
+    ],
+    forbiddenAssertions: ["不得把 productcatalogservice 当成根因（它没有变慢，是被调用方提前取消）。"],
+    acceptableClaims: ["recommendationservice 调 catalog 命中 DeadlineExceeded；catalog 的 cancel 是被提前取消。"],
+    materialNeeds: [],
+    evidenceRequirements: [
+      { requirementId: "req-reco-deadline", depth: "direct", supportsAnyOf: [{ allOf: ["loc-reco-deadline"] }] },
+      { requirementId: "req-catalog-cancel", depth: "direct", supportsAnyOf: [{ allOf: ["loc-catalog-cancel"] }] },
+    ],
+    contradictedClaims: [],
+    writebackRequirements: [{ reqId: "wb-deadline", concepts: [["recommendationservice", "catalog"], ["DeadlineExceeded", "deadline", "超时"]] }],
+  },
+  notes: "预算过紧：调用方 DeadlineExceeded，被调方 CANCELLED；被调方并非变慢。",
+};
+
+const SPEC_008: BootstrapCaseSpec = {
+  caseId: "rcb-008",
+  familyId: "poison-record",
+  split: "holdout",
+  services: ["billing-api", "partner-gateway", "payment-refund-svc"],
+  allowedClaimDepth: "direct",
+  rootCauseRef: "root-cause.md",
+  rootCauseText: [
+    "# rcb-008 制作侧根因（私有，holdout）",
+    "",
+    "场景：payment-refund-poison-batch。伙伴批里一条非法记录（currency=XBT、amount 非十进制）被",
+    "validator 正确拒绝；消费端无 DLQ，同一条记录无限重投，backlog 上涨；billing-api 轮询超时是受害方。",
+    "根因是数据记录，不是任何 commit（root_cause_commit=none）。修复：补 DLQ/跳过隔离。",
+  ].join("\n"),
+  locators: [
+    { kind: "log", locatorId: "loc-invalid-currency", keyContent: "invalid currency code", fileName: "payment-refund-svc.log" },
+    { kind: "log", locatorId: "loc-redelivery", keyContent: "redelivery of message offset", fileName: "payment-refund-svc.log" },
+    { kind: "log", locatorId: "loc-billing-poll", keyContent: "refund status poll timed out", fileName: "billing-api.log" },
+  ],
+  round: {
+    allowedOutcomes: ["report", "clarify"],
+    allowedClaimDepth: "direct",
+    requiredFacts: [
+      {
+        factId: "fact-poison-record",
+        concepts: [["invalid currency", "currency code", "XBT", "币种", "货币"], ["refund", "rfnd", "退款"]],
+        where: ["summary", "confirmedFacts", "hypotheses"],
+      },
+      {
+        factId: "fact-redelivery",
+        concepts: [["redelivery", "stalled", "重投", "重复", "offset", "积压", "backlog"], ["consumer", "refund", "消费", "退款"]],
+        where: ["summary", "confirmedFacts", "hypotheses"],
+      },
+    ],
+    forbiddenRules: [
+      { ruleId: "forbid-billing-root", where: ["hypotheses"], assertAnyOf: [["billing-api", "billing"], ["root cause", "根因", "根本原因", "问题出在"]], onlyWhenStatus: "supported" },
+    ],
+    forbiddenAssertions: ["不得把 billing-api 轮询超时当根因（它是受害方）。"],
+    acceptableClaims: ["一条非法退款记录被拒后无 DLQ、同一条无限重投，消费停滞；billing-api 轮询超时是连带。"],
+    materialNeeds: [],
+    evidenceRequirements: [
+      { requirementId: "req-poison", depth: "direct", supportsAnyOf: [{ allOf: ["loc-invalid-currency", "loc-redelivery"] }] },
+    ],
+    contradictedClaims: [],
+    writebackRequirements: [{ reqId: "wb-poison", concepts: [["refund", "退款"], ["redelivery", "invalid currency", "stalled", "重投"]] }],
+  },
+  notes: "holdout：无代码原因的弃权陷阱（根因是数据记录）。不纳入搜索，留最终验收。",
+};
+
+const SPEC_009: BootstrapCaseSpec = {
+  caseId: "rcb-009",
+  familyId: "tls-cert",
+  split: "holdout",
+  services: ["checkoutservice", "frontend", "orderservice", "paymentservice", "productcatalogservice"],
+  allowedClaimDepth: "direct",
+  rootCauseRef: "root-cause.md",
+  rootCauseText: [
+    "# rcb-009 制作侧根因（私有，holdout）",
+    "",
+    "场景：tls-cert-expiry。paymentservice 服务端叶证书于 15:04 过期，orderservice->paymentservice",
+    "mTLS 握手失败（x509 expired），orderservice 返回 502，checkout/frontend 连带；",
+    "paymentservice 本身健康。根因是运维证书，不是 commit（root_cause_commit=none）。修复：轮换证书。",
+  ].join("\n"),
+  locators: [
+    { kind: "log", locatorId: "loc-tls-expired", keyContent: "x509: certificate has expired or is not yet valid", fileName: "orderservice.log" },
+    { kind: "log", locatorId: "loc-cert-dates", keyContent: "notAfter=2026-06-18T15:04:00Z", fileName: "orderservice.log" },
+    { kind: "log", locatorId: "loc-checkout-502", keyContent: "upstream orderservice returned 502", fileName: "checkoutservice.log" },
+  ],
+  round: {
+    allowedOutcomes: ["report", "clarify"],
+    allowedClaimDepth: "direct",
+    requiredFacts: [
+      {
+        factId: "fact-cert-expired",
+        concepts: [["certificate has expired", "x509", "证书", "过期", "expired"], ["paymentservice", "tls", "TLS"]],
+        where: ["summary", "confirmedFacts", "hypotheses"],
+      },
+      {
+        factId: "fact-victim-chain",
+        concepts: [["502", "propagating", "下游", "连带"], ["checkoutservice", "orderservice"]],
+        where: ["summary", "confirmedFacts", "hypotheses"],
+      },
+    ],
+    forbiddenRules: [
+      { ruleId: "forbid-checkout-root", where: ["hypotheses"], assertAnyOf: [["checkoutservice"], ["root cause", "根因", "根本原因", "问题出在"]], onlyWhenStatus: "supported" },
+    ],
+    forbiddenAssertions: ["不得把 checkoutservice 的 502 当根因（它是下游）。"],
+    acceptableClaims: ["paymentservice 服务端证书过期导致 mTLS 握手失败，orderservice 502，checkout/frontend 连带。"],
+    materialNeeds: [],
+    evidenceRequirements: [
+      { requirementId: "req-cert-expired", depth: "direct", supportsAnyOf: [{ allOf: ["loc-tls-expired"] }] },
+      { requirementId: "req-victim-chain", depth: "direct", supportsAnyOf: [{ allOf: ["loc-checkout-502"] }] },
+    ],
+    contradictedClaims: [],
+    writebackRequirements: [{ reqId: "wb-cert", concepts: [["paymentservice", "certificate", "证书", "tls"], ["expired", "过期"]] }],
+  },
+  notes: "holdout：无代码原因的运维问题（证书过期）。不纳入搜索，留最终验收。",
+};
+
+export const FIRST_BATCH_SPECS: BootstrapCaseSpec[] = [SPEC_001, SPEC_004, SPEC_007];
+
+export const BOOTSTRAP_SPECS: BootstrapCaseSpec[] = [SPEC_001, SPEC_004, SPEC_007, SPEC_002, SPEC_003, SPEC_005, SPEC_006, SPEC_008, SPEC_009];
 
 export function bootstrapSpec(caseId: string): BootstrapCaseSpec | undefined {
   return BOOTSTRAP_SPECS.find((s) => s.caseId === caseId);
