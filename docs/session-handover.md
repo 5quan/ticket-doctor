@@ -61,6 +61,7 @@
 > 环境已备：Node 24.9 + Python 3.13 + gepa 0.1.4（`scripts/evolve-env-setup.sh`）。
 > **下一步 = 交付 C：Python GEPAAdapter**。**接手先读 `docs/self-improvement-handover.md`。**
 > 交付记录：`docs/self-improvement-{materials,bridge,baseline,search-config}.md`。
+> 服务器到期换机看 [资源与迁移清单](deployment-inventory.md)（服务/端口/密钥/启动步骤/Langfuse 数据迁移）。
 
 ---
 

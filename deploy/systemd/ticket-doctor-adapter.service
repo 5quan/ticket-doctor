@@ -1,0 +1,17 @@
+[Unit]
+Description=ticket-doctor Go 接入适配器（飞书长连接）
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/opt/ticket-doctor/adapters/go
+EnvironmentFile=/etc/ticket-doctor-adapter.env
+ExecStart=/opt/ticket-doctor/adapters/go/adapter
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
