@@ -36,6 +36,11 @@ if [ -f "$STAGE/data.tgz" ]; then
   tar -xzf "$STAGE/data.tgz" -C "$ROOT"
 fi
 
+if [ -f "$STAGE/adapters-go/adapter" ]; then
+  echo "[restore] 安装预编译适配器二进制（无需装 Go）"
+  install -m755 "$STAGE/adapters-go/adapter" "$ROOT/adapters/go/adapter"
+fi
+
 if [ "$WITH_LANGFUSE" = 1 ] && [ -f "$STAGE/langfuse-volumes.tgz" ]; then
   echo "[restore] 恢复 Langfuse 命名卷（需 Docker 数据根为空/无同名卷）"
   DOCKER_ROOT="$(docker info -f '{{.DockerRootDir}}')"
