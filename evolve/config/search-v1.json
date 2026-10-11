@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "rsi-search-config/v0",
+  "configId": "search-v1",
+  "frozenAt": "2026-10-11",
+  "datasetName": "ticket-doctor-rsi-bootstrap-v1",
+  "basePromptHash": "33c2e56febdcf65cd289e8c1825b8f5b3099e457860063174c80aadffe9f4f5c",
+  "scorerHash": "f598628adc6c87490501f606cb881135963a25d20c59da0cbf8a7959c65170c5",
+  "rubricsSourceHash": "14308efd39fae24ae2b3ac6c171fcb4397f83c95b4ce7bd43c6c6a0a7985ced8",
+  "splits": {
+    "train": ["rcb-001", "rcb-002", "rcb-003", "rcb-004"],
+    "validation": ["rcb-005", "rcb-006", "rcb-007"],
+    "holdout": ["rcb-008", "rcb-009"]
+  },
+  "repeat": 3,
+  "model": { "provider": "deepseek", "model": "deepseek-flash" },
+  "candidate": {
+    "component": "diagnosis_rules",
+    "maxChars": 20000,
+    "forbidden": ["case_id", "trace_id", "commit_id", "private_path", "prompt_override", "answer_file"]
+  },
+  "budget": { "maxTokens": 50000000, "maxUsd": null, "maxWallMs": 3600000, "maxTrials": 200 },
+  "gepa": { "maxCandidates": 12, "maxMetricCalls": 200, "concurrency": 2, "maxNoImprovement": 4, "timeLimitMin": 60 },
+  "selection": {
+    "disallowNewHardFailures": true,
+    "disallowRegressionOnBaselinePassing": true,
+    "minMeanGain": 0.02,
+    "holdoutReserved": true
+  }
+}
