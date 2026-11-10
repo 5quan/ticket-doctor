@@ -4,6 +4,7 @@
 > 配套阅读：`docs/handover.md`（总交接，含阅读顺序）、`docs/contributor-onboarding.md`（十分钟上手）、
 > `docs/host-runner-design.md`（架构差异与验收）、`docs/interface.md`（接口约束）、
 > `docs/roadmap.md` / `docs/backlog.md` / `docs/open-questions.md`。
+> **暂停快照**：开发已暂停，见 `docs/status.json#development`。恢复时先读 [文档目录](README.md) 与 [自改进交接](self-improvement-handover.md)，再按 §6 当前顺序推进。本文保留原工作编号及历史技术草案，已实现项不重复开发。
 
 ---
 
@@ -12,13 +13,14 @@
 把 ticket-doctor 从「飞书单体 Agent」演进为 **Go 接入适配器 → Node Host → 独立 Agent Runner** 的三段式，
 **保留**既有诊断工具、证据校验、SQLite 会话恢复、可靠投递；生产只读、单机 SQLite、无权限体系。
 
-架构主干（阶段 1/2/4 与阶段 3 的 Webhook 部分）**已完成**；剩余为**阶段三扩展**与**阶段二效果优化**。
+架构主干、飞书 Webhook/长连接实现、独立审计与有界补证循环、Langfuse 观测/原生评测、
+自改进 A/B 与 C 适配器均已入库。长连接仍待真机验收；**真实 GEPA 搜索、独立验收与完整发布回滚闭环尚未完成**。
 
 ---
 
 ## 1. 硬边界（任何改动不得违反）
 
-1. 生产只读：不复现、不自动修复、不写业务系统；工具无 shell、无写文件、无可访问 `.env`。
+1. 生产诊断只读：不执行复现、不自动修复、不写业务系统；工具无 shell、无写文件、无可访问 `.env`。E 交付的历史故障复现属于隔离的材料制作流程，不接入生产诊断工具。
 2. 单机 SQLite（WAL）+ `node:sqlite`；**不引入** PG / Redis / MQ / 前端框架 / 第二模型压缩层（除非 backlog 写明触发条件）。
 3. 队列隔离单位 = **调查（Bug 会话）**；全局并发 ≤ `TD_WORKER_COUNT`（默认 4）。
 4. 不做运行中消息注入：新消息进入**下一轮**。
@@ -36,13 +38,19 @@
 | 仓库 / 分支 | `github.com/5quan/ticket-doctor` / `main` |
 | 基线提交 | 以 `git log` 为准（本文快照已过时；易变事实唯一源 `docs/status.json`） |
 | 版本 | 见 `docs/status.json#version` 与 `package.json` |
-| 测试 | `npm test`（TS）+ Go adapter（`npm run test:go`）全绿；数量见 `docs/status.json#tests` |
+| 测试 | 历史工程门禁已有通过记录，数量见 `docs/status.json#tests`；当前本机依赖/生成产物不完整，不能沿用历史“全绿”，恢复后重新核验 |
 | 迁移 | `001_init` … `006_evidence_uid.sql`（**新增迁移从 `007_` 起，禁止改历史迁移**） |
 | 运行 | `npm run host`（生产）/ `npm run gateway`（旧链路）/ `npm run demo`（离线） |
 | 部署 | `Dockerfile` + `adapters/go/Dockerfile` + `docker-compose.yml`，已构建并冒烟通过 |
-| 已知坑 | 本机到 Debian 源/镜像仓库很慢，docker 首次构建约 30 分钟；Go 用 apt 装的 1.22 |
+| 当前执行环境 | Linux 自改进环境脚本与固定依赖已入库；当前 Windows 接手环境缺依赖及派生案例，源码 CRLF 会导致冻结 hash 校验失败，恢复记录见自改进交接 |
 
-**关键提交（近期）**：
+**当前主路径提交（均已合入）**：
+
+- `a77f133` 自改进 C 适配器、反射 LM 与 optimize 入口（真实搜索未运行）
+- `d6c2e20` 服务器迁移导出 / 恢复脚本
+- `d158bb1` 迁移包可携带预编译适配器二进制
+
+**架构演进的历史提交**：
 
 - `9d5f52f` Host 统一入口 + 原子入队 + 按会话严格轮次 + 取消 + 来源路由
 - `5de4a0e` 独立 Agent Runner 子进程 + Host 监管 + NDJSON 回写
@@ -58,13 +66,15 @@
 ## 3. 架构与必须保持的不变量
 
 ```text
-飞书/钉钉/Slack 事件 ─► Go 接入适配器 ─POST /api/agent/message─► Host
+飞书事件 ─► Go 接入适配器 ─POST /api/agent/message─► Host
 Web 前端 ─HTTP/SSE───────────────────────────────────────────► Host
 Host：原子入队 → 按会话严格轮次调度（≤4）→ spawn 独立 Runner 子进程
 Runner：pi 引擎 + 只读工具（query_logs/list_files/search_code/read_code）+ 证据签发；不碰 DB
 Host：校验 generation 后代为落库 → finalize（证据+报告+终态+投递 同事务）
 IM 来源 → deliveries → Go 适配器发送；Web 来源 → EventStore(events) → SSE
 ```
+
+钉钉/Slack 目前只有平台骨架，尚未实现真实接入。
 
 **不变量（改代码前对照）**：
 
@@ -89,12 +99,18 @@ IM 来源 → deliveries → Go 适配器发送；Web 来源 → EventStore(even
   多平台抽象就位（`internal/platform.Platform` 接口 + 飞书实现迁入 + 钉钉/Slack 骨架，`ADAPTER_PLATFORMS`，见 OQ-37）。
 - **阶段 5**：故障注入（超时/取消/租约恢复/僵尸提交）+ Host 强杀重启进程级验证 + compose 部署冒烟。
 - 工具：`list_files` 路径层与 `search_code` 有界预览 + 路径清单均完成（见 OQ-36）。
+- 检索边界：本轮服务/时间窗与仓库白名单强制校验（OQ-44），材料覆盖信息与分页已实现（backlog T7）。
+- 独立审计与有界补证：逐结论判断、程序降级、共享 attempt 超时/工具预算；默认不主动检索。
+- 评测：`src/eval/` 离线 MVP、`src/eval/lf/` Langfuse 原生实验与官方 tracing SDK 迁移。
+- 自改进：A 材料/准入、B 固定桥梁、真实模型冻结基线、search-v1 配置、`tools/evolve/` C 适配器；状态见 `docs/status.json#self_improvement`。
+- 运维：迁移资产清单、导出与恢复脚本，以及可附同架构适配器二进制的迁移包；密钥和数据库不入 GitHub。
 
 ---
 
-## 5. 剩余工作（技术方案）
+## 5. 工作单与技术方案（含已完成记录）
 
 > 每项含：目标/验收、技术方案、涉及文件/接口/迁移、依赖与风险。**一次只做一项。**
+> §5.1/5.2/5.4/5.5/5.6 的实现已完成，具体接口、目录与迁移以现码和专项文档为准；原技术草案只为追溯保留，不直接作为新开发任务。
 
 ### 5.1 [阶段三] Go 适配器长连接模式（T3）
 
@@ -105,7 +121,7 @@ IM 来源 → deliveries → Go 适配器发送；Web 来源 → EventStore(even
 > 前置修复已完成：`docs/feishu-trigger-design.md`（门控单点化 + `-help`），长连接只换事件入口，不再动门控。
 > **状态：✅ 已实现（S3，OQ-40）**。官方 Go SDK `github.com/larksuite/oapi-sdk-go/v3 v3.12.0`（`.../ws` + `.../event/dispatcher`）；
 > `LarkWSSource` + `Platform.LongConn()` + `Adapter.HandleSourceEvent` + `main` 模式分支/退避重连；单测已覆盖映射/凭据/跳过 Verify/退避。
-> **真机人工验证（§5.5）待具备飞书凭据时执行**（步骤已写入 `adapters/go/README.md`），不声称线上已验证。
+> **真机人工验证待具备飞书凭据时执行**（步骤已写入 `adapters/go/README.md`），当前没有完整真机验收结论。
 
 
 **目标/验收**：不暴露公网回调地址，Adapter 通过飞书长连接收事件；`@bot` 后 Host 能建调查，
@@ -136,6 +152,8 @@ type Source interface {
 ---
 
 ### 5.2 [阶段三] 多平台抽象：钉钉 / Slack（T4）
+
+> **已完成范围**：`Platform` 抽象与飞书迁入已实现；钉钉/Slack 仅骨架，真实协议适配与发送仍待做。以下为原设计记录，不表示第二个平台已经可用。
 
 > **注（已实施的前置修复）**：飞书触发链路修复（门控单点化到 Host `planRoute` + `-help` 机械回复）
 > 已完成（OQ-39，`docs/feishu-trigger-design.md`）。多平台实现时：`Platform.Normalize` 只做协议
@@ -187,6 +205,8 @@ type Platform interface {
 
 ### 5.4 [阶段二] `search_code` 改「有界预览 + 路径清单」
 
+> **已实现（OQ-36）**：路径清单、有界预览及证据登记已存在，随后已补齐覆盖与分页（backlog T7）。以下为历史草案，不重复实现。
+
 **目标/验收**：`search_code` 命中很多时，不再回一堆片段，而是：**命中文件/路径清单（有界） + 少量上下文预览**，
 减少无关上下文、提升模型定位效率。保持签发 `E#` 与总量截断。
 
@@ -211,6 +231,7 @@ type Platform interface {
 > **✅ 已实施（OQ-38）**：以 `docs/evidence-uid-design.md` 为准（两阶段提交 + 稳定 UID + 批次幂等与恢复）；
 > 原 `docs/evidence-scope-design.md` 的「选项 B（部分唯一索引 + seed 续号）」被其吸收、未单独实施。
 > 本文档此前把这项工作误标为「OQ-33」——OQ-33 实际是已被取代的 JSONL 问题。
+> 以下迁移名和 registry 方案是已被取代的历史草案；实际迁移为 `migrations/006_evidence_uid.sql`，不得据此新增重复迁移或重做编号方案。
 
 **目标/验收**：`E#` 从「run 内唯一」提升为「调查内唯一」，跨轮可复用；报告可引用上一轮的 `E#`，
 `validateDraft` 按调查校验引用与版本。
@@ -223,14 +244,13 @@ type Platform interface {
 - 校验：`finalize` 用「调查内全部证据」hydrate registry（`registry.load`），跨轮引用即可通过。
 - 回放/展示：报告证据列表按 `investigation_id` 查（`Store.listEvidence` 增调查级方法），Web 页展示不再局限本轮。
 
-**风险**：与现有 `(run_id, evidence_id)` 主键冲突，需要数据迁移策略（历史数据按 run 保持，或整体重算）。
-建议在独立会话中做，先写迁移与回滚方案。
+**历史风险**：原草案需处理 `(run_id, evidence_id)` 与调查级编号的兼容；当前稳定 UID、短号、报告 v1/v2 与恢复策略已按专项设计实施。以后若再改存储协议，另行制定迁移与回滚方案。
 
 ---
 
 ### 5.6 [阶段二] 独立上下文审计 Agent（OQ-30）
 
-> **✅ 已实施（首版单次审计，2026-10-04）**：契约由「sufficient/insufficient」升级为逐结论 `claimVerdicts[]`
+> **✅ 已实施（独立审计及有界补证循环）**：契约由「sufficient/insufficient」升级为逐结论 `claimVerdicts[]`
 > （supported / unsupported / contradicted / undecidable）+ `missingEvidence[]` + `stopAdvice`，程序**逐条降级具体结论**
 > （`contradicted→refuted`，`unsupported/undecidable` 把 supported 降 candidate）；`AUDIT_POLICY_VERSION=1.0.0`。
 > 冻结策略：审计**不主动检索**、失败**显式降级不阻断**；**有界补证循环**已加（`TD_AUDIT_MAX_ROUNDS` 默认 1）。
@@ -240,7 +260,7 @@ type Platform interface {
 **目标/验收**：把「证据是否充分」从主诊断剥离到**独立上下文**，结构化输出
 `已确认事实 / 疑似原因 / 补证请求`，程序按预算收敛；修掉「材料不足仍给 supported」与「引用干扰证据」。
 
-**技术方案**：
+**原始技术草案（接口已被上述逐结论契约取代）**：
 - 新增端口 `EvidenceAuditor { audit(req): Promise<AuditResult> }`（`src/agent/`）。
 - `AuditResult = { verdict: "sufficient" | "insufficient"; confirmedFacts; suspectedCauses; missingEvidence[]; notes[] }`。
 - 主诊断产出 `draft` 后，在 **Runner 内**再跑一次独立会话（新 session，不共享主上下文），输入 = draft + 证据集合 + scope；
@@ -249,26 +269,36 @@ type Platform interface {
   `missingMaterial`；必要时触发 `request_info`（本轮结束）。规则集中在程序，模型不得直接改终态。
 
 **涉及**：`src/agent/`（新 auditor）、`src/runner/protocol.ts`、`src/entrypoints/runner.ts`、
-`src/diagnosis/finalize.ts`、提示词与 `docs/eval-design.md`（评测体系另行立项）。
+`src/diagnosis/finalize.ts`、提示词；审计现行实现见 `src/diagnosis/audit.ts` 与 `src/diagnosis/diagnosis-loop.ts`。
 
 ---
 
 **已实现的有界补证循环**（`src/diagnosis/diagnosis-loop.ts`）：诊断 → 审计 → 若 `continue` 且有缺证项、
 轮次/工具预算未耗尽，则把缺证项写回同一诊断会话补证 → 修订草稿 → 再审计；共享一次 attempt 与总超时。
 
-### 5.7 [阶段二] 评测 M2 / M3（RSI）——另行立项
+### 5.7 [阶段二] 评测 M2 / M3 与当前 GEPA 主路径
 
-> **2026-10-04（离线 MVP 已启动）**：新增离线评测框架 `src/eval/` + `npm run eval` / `eval:compare` / `eval:review`
-> （scorer=`mvp-0.1.0`，只评材料/引用，语义未复核=unscored）。**详细实施工作单见
-> [`docs/eval-implementation-plan.md`](eval-implementation-plan.md)**（E0 已完成，E1–E9 待执行）。
-> 旧评测 harness（v1/v2）仍为已移除，基线数字不可复现。
-> 本节保留为方向记录；重启时以 `docs/eval-design.md`（历史设计）与观测数据为起点。
+当前已有 `src/eval/` 离线 MVP、`src/eval/lf/` 原生 Langfuse 实验、
+`src/evolve/` TS 固定评测桥梁，以及 `tools/evolve/` GEPAAdapter/反射 LM/搜索入口。
+旧 `src/evals/` v1/v2 已移除，历史成绩仅在 `docs/status.json#eval` 保留，不能混入当前质量比较。
 
-**目标/验收**：`rules.md` 条目化 + 增量 delta + 程序合并（照 ACE）；Pareto + μ_f（照 GEPA）；
-扩样本 20~30、judge 版正确率、独立 test 集、CI 门禁。
+**权威入口**：[自改进实施方案](self-improvement-implementation-plan.md)、[接手文档](self-improvement-handover.md)、
+`docs/status.json#self_improvement`；适配器运行契约见仓库 `tools/evolve/README.md`。
 
-**技术方案**：见 `docs/eval-design.md` 与 `docs/evolve-protocol.md`；题源必须以**历史真实 bug + 人工 gold**为准。
-重启时重建评测入口与 `fixtures/` 样本。**依赖**：5.5（跨轮证据）与 5.6（审计）能提升评测口径质量。
+| 工作 | 当前范围 | 验收 |
+|---|---|---|
+| A/B 与配置 | 已有日志-only 材料、准入、固定桥梁、确定性评分、冻结基线与搜索配置 | 恢复环境后重建派生案例，核对材料/准入/hash；不能直接改冻结值使校验变绿 |
+| C 适配器 | 已实现 evaluate、reflective dataset、反射 LM、GEPA 入口、初步报告 | 无模型测试、真实搜索、检查点和恢复分别验证；真实搜索当前未跑 |
+| 预算与隔离 | 账本 monitor、stopper 仅 trial 间生效 | 统一请求前 gateway、并发原子预留、重试/恢复结算；净化搜索制品与独立 holdout 环境核验 |
+| 候选与 D | 已有初步 adopt/keep 输出，完整审核发布待做 | 同条件重复比较、固定候选 hash、独立 holdout 成对验收、人工审核、实际加载核对与回滚 |
+| 语义评分与 E | 确定性评分已有，校准裁判与真实案例仍缺 | 在训练材料人工标注正反例上校准；复现 FastAPI 历史故障；改材料/评分须重冻结基线 |
+| F 回放 | 延后 | 积累候选树后做有限历史调度比较，收益仍需新真实搜索验证 |
+
+首版候选只含 `diagnosis_rules` 全文；基础 prompt、工具、案例、答案与评分器不参加自动修改。
+公开模拟案例只用于验证流程，不能据此宣称真实生产根因能力；无可靠提升时保留基线。
+
+**M2/M3 历史方向保留**：条目化规则、ACE delta 合并、扩样本、judge、CI 门禁和场景迁移验证仍可另行设计；
+不在冻结的首版搜索中临时切换候选协议，也不重复重建已有评测入口。
 
 ---
 
@@ -302,27 +332,38 @@ type Platform interface {
 
 ## 6. 推荐执行顺序（会话粒度）
 
+**恢复后的当前主路径**（详细验收见 `docs/backlog.md` RSI0–RSI10）：
+
+1. 恢复环境、重建案例、核对准入与冻结指纹，复验现有 C 适配器。
+2. 补齐请求前预算与搜索/holdout 隔离保障，核验停止与恢复行为。
+3. 确认真实模型调用预算后跑首次 GEPA 搜索，同条件重复比较并固定最终候选。
+4. 独立 holdout 验收，生成人工审核报告，再按批准结果发布或保留；发布必须能回滚。
+5. 语义裁判校准与 E 真实案例可并行制作；若改变评分/材料口径，另开冻结实验。F 留后续。
+
+**原 S0–S8 编号的完成状态与按需扩展**：
+
 | 会话 | 任务 | 依赖 | 备注 |
 |---|---|---|---|
 | S1 | 5.4 `search_code` 有界预览 | 无 | ✅ 已完成 |
 | S2 | 5.2 多平台抽象（先抽接口+飞书迁入） | 无 | ✅ 已完成 |
 | S0 | **修评测打分器** | 无 | ✅ 已完成（v0.3.1）：scorer 同时按 uid 与 E# 建索引；fake 基线修正为 70/20/60（后随评测 harness 整体移除，本条为历史） |
 | S3 | 5.1 Go 长连接（SDK） | S2 | ✅ 已完成（单测通过）；真机人工验证待有凭据时执行 |
-| S4 | 5.3 弃用 Host 内直连 | S3 | 一次性清理（注意 `demo.ts` 仍用 `createFeishuGateway`） |
+| S4 | 5.3 弃用 Host 内直连 | S3 真机验证 | 按需清理，确认没有双入口（注意 `demo.ts` 仍用 `createFeishuGateway`） |
 | S5 | 5.5 证据持久化 + 稳定 UID | 独立 | ✅ 已实现（OQ-38，阶段 1~6；`docs/evidence-uid-design.md`） |
-| S6 | 5.6 独立审计 Agent | 5.5 | 效果向 |
-| S7 | 5.7 评测 M2/M3 | 5.5/5.6 | 另行立项（旧 harness 已移除） |
+| S6 | 5.6 独立审计 Agent | 5.5 | ✅ 首版独立审计与有界补证已完成；并行/主动检索留后续 |
+| S7 | 5.7 评测 M2/M3 | 5.5/5.6 | 当前评测底座与 C 适配器已实现，按上方主路径补搜索/验收/发布；旧 harness 仅为历史 |
 | S8 | 5.8 / 5.9 扩展 | 触发条件 | 按需 |
 
 ---
 
 ## 7. 每个会话的执行规程（DoD）
 
-1. **先跑基线**：`npm run typecheck && npm test && npm run test:go`，全绿再动。
+1. **先复验环境**：安装锁定依赖，再跑 `npm run typecheck && npm test && npm run test:go`；若环境阻塞，记录原因、替代核验与风险，不把历史通过记录当本轮结果。
 2. **一次只做一件**；拿不准先记 `docs/backlog.md`「待探讨」，不闷头改主链路。
 3. 改代码 → `typecheck` → `test`（+ Go）→ 需要时 `npm run demo` 冒烟。
-4. **同步文档**：设计决策进 `docs/open-questions.md`；状态进 `roadmap.md`/`backlog.md`；
+4. **同步文档**：先更新易变事实源 `docs/status.json`；设计决策进 `docs/open-questions.md`；状态进 `roadmap.md`/`backlog.md`；
    本会话进度进 `docs/handover.md` 六节；架构变化进 `docs/host-runner-design.md`。
+   仅文档改动至少跑 `npm run docs:check` 并检查差异；不为了更新文档调用真实模型。
 5. **commit + push**（保持 origin/main 同步）；重大里程碑打 tag。
 6. 新增迁移从 `007_` 起，禁止改历史迁移；DB 改动必须有迁移 + 测试。
 
@@ -361,7 +402,7 @@ stdout NDJSON `ready|session_entry|tool_execution|observation|progress|result|er
 
 ## 10. 决策记录与暂缓项
 
-- 已结论见 `docs/open-questions.md`（OQ-1 起持续追加，当前至 OQ-41）：单库 SQLite、队列按调查、并发 4、不做注入/定时/审批/权限、
+- 已结论见 `docs/open-questions.md`（持续追加，以文件内编号为准）：单库 SQLite、队列按调查、并发 4、不做注入/定时/审批/权限、
   pi 会话进 `session_entries`、Web 轮次不回 IM 等。
 - **暂缓**：脱敏（S1）、上下文跨轮复用（证据跨轮已完成，OQ-38）、图片处理、出站消息映射。
 - **冲突处理**：文档与代码不一致时**以代码为准**，并顺手修正文档。

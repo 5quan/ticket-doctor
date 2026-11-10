@@ -3,6 +3,19 @@
 > 给下一个接手会话：**先读本文**，再按 §5 的阅读顺序深入。
 > 版本 **0.3.1**（以 `docs/status.json` 为准）；仓库 `github.com/5quan/ticket-doctor`，分支 `main`。
 > 详细技术方案见 `docs/handover-technical-plan.md`，刻意/规程见 `docs/handover.md §7`。
+> **最后同步：2026-11-10，当前暂停功能开发。** 总目录见 [文档索引](README.md)，易变事实见 [开发状态](status.json#development) 与 [自改进状态](status.json#self_improvement)。
+
+---
+
+## 0. 暂停快照与恢复入口（2026-11-10）
+
+- 核心诊断链路、独立审计与有界补证、Langfuse 观测/原生评测、A/B 与冻结基线/配置、C 的 Python GEPA 适配器均已入库。迁移导出/恢复脚本也已合入主干；**真实 GEPA 搜索仍未运行**，完整审核发布与回滚待完成。
+- 本轮仅维护文档、目录和开发清单，不调用真实模型、不改业务逻辑。最后功能代码基点见 `docs/status.json#development`；旧工作树没有遗漏的独有代码，发现的较早规划已由主干新版覆盖。
+- 当前 Windows 环境未恢复完整：类型检查缺 Langfuse/OTel 本地依赖；搜索配置缺派生案例，且评分器/rubric 源文件 CRLF 与冻结 LF 指纹不同；原件 hash 全部通过。完整 TS/Python/Go 测试未在本轮取得通过结果，不能引用历史全绿作为当前结果。
+- 文档检查原有两处引用未构建 Go 二进制的失效路径，本轮改为已入库的源码/构建说明；文档门禁与现有文档一致性集成测试已通过。其余完整工程门禁仍受上述本机环境条件影响。
+- GitHub 保存代码、锁定依赖清单、冻结原件、批准记录与文档；`.env`、本地运行数据、数据库、依赖目录和 Langfuse 服务端历史不随 Git 保存。本轮未连接原服务器确认存活，也未执行服务器数据导出；换机看 [资源与迁移清单](deployment-inventory.md)。
+
+**恢复顺序**：`npm ci` → 本地工程检查 → 原件校验与案例重建 → 配置/准入及 Python 适配器测试 → 请求前预算控制和隔离/恢复核验 → 明确预算后真实搜索 → 固定候选后的独立验收 → 人工审核发布或保留基线。详细步骤见 [自改进交接](self-improvement-handover.md)；不要重新编写已经实现的适配器。
 
 ---
 
@@ -114,7 +127,7 @@
 | 证据两阶段提交（工具 commit 落库后才返回）+ 稳定 UID + 批次幂等 | ✅ |
 | 崩溃恢复（`reconcileSession` + 已提交批次重建补记） | ✅ |
 | 版本钉死（按发生时间 `git rev-list --before`）+ 报告校验 | ✅ |
-| 独立审计 Agent（证据充分性） | ✅ 首版单次审计（OQ-30）：独立会话逐结论判定、程序降级；不主动检索、失败显式降级。补证循环/并行审计待后续 |
+| 独立审计 Agent（证据充分性） | ✅ 首版与有界补证循环（OQ-30）已实现；不主动检索、失败显式降级。并行专项审计/主动检索待后续 |
 | 真实日志平台（SLS/ELK） | ❌ 当前本地文件日志 |
 | 评测打分器 | ✅ UID 兼容已修 + v2 校准口径（OQ-41，见 §4） |
 
@@ -130,11 +143,13 @@
 | 出站消息映射（回复机器人归入原调查） | 暂缓 |
 | 工具执行回放 UI | ❌ |
 
-**结论**：主干闭环完成度约 **95%**；剩下的是接入侧深度（真机验证/多平台/图片）、效果侧（审计/评测）、运维侧（真实数据源）。
+**结论**：主干工程闭环已实现；剩余包括真机验收、真实数据源、多平台/图片，以及真实搜索、独立验收与审核发布。适配器接入完成不等于生产诊断质量已经验收。
 
 ---
 
-## 4. 评测打分器（v2 校准口径，OQ-41）
+## 4. 历史记录：旧评测打分器（v2 校准口径，OQ-41）
+
+> 以下为已移除 harness 的历史记录，不是当前源码的质量基线。当前日志轨道的冻结基线见 [自改进基线](self-improvement-baseline.md)，两套口径不能混比。
 
 **演进**：① UID 兼容修复（v0.3.1）——报告 v2 的 `evidenceIds` 是 `evidence_uid`，scorer 补齐双键索引；
 ② 正确率校准（scorer **v2.0.0**）——v1 的 correct 只判"supported + 引用 ≥1 条 gold"、不读根因文本，
@@ -156,20 +171,21 @@ ct-004 代码证据漏检），交阶段二 rules / 审计 Agent，不是打分 
 
 ### 5.1 阅读顺序
 
-1. 本文（`docs/session-handover.md`）
+1. [文档索引](README.md) → 本文（`docs/session-handover.md`）
 2. `docs/handover.md`（总交接 + §7 交接规程）
 3. `docs/handover-technical-plan.md`（剩余工作的技术方案 + §6 执行顺序）
 4. 按任务读专项：
    - 接入/长连接 → `docs/adapter-longconn-design.md`、`docs/feishu-trigger-design.md`、`adapters/go/README.md`
    - 证据 → `docs/evidence-uid-design.md`（已实现）
-   - 评测 → `docs/eval-design.md`、`docs/evolve-protocol.md`；Langfuse 原生评测 → `docs/langfuse-eval-implementation-plan.md`
+   - 自改进 → `docs/self-improvement-handover.md`、`docs/self-improvement-implementation-plan.md`、`tools/evolve/README.md`
+   - 当前评测 → `docs/eval-implementation-plan.md`、`docs/langfuse-eval-implementation-plan.md`；旧 `docs/eval-design.md` / `docs/evolve-protocol.md` 作历史参考
    - 会话/持久化 → `docs/interface.md §8`、`docs/session-log-design.md`
    - 并发 → `docs/concurrency.md`
 
 ### 5.2 基线命令
 
 ```bash
-npm install
+npm ci
 npm run typecheck && npm test && npm run test:go
 npm run demo        # 离线端到端冒烟
 ```
@@ -186,11 +202,16 @@ npm run demo        # 离线端到端冒烟
 
 | 优先级 | 任务 | 说明 |
 |---|---|---|
-| ✅ | ~~修评测打分器（§4）~~ | 已完成（v0.3.1）；fake 基线 70/20/60 |
+| 恢复前置 | 安装锁定依赖、LF checkout、重建案例与复验 | 当前本机尚未通过完整工程与搜索配置门禁；见 §0 与自改进交接 |
+| ✅ | 自改进 A/B + 冻结基线/配置 + C 适配器 | 已入库；真实 GEPA 搜索尚未运行，C 仍待真实运行验收 |
+| P1 | 搜索预算、隔离与恢复保障 | 请求前硬限仍缺统一 gateway；当前只监控并在 trial 间停止 |
+| P1 | 真实搜索、独立验收与完整 D 审核发布 | 先固定候选再使用 holdout；初步采用建议不等于人工批准或生产加载 |
+| ✅ | ~~修旧评测打分器（§4）~~ | 已完成后随旧 harness 移除，保留历史记录，不代表现有质量 |
 | ✅ | ~~S3 Go 长连接~~ | 已完成（单测全覆盖）；**实施方案：`docs/adapter-longconn-design.md`**；官方 Go SDK `.../v3/ws` 实现 `eventsource.Source`，`ADAPTER_MODE=webhook|ws`；真机人工验证待有凭据时执行（OQ-40） |
 | P1 | S4 弃用 Host 内直连 | 删 `TD_FEISHU_DIRECT`、`src/integrations/feishu` SDK 路径（**注意 `demo.ts` 也用 `createFeishuGateway`**） |
 | ✅ | ~~独立审计 Agent + 有界补证循环（OQ-30）~~ | 已完成：Runner 内独立会话、逐结论判定、Host 应用；补证循环由 `TD_AUDIT_MAX_ROUNDS` 封顶；并行审计/主动检索待后续 |
-| P1 | 评测 M2/M3 | rules 条目化 + delta/Pareto、扩样本、judge、CI 门禁；v2 校准基线已重跑（OQ-41，见 §4 与 `docs/status.json#eval`），旧口径数字已作废 |
+| P1 | 语义裁判校准与 E 真实案例 | 人工标注后校准裁判；FastAPI 历史故障及内部事故扩样本，改变评分需重新冻结基线 |
+| 暂缓 | F 有限历史回放 | 等候选历史与真实搜索记录足够后推进；旧 M2/M3 的 delta 方案不纳入当前单文本规则范围 |
 | P2 | 钉钉/Slack 实装、图片处理（OQ-27） | 平台按 `Platform` 接口；图片下载→视觉模型→登记证据 |
 | P2 | 真实日志平台 `LogSource`、工具回放 UI | 按端口新增，不动编排 |
 | P3 | 生产诊断 MCP Server、多飞书应用配置 | 触发条件见 backlog |

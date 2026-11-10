@@ -1,24 +1,33 @@
 # 新接手 Agent 上手指南（Contributor Onboarding）
 
-> 面向第一次接手本仓库的 AI/工程师。目标：**10 分钟内能跑起来，30 分钟内能独立改一处并提交。**
-> 项目内既有文档：`docs/handover.md`（项目交接，含阅读顺序）、`docs/host-runner-design.md`（架构与差异）、
-> `docs/interface.md`（接口约束）、`docs/roadmap.md` / `docs/backlog.md`（优先级）、`docs/open-questions.md`（已结论问题）。
+> 面向第一次接手本仓库的 AI/工程师。先核对暂停状态与本机环境，再恢复运行和开发。
+> 完整入口见 [文档索引](README.md)；易变事实见 [状态源](status.json)，开发清单见 [路线图](roadmap.md) / [待办](backlog.md)。
+> 架构读 `docs/host-runner-design.md`，接口约束读 `docs/interface.md`，已结论问题读 `docs/open-questions.md`。
 
 ---
 
-## 0. 一分钟上手
+## 0. 暂停后恢复与快速上手
+
+当前开发暂停，状态见 `docs/status.json#development`。恢复时先读
+[最新会话交接](session-handover.md)；继续自改进则再读 [自改进交接](self-improvement-handover.md) 与
+[原实施方案](self-improvement-implementation-plan.md)。无需重写已有 GEPAAdapter，也不要把适配器完成当作真实搜索已完成。
+
+在仓库根目录执行；运行 demo 前确认 `TD_ENGINE=fake`，避免沿用本地真实模型配置：
 
 ```bash
-cd /opt/ticket-doctor
-npm install
-npm run typecheck        # tsc --noEmit，必须先绿
+npm ci                  # 按锁文件恢复依赖
+npm run typecheck        # tsc --noEmit
 npm test                 # TS 单元 + 集成（数量见 docs/status.json#tests）
 npm run test:go          # Go 接入适配器测试（需要 go 1.22+）
 npm run demo             # 离线端到端：不接飞书、不调模型，跑通 消息→诊断→报告→投递
 npm run host             # 启动 Host：Web API + SSE + 调度 + Runner（默认 3000 端口）
 ```
 
-`npm run demo` 全绿 = 你对项目有基本信心了。
+当前 Windows 接手环境的类型检查缺 Langfuse/OTel 依赖，自改进配置校验受派生案例缺失与 CRLF 源码指纹影响。
+原始材料校验已通过；完整核验结果见 `docs/status.json#self_improvement`。历史测试通过记录不代表本轮已通过。
+
+自改进恢复时，按 [专项交接](self-improvement-handover.md) 重建转换材料与派生案例，再复验准入及冻结配置；
+不要通过重写冻结指纹或跳过校验来绕过环境差异。`data/` 下本地产物需另行恢复，GitHub 源码保存不包含这些产物。
 
 ---
 
@@ -55,7 +64,7 @@ Web 前端 ─HTTP/SSE───────────────────�
                              ▼                                                             ▼
                  IM 来源：deliveries ─► Go 适配器 ─► 飞书              EventStore(events 表) ─► SSE ─► Web
 
-Runner 内：pi 引擎（fake/pi）+ 只读工具 query_logs/search_code/read_code + 证据签发 E#；不碰数据库。
+Runner 内：fake/pi 诊断引擎 + 只读工具 + 独立审计/有界补证；证据经 Host 落库后签发 UID 与调查内短号 E#，Runner 不碰数据库。
 ```
 
 关键设计（改代码前必读）：
@@ -65,6 +74,8 @@ Runner 内：pi 引擎（fake/pi）+ 只读工具 query_logs/search_code/read_co
 - **投递与诊断解耦**：报告、终态、待发送记录同事务提交；发送失败只重试投递，不重跑模型。
 - **来源路由**：每轮存 `runs.source`；只有 IM 来源产生投递，Web 来源只进 EventStore/SSE。
 - **会话单存储**：pi 条目原样进 `session_entries`（按调查单调 `seq`），恢复时读回重建。
+- **范围与覆盖信息**：日志工具执行本轮服务/时间窗约束，源码仓库受 `TD_ALLOWED_REPOS` 硬白名单约束；材料源支持覆盖信息与游标续查。
+- **独立审计**：独立上下文检查证据，程序应用判定；补证与诊断共享工具和总超时预算，轮次由 `TD_AUDIT_MAX_ROUNDS` 限制，默认不开启审计。
 
 ---
 
@@ -90,9 +101,15 @@ src/
 │  ├─ finalize.ts     提交边界：reply / report 落库 + 事件发布（两条执行路径共用）
 │  ├─ prepare.ts      时间窗 → 钉版本 → 工具箱（纯准备，不碰 DB）
 │  ├─ run-session.ts  会话槽：pi 条目读写 SQLite
+│  ├─ diagnosis-loop.ts  诊断 → 独立审计 → 有界补证
+│  ├─ audit.ts        审计输入与程序应用判定
 │  └─ validate.ts     报告校验：引用存在、版本一致、无证据强制降级
+├─ domain/            报告、证据、会话等领域类型
 ├─ evidence/          证据两阶段提交：sink / resolver / 崩溃恢复 / 渲染
-├─ observability/     中立观测事件 + pi 请求边界 + Langfuse OTel 适配（门控）
+├─ observability/     中立观测事件 + pi 请求边界 + Langfuse 官方 tracing SDK（门控）
+├─ eval/              当前离线评测入口与共享协议；lf/ 为 Langfuse 原生实验
+├─ evolve/            候选编译、确定性评分、预算账本、批量桥梁与冻结配置校验
+│  └─ materials/      材料转换、案例装配、rubric、人工复核准入与数据集构建
 ├─ storage/
 │  ├─ db.ts           打开 SQLite / 迁移 / 短事务
 │  └─ store.ts        唯一读写入口：原子入队、按轮次调度、取消、事件、投递
@@ -104,21 +121,27 @@ src/
 ├─ integrations/feishu/ 过渡期飞书 SDK 接入（mention 门控 / 归一化 / 网关）
 └─ config/index.ts    环境变量集中解析（业务模块不得直接读 process.env）
 
-adapters/go/          Go 接入适配器（config/feishu/hostapi/hostclient/adapter，含测试）
+adapters/go/          Go 接入适配器（飞书 Webhook/长连接；钉钉/Slack 骨架，含测试）
+tools/evolve/         Python GEPAAdapter、反射 LM、搜索入口与单测
+evolve/              config/ 冻结搜索配置；reviews/ 案例复核记录
+scripts/             评测/自改进 CLI、样例初始化、环境安装与迁移脚本
+deploy/              Langfuse 与 systemd 部署资产
 migrations/           001_init … 006_evidence_uid
 tests/unit/ tests/integration/
-fixtures/             样例日志与样例仓库（demo 用）
+fixtures/             演示/评测材料、公开模拟故障原始材料
+docs/                 README.md 文档索引、交接、开发清单与专项方案
+data/                 本地数据库、派生案例、运行与实验产物（Git 忽略）
 ```
 
 ---
 
 ## 4. 开发闭环（每个改动都走一遍）
 
-1. **先跑基线**：`npm run typecheck && npm test` 全绿再动。
+1. **先复验环境**：`npm run typecheck && npm test`；有失败先区分依赖/本地产物缺失与代码问题，说明阻塞和替代验证。
 2. 改代码 → `npm run typecheck` → `npm test`（改 Go 还要 `npm run test:go`）。
-3. 同步文档：设计决策进 `docs/open-questions.md`，状态进 `roadmap.md` / `backlog.md`，
-   本次进度进 `docs/handover.md` 六节。
-4. `git commit`（说清"改了什么/为什么"）+ `git push`（保持 origin/main 同步）。
+3. 同步文档：易变事实先更新 `docs/status.json`，设计决策进 `docs/open-questions.md`，
+   状态进 `roadmap.md` / `backlog.md`，本次进度进 `docs/session-handover.md` 与相关专项交接，再跑 `npm run docs:check`。
+4. 在独立分支提交，推送并按项目约定通过 PR 合入 `main`；确认 GitHub 已保存，记录仍未完成的检查。
 5. **一次只做一件**；拿不准先记 backlog「待探讨」，不要闷头改主链路。
 
 ---
@@ -127,44 +150,51 @@ fixtures/             样例日志与样例仓库（demo 用）
 
 - Node：用 `node --experimental-strip-types` 直接跑 `.ts`（无需构建）。**Node 22.23+**。
 - 数据库：`node:sqlite`（Node 22 内置），同步 API；事务铁律：**外部 IO（模型/日志/发送）一律在事务外**。
-- Go：`go1.22+`；`cd adapters/go && go test ./...`。本机用 `apt-get install golang-go` 装的。
-- Docker：`Dockerfile` + `docker-compose.yml` 已就绪；注意本机到 Debian 源/镜像仓库很慢，构建可能很久。
+- Go：`go1.22+`；根目录可执行 `npm run test:go`。
+- Docker：`Dockerfile` + `docker-compose.yml` 已就绪；历史构建记录不代表当前机器已安装 Docker 或完成构建。
 - 配置：开发时复制 `.env.example` 为 `.env`。关键项：`TD_ENGINE=fake|pi`、`TD_RUNNER_MODE=inprocess|process`、
   `TD_FEISHU_DIRECT=true|false`、`TD_HOST_PORT`、`TD_REPOS`、`TD_LOG_DIR`、`FEISHU_*` / `LARK_*`。
 - 改动迁移：**新增迁移用 `007_` 前缀**，不要改历史迁移（当前头：`006_evidence_uid.sql`）。
-- 参考源码（本机）：`/opt/pi`、`/opt/miniclaw`、`/opt/deepseek-harness`；
-  平台文档 `/opt/locatebug/研发Agent平台项目文档`。
+- GEPA 环境：`scripts/evolve-env-setup.sh` 为 Linux 独立安装脚本，路径与要求见 [适配器说明](../tools/evolve/README.md)；
+  `evolve:gepa` / `evolve:gepa:test` 脚本采用 POSIX 环境变量语法，Windows 需先核对 shell、Python 与 Node 路径。
+- Linux 历史参考源码位于 `/opt/pi`、`/opt/miniclaw`、`/opt/deepseek-harness`；这些路径不属于仓库，也不保证接手机器存在。
+- 云主机、Langfuse 数据与凭据迁移按 [资源与迁移清单](deployment-inventory.md) 操作；凭据不写入 Git，线上状态恢复时另行核验。
 
 ---
 
-## 6. 当前状态（截至最新提交）
+## 6. 当前状态
 
 - 已实现：飞书接入（Webhook + 长连接）、会话路由、SQLite 持久化与状态机、租约/代次、可靠投递、只读工具与证据校验、
   Host 统一入口 + 原子入队 + 按会话严格轮次、独立 Runner 子进程、Host Web API + SSE、
-  Web 会话页、Go 接入适配器（含签名校验/解密）、Langfuse OTel 观测（门控）、故障注入测试。
-- 已移除：旧评测 harness（v1/v2，`src/evals/`）随观测接入方案清理，另行立项（勿再跑 `npm run eval`）。
-- 测试：`npm test`（TS）+ `npm run test:go`（Go adapter）全绿；数量见 `docs/status.json#tests`；`npm run demo` 离线可跑。
-- 阶段进度：路线图见 `docs/roadmap.md`。
+  Web 会话页、Go 接入适配器（含签名校验/解密）、Langfuse 官方 SDK 观测、独立审计与有界补证、检索范围约束与分页覆盖信息。
+- 评测：旧 v1/v2 harness（`src/evals/`）已移除；当前 `src/eval/` 的 `npm run eval` 入口有效，Langfuse 原生离线评测第一阶段已完成，语义人工复核仍待完成。
+- 自改进：材料与准入、固定 TS 桥梁、公开模拟材料冻结基线与配置、Python C 适配器已实现；真实 GEPA 搜索未跑，D 目前只有初步报告与采用建议。
+- 搜索边界：只优化 `diagnosis_rules`；基础提示词、工具、案例、评分器冻结；holdout 不参与搜索；预算为 `monitor`，请求前硬限待统一 gateway。
+- 未完成：真实搜索、完整 D 审核/发布/回滚、语义裁判人工校准、E 真实案例扩展、候选固定后独立 holdout 验收；F 有限回放延后。
+- 核验：历史记录与本机结果分开保存，最新见 `docs/status.json#self_improvement`；版本与测试静态统计见状态源，不将历史通过记录当作本轮结果。
+- 阶段进度与开发清单：[路线图](roadmap.md)、[待办清单](backlog.md)；自改进从 [专项交接](self-improvement-handover.md) 继续。
 
 ---
 
 ## 7. 任务菜单（挑一个做，从易到难）
 
-> 每项都给了「目标 / 验收 / 主要文件」。T1~T4 / T6 / T7 已完成；
-> 下一步建议从 T5 / T8 / T9 或 S4（弃用 Host 内直连，见 `docs/handover-technical-plan.md §5.3`）里挑。
+> 本表用于定位代码，任务状态与优先级以 [路线图](roadmap.md)、[待办清单](backlog.md) 和 [自改进交接](self-improvement-handover.md) 为准。
+> 当前暂停；恢复后先修复本机环境与派生材料，再根据用户确定的目标继续自改进或产品接入工作。
 
 | # | 任务 | 目标 / 验收 | 主要文件 | 难度 | token 友好 |
 |---|---|---|---|---|---|
 | ✅T1 | **Host 重启进程级验证（已完成）** | 见 `tests/integration/host-restart.test.ts`：SIGKILL → 重启 → 轮次恢复、不重复入队/追加输入 | — | — | — |
 | ✅T2 | **docker 构建 + compose 冒烟（已完成）** | 两镜像构建通过；compose 起 host/adapter，Web/飞书事件/投递均跑通 | — | — | — |
 | ✅T3 | **Go 适配器长连接模式（S3，已完成）** | 官方 Go SDK（`.../v3/ws`）实现 `eventsource.Source`，`ADAPTER_MODE=webhook|ws`；**方案见 `docs/adapter-longconn-design.md`**；真机验证步骤在 `adapters/go/README.md` | `adapters/go/internal/eventsource/`、`internal/platform/feishu/longconn.go`、`main.go`、`internal/adapter/` | 高 | 高 |
-| ✅T4 | **多平台抽象（钉钉/Slack）（已完成）** | `Platform` 接口（归一化/校验/发送/长连接）已就位，飞书已迁入；新增第二个平台只需实现接口并在 `BuildPlatforms` 注册（OQ-37） | `adapters/go/internal/platform/` | 高 | 高 |
+| ✅T4 | **多平台抽象（已完成）** | `Platform` 接口已就位，飞书已迁入；钉钉/Slack 尚为骨架，真实接入需实现并验证平台能力（OQ-37） | `adapters/go/internal/platform/` | 高 | 高 |
 | T5 | **Web 页面增强** | 进度按轮次/阶段展示、证据与假设互跳、失败原因高亮、移动端可用；保持无框架 | `src/host/web/`、`src/host/server.ts` | 中 | 高 |
 | ✅T6 | **证据持久化 + 稳定 UID（已完成，OQ-38）** | 工具返回前两阶段提交（材料先落盘再给模型）+ `evidence_uid`/调查内短号续签 + 崩溃恢复 + 报告 v1/v2；按 `docs/evidence-uid-design.md` §11 全部落地 | `src/evidence/`、`src/agent/toolbox.ts`、`src/diagnosis/*`、`src/host/runner-executor.ts`、`src/runner/protocol.ts`、`migrations/006` | 高 | 高 |
 | ✅T7 | **`search_code` 有界预览 + 路径清单（已完成）** | 输出改为“按文件聚合的路径清单（≤20 文件）+ 前 8 处带 [E#] 的预览”；每处命中仍签 `E#`，validate 语义不变（OQ-36） | `src/agent/toolbox.ts`、`src/agent/pi-engine.ts` | 中 | 中 |
 | T8 | **tool_executions 回放** | 按调查展示每次工具调用（入参/耗时/成败/结果规模），供审计与排查 | `src/storage/store.ts`、`src/host/server.ts`、`src/host/web/` | 中 | 中 |
-| T9 | **独立审计 Agent（OQ-30）** | 把「证据是否充分」剥离到独立上下文，结构化输出已确认事实/疑似原因/补证请求 | `src/diagnosis/`、`src/agent/` | 高 | 高 |
-| ⛔T10 | **评测样本扩充 / judge（已移除，另行立项）** | 旧评测 harness（v1/v2）已随观测接入方案清理；新评测体系另行立项后重开此任务 | — | — | — |
+| ✅T9 | **独立审计 + 有界补证（已完成，OQ-30）** | 独立会话逐结论判定、程序应用降级、共享预算补证；并行审计/主动检索仍待后续 | `src/diagnosis/diagnosis-loop.ts`、`src/diagnosis/audit.ts`、`src/agent/pi-auditor.ts` | 高 | 高 |
+| T10 | **真实案例扩展 / 语义裁判** | 补真实历史故障并人工审定；模型裁判先以人工标注正反例校准 | `src/eval/`、`src/evolve/materials/` | 高 | 高 |
+| T11 | **GEPA 搜索（C 剩余）** | 复验已有适配器，补请求前预算硬限，在冻结配置下执行真实搜索；不得混入 holdout | `tools/evolve/`、`src/evolve/` | 高 | 高 |
+| T12 | **审核、发布与独立验收（D）** | 完善逐例差异/成本/采用建议，固定候选后独立验收，人工审核并具备发布回滚入口 | `tools/evolve/optimize.py`、`docs/self-improvement-implementation-plan.md` | 高 | 高 |
 
 ---
 
@@ -188,7 +218,13 @@ npm run host             # Host（Web API + SSE + Runner）
 npm run gateway          # 旧链路（Host 内直连飞书）
 npm run worker           # 只跑 worker
 npm run docs:check       # 文档状态一致性检查（已并入 npm test）
+node --experimental-strip-types scripts/evolve-materials.ts verify  # 原始材料完整性
+npm run evolve:review:verify    # 派生案例与复核记录校验（先重建材料）
+npm run evolve:config:verify    # 冻结搜索坐标校验
 
 # 单文件调试（示例）
 node --experimental-strip-types --test tests/integration/fault.test.ts
 ```
+
+Langfuse 评测命令见 [原生评测方案](langfuse-eval-implementation-plan.md)，GEPA 命令见
+[适配器说明](../tools/evolve/README.md)。真实模型实验需要凭据与预算，恢复环境校验不要求执行付费搜索。

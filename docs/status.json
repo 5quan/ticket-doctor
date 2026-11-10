@@ -17,6 +17,9 @@
     "evidence_uid": "done",
     "observability_langfuse": "done",
     "audit_agent": "done_first_version",
+    "audit_bounded_loop": "done",
+    "model_turn_limit": "configured_not_enforced",
+    "migration_scripts": "done",
     "eval_harness": "mvp_offline",
     "eval_m2": "deferred"
   },
@@ -45,6 +48,52 @@
     "annotation": { "scoreConfig": "prediagnosis_quality（NUMERIC 0–2）", "items": 30, "completed": 0, "note": "队列已就绪待真人复核；此前的 API 联通测试分已删除，不计作人工复核。" },
     "cases": { "synthetic": 5, "real": 0 },
     "note": "原生 Langfuse 实验：5 合成案例 × 基线/候选提示词（各自一次）。逐案例读回预期指标（v3/scores + fields=details,subject,annotation），按 dataType 校验必需值与 subject 归属，缺即失败；input.question 为权威首轮问题；材料 hash 覆盖 materialView 日志；预期阻断按结构化 SHA mismatch 校验（未调模型/未继续取证）；prompt_injection 输出分类状态（actual_request_verified/config_only/not_called/mismatch）并读回 generation 原生 prompt name/version。语义质量尚无真人评分（unscored），不作真实工单质量结论。"
+  },
+  "development": {
+    "status": "paused",
+    "updatedAt": "2026-11-10",
+    "baseCodeCommit": "3846bde880709bb2c74c423788ca7a8a5994ec83",
+    "note": "用户暂时没有开发时间；本轮仅同步文档与 GitHub 保存状态，不新增业务功能、不运行真实模型实验。恢复开发先安装锁定依赖、重建本地产物并复验。"
+  },
+  "self_improvement": {
+    "status": "adapter_ready_search_pending",
+    "plan": "docs/self-improvement-implementation-plan.md",
+    "handover": "docs/self-improvement-handover.md",
+    "adapter": "tools/evolve/",
+    "searchConfig": "evolve/config/search-v1.json",
+    "mutableComponent": "diagnosis_rules",
+    "deliveries": {
+      "A": "done_log_only",
+      "B": "done_monitor_budget",
+      "C": "adapter_done_real_search_pending",
+      "D": "initial_report_only",
+      "E": "pending_real_cases",
+      "F": "deferred"
+    },
+    "dataset": { "train": 4, "validation": 3, "holdout": 2, "admitted": 7 },
+    "baseline": {
+      "document": "docs/self-improvement-baseline.md",
+      "version": "v2",
+      "trials": 21,
+      "sourceTier": "public_simulated",
+      "note": "真实 pi 的冻结诊断基线；不等于已执行 GEPA 搜索或真实生产质量验收。"
+    },
+    "budgetMode": "monitor",
+    "requestPrecheck": "pending_unified_gateway",
+    "realSearch": "not_run",
+    "semanticJudge": "pending_human_label_calibration",
+    "holdoutAcceptance": "pending_after_candidate_frozen",
+    "productionRelease": "pending_human_review_and_rollback_path",
+    "localVerification": {
+      "checkedAt": "2026-11-10",
+      "materials": "passed_92_of_92",
+      "docs": "passed",
+      "docsConsistencyTest": "passed",
+      "typecheck": "blocked_missing_langfuse_and_otel_dependencies",
+      "tests": "not_run_in_incomplete_local_environment",
+      "config": "blocked_missing_generated_cases_and_crlf_source_hashes",
+      "note": "以上为当前 Windows 接手环境核验；本轮文档门禁与现有文档一致性集成测试通过，完整工程门禁尚未通过，历史全绿记录不代表本轮结果。"
+    }
   },
   "eval": {
     "status": "removed",
