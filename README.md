@@ -13,13 +13,14 @@ Agent 查询日志、检索源码，整理异常线索与根因候选，输出�
 
 ### 问题接入与进度查看
 
-支持飞书、钉钉等多种IM平台与 Web 提交问题，自动创建或续接调查；Web 时间线展示消息、执行进度与结果。
+支持飞书与 Web 提交问题，自动创建或续接调查；Web 时间线展示消息、执行进度与结果。
+Go 适配器已提供多平台接口，钉钉与 Slack 当前为骨架，尚不能接入使用。
 
 ### 日志与源码取证
 
-按照提前制定好的清单排查，查询已配置的本地服务日志，定位源码中的相关文件与代码上下文，
+按故障线索查询已配置的本地服务日志，定位源码中的相关文件与代码上下文，
 将故障描述与实际材料关联起来。
-检索工具可根据实际业务场景进行调整。
+日志检索受本轮服务与时间窗约束，源码受仓库白名单约束；检索结果提供覆盖信息与续查游标。
 
 ### 多轮追问与补证
 
@@ -31,10 +32,21 @@ Agent 查询日志、检索源码，整理异常线索与根因候选，输出�
 报告包含事实、根因候选、证据引用、不确定项、缺失材料与下一步，
 通过 Web 展示或回写飞书，供开发继续验证。
 
+### 独立审计与有界补证
+
+可开启独立审计会话，逐条检查结论的证据充分性，由程序应用降级判定。
+需要补证时，在轮次、工具与总超时预算内返回诊断会话继续取证；审计默认关闭。
+
 ### 模型与工具过程复盘
 
 接入 Langfuse，查看捕获到的模型输入输出、工具参数与返回、耗时和 Token 用量，
 定位检索、模型调用与报告校验过程中的问题。
+
+### 离线评测与规则改进
+
+已接入 Langfuse 原生数据集、提示词版本、实验与人工复核，并实现 GEPA 的 Python 适配器。
+当前仅允许优化外部 `diagnosis_rules`，基础提示词、工具、案例与评分器保持冻结。
+真实 GEPA 搜索尚未运行，完整的候选审核、发布与回滚流程仍待补齐。
 
 ## 工作原理
 
@@ -132,35 +144,62 @@ Go 检查需要 Go 环境。Langfuse 的启用、部署与验收见 [观测手�
 
 ## 当前状态
 
+开发当前暂停，进度与本机核验结果见 [状态源](docs/status.json#development) 和
+[自改进状态](docs/status.json#self_improvement)。恢复入口见 [最新会话交接](docs/session-handover.md) 与
+[自改进交接](docs/self-improvement-handover.md)。
+
 | 能力 | 状态 |
 |---|---|
-| 接入、调度、恢复、取证、报告与投递 | 工程闭环已实现，fake demo 可运行 |
-| 真实模型与 Langfuse | 已有真实模型样例观测验收，未建立当前版本可复现的诊断质量基线 |
+| 接入、调度、恢复、取证、报告与投递 | 工程闭环已实现；运行前需恢复本地依赖与样例产物 |
+| 真实模型与 Langfuse | 官方 tracing SDK 迁移与原生离线评测第一阶段已完成，已有历史实验记录 |
 | 检索来源 | 本地文件日志与 Git；远程日志、生产诊断 MCP 与仓库同步器待建设 |
-| 质量评测与独立审计 | 已有评测方案；数据集、评分、实验、CI 门禁与独立审计 Agent 尚未接入 |
-| RSI 改进闭环 | 方案阶段：优化提示词、规则与授权范围内检索参数，人工批准发布 |
+| 质量评测与独立审计 | 离线评测、独立审计与有界补证已实现；语义人工复核、裁判校准与质量 CI 门禁待完善 |
+| RSI 改进闭环 | 材料准入、固定评测桥梁、冻结基线与配置、C 适配器已实现；真实搜索、D 完整审核发布与独立验收待完成 |
 | 接入与访问控制 | 飞书长连接待真机验收；Web 无登录与权限体系；钉钉/Slack 为骨架，图片未接入 |
 
-程序校验引用有效性不等于确认根因。旧评测 harness 已移除，历史成绩不代表当前质量；
-工程 demo 与样例观测也不等同于生产诊断验收。
+程序校验引用有效性不等于确认根因。旧 v1/v2 评测已移除，现有 `src/eval/` 与 `src/evolve/` 是后续实现。
+自改进冻结基线来自公开模拟材料上的真实 pi 调用，不代表真实生产质量；工程 demo 与样例观测也不等同于生产诊断验收。
+历史测试通过记录不代表本轮环境已通过，线上服务状态需恢复时另行检查。
 
 <details>
 <summary>检索与运行的当前边界</summary>
 
-- 调查的服务与时间窗尚未用于强制授权校验，日志接口没有环境隔离字段。
-- 显式 `TD_REPOS` 尚未与 `TD_ALLOWED_REPOS` 强制取交集；只读能力不代表完整授权隔离。
-- 来源缺少分页与覆盖信息，`read_code` 的统一总输出预算、`TD_MAX_MODEL_TURNS` 强制执行仍待补齐。
+- `query_logs` 已校验本轮服务范围并收窄时间窗；日志接口仍缺环境与 request-id 结构化过滤字段。
+- `TD_ALLOWED_REPOS` 已作为硬白名单，在配置解析与诊断准备两层过滤源码仓库。
+- 材料源已提供总数、截断、剩余结果与续查游标，空结果会与失败、越权分开呈现。
+- `TD_MAX_MODEL_TURNS` 已解析配置并传入引擎选项，但模型循环尚未强制执行该上限，恢复开发时需与请求前预算控制一起补齐。
 - SHA 在每次尝试准备时解析，同轮重试的固定版本机制尚未补齐；按发生时间选提交不等于确认部署版本。
 - Langfuse 观测可能截断或丢失，统一脱敏尚未实现；会话恢复以已保存内容为准。
+- 自改进预算目前为 `monitor`，在 trial 间累计停止；请求前硬拦截仍需统一 gateway。holdout 只在候选固定后独立验收。
 
 </details>
 
+## 目录指引
+
+```text
+src/                 业务源码：Host/Runner、诊断、工具、证据、存储、观测、评测与自改进桥梁
+adapters/go/         飞书接入与投递适配器；钉钉/Slack 骨架
+tools/evolve/        Python GEPA 适配器、反射模型客户端与搜索入口
+scripts/             演示初始化、评测/自改进命令、环境与迁移脚本
+evolve/              冻结搜索配置与案例复核记录
+fixtures/            演示/评测材料与公开模拟故障原始材料
+migrations/          SQLite 迁移
+tests/               TypeScript 单元与集成测试（Go/Python 测试在各自目录）
+deploy/              Langfuse 与 systemd 部署资产
+docs/                文档索引、交接、开发清单与专项方案
+data/                本地产生的数据库、派生案例和实验产物，不由 Git 保存
+```
+
+文件级导航见 [开发上手指南](docs/contributor-onboarding.md)，文档入口见 [文档索引](docs/README.md)。
+
 ## 详细文档
 
+- 暂停与恢复：[最新交接](docs/session-handover.md)、[自改进交接](docs/self-improvement-handover.md)、[资源迁移](docs/deployment-inventory.md)。
 - 使用与接入：[产品使用](docs/usage.md)、[Go 适配器](adapters/go/README.md)。
 - 架构与接口：[Host/Runner](docs/host-runner-design.md)、[接口协议](docs/interface.md)、[并发设计](docs/concurrency.md)。
 - 会话与证据：[会话持久化](docs/session-log-design.md)、[证据 UID 与恢复](docs/evidence-uid-design.md)、[材料范围](docs/evidence-scope-design.md)。
-- 观测与评测：[Langfuse 手册](docs/self-host-langfuse-runbook.md)、[规则迭代协议](docs/evolve-protocol.md)。
-- 工程与进展：[代码导航与开发入口](docs/contributor-onboarding.md)、[功能状态](docs/status.json)、[路线图](docs/roadmap.md)。
+- 观测与评测：[Langfuse 手册](docs/self-host-langfuse-runbook.md)、[原生评测](docs/langfuse-eval-implementation-plan.md)、[SDK 迁移](docs/langfuse-sdk-migration.md)。
+- 自改进：[实施方案](docs/self-improvement-implementation-plan.md)、[冻结基线](docs/self-improvement-baseline.md)、[GEPA 适配器](tools/evolve/README.md)。
+- 开发清单：[路线图](docs/roadmap.md)、[待办清单](docs/backlog.md)、[代码导航](docs/contributor-onboarding.md)、[功能状态](docs/status.json)。
 
-设计文档中的历史路径与命令需要结合当前代码核对；规划能力以“当前状态”为准。
+完整目录见 [文档索引](docs/README.md)。时点设计中的历史路径、命令与状态需要结合当前代码和状态源核对。

@@ -1,7 +1,8 @@
 # 交接文档
 
-> 仓库：https://github.com/5quan/ticket-doctor （private）
-> 代码根目录：`/opt/ticket-doctor`
+> 仓库：https://github.com/5quan/ticket-doctor
+> 原 Linux 部署目录：`/opt/ticket-doctor`；当前 Windows 接手目录：`D:\project\ticket-doctor`。
+> 2026-11-10 已暂停功能开发；最新状态见 [状态源](status.json#development)、[会话交接](session-handover.md) 与 [文档索引](README.md)。
 > **开工前先读「七、交接规程」**：会话开始读什么、按什么推进、如何收尾。
 
 ## 一、我们要实现的目标
@@ -18,8 +19,8 @@
 | # | 能力 | 要点 | 状态 |
 |---|---|---|---|
 | 1 | 能力与材料接入 | 日志检索 / 代码检索 / 飞书群补证统一注册为 Agent 工具；按候选假设定向取证；证据不足时在飞书话题 @ 相关人员补背景；生产只读 | 工具已就绪；@ 相关人员补证待做 |
-| 2 | 独立审计 Agent | 把“证据是否充分”剥离到独立上下文，结构化输出已确认事实/疑似原因/补证请求，程序按预算收敛 | 设计已定（OQ-30），阶段二实现 |
-| 3 | 评测与记忆规则迭代 | RSI 思路：Benchmark（标准答案+支撑证据+干扰证据），以证据召回率/决策正确率评估，迭代场景记忆规则 | 评测 harness（v1/v2）已移除、另行立项；审计 Agent 与规则迭代不受影响 |
+| 2 | 独立审计 Agent | 独立会话逐结论审查，程序应用降级，并按预算执行有界补证 | 首版与有界补证已实现；主动检索、并行专项审计待做 |
+| 3 | 评测与规则迭代 | 现有诊断链路 + Langfuse 实验 + GEPA，仅优化外部 `diagnosis_rules` | 离线评测、A/B、冻结基线/配置与 C 适配器已实现；真实搜索、完整审核发布待做 |
 | 4 | 生产诊断 MCP Server | 结构化参数限定服务/时间窗/范围，只读凭据 + 超时 + 结果规模控制，返回带来源与版本证据 | 阶段三实现 |
 | 5 | 可靠执行与可观测内核 | 持久化状态机 + 租约/代次守卫 + 投递不确定态；逐次工具/对话/token append-only 落盘，可回放可审计 | ✅ 已实现（含 Langfuse OTel 观测；面试口述见 `docs/interview-reliability.md`） |
 
@@ -30,8 +31,8 @@
    而不仅是“调了一次大模型”。
 
 **推进优先级（已确立）**
-1. 第一阶段（当前）：完成「外部触发 → 只读功能 → 结论写回」的闭环；保证会话管理、对话记录保存合理，满足治理与观测需求。
-2. 第二阶段：评测与效果优化——Benchmark 评测（RSI）、独立审计 Agent、提示词、skill/经验案例。
+1. 第一阶段（主干已实现）：完成「外部触发 → 只读功能 → 结论写回」的闭环；真机与真实数据源验收仍有独立待办。
+2. 第二阶段（适配器就绪，当前暂停）：独立审计、离线评测与 GEPA 接入已实现；恢复后先复验环境、落实搜索保障，再做真实搜索与人工审核。
 3. 第三阶段：扩展——生产诊断 MCP Server、真实日志平台、图片等。
 
 ## 二、当前实现情况
@@ -54,14 +55,16 @@
 | 证据 | 两阶段提交（工具 commit 时落库，fail-closed）+ `evidence_uid` 全局唯一 + 调查内短号 `E{n}` 续签；报告只引用 ID（v2=uid，v1=run 级 E#）、校验引用与版本（D10 历史版本降级）、无证据强制降级；批次表支撑幂等与崩溃恢复（OQ-38） | ✅ |
 | 投递 | 待发送记录、退避重试、**不确定态**、平台消息 ID | ✅ 真机回复成功 |
 | 会话持久化（单存储） | pi 会话条目原样落 `session_entries`（按调查单调 `seq`）；引擎读回写 seed 文件给 pi 重建、崩溃时 `reconcileSession` 补未决工具结果并 `Agent.continue()`；JSONL 已移除 | ✅ |
-| 评测 harness（v1/v2，离线） | `npm run eval` 等入口与 `src/evals/` 已随观测接入方案整体移除、另行立项；历史设计见 `docs/eval-design.md`，冻结基线见 `docs/status.json#eval` | ⛔ 已移除 |
+| 旧评测 harness（v1/v2） | 原 `src/evals/` 已移除；当前同名 `npm run eval` 运行新 `src/eval/` MVP。旧设计与数字只作历史，见 `docs/status.json#eval` | ⛔ 旧实现已移除，新入口见下一行 |
+| 当前评测与自改进 | `src/eval/` 离线 MVP、`src/eval/lf/` 原生实验、`src/evolve/` 材料/评分/批量桥梁、`tools/evolve/` GEPA 适配器 | ✅ 工程接入；真实搜索与生产质量验收待完成 |
+| 独立审计与有界补证 | Runner 内独立会话审查、程序应用结论，按 `TD_AUDIT_MAX_ROUNDS` 收敛 | ✅ 首版；默认开关与剩余能力见专项记录 |
 | Host 统一入口 + 队列 | 原子入队（去重+关联+消息+轮次同事务）、按会话严格轮次串行、会话间公平、显式取消、来源路由 | ✅ 阶段1 |
 | 独立 Agent Runner | Host 每轮 spawn Node 子进程；NDJSON 协议；Host 校验代次后代为落库；单进程崩溃只判本轮 | ✅ 阶段2 |
 | Host Web API + SSE | `/api/agent/*`：message/investigations/events(SSE replay)/runs cancel·retry/deliveries claim·result | ✅ 阶段4 |
 | Web 会话页面 | Host 托管静态页（`src/host/web/`）：列表/时间线/轮次状态与取消重试/证据报告，SSE 自动重连 | ✅ 阶段4 |
 | Go 接入适配器 | `adapters/go`：`Platform` 多平台接口（OQ-37）+ 飞书实现（事件归一化、fail-closed mention 门控、签名校验/Encrypt Key 解密、转发 Host、投递轮询发送）；钉钉/Slack 骨架；回调路由 `/{platform}/events`，投递按 provider 路由 | ✅ 阶段3（Webhook + 长连接 `ADAPTER_MODE=ws` + 多平台抽象就位，OQ-40） |
 | 故障与部署 | Host 强杀重启恢复（进程级测试）；Dockerfile + docker-compose（host/adapter + 数据卷 + 只读挂载），compose 整链路冒烟通过 | ✅ 阶段5 |
-| 测试 | `npm test`（TS）+ `npm run test:go`（Go adapter）+ `typecheck` 全绿；数量见 `docs/status.json#tests` | ✅ |
+| 测试 | 入口为 `npm test`（TS）+ `npm run test:go`（Go adapter）+ `typecheck`；静态数量见 `docs/status.json#tests`；历史通过记录不等于当前环境通过 | 当前接手结果见 `docs/status.json#self_improvement` 与会话交接 |
 
 **未实现 / 明确边界**
 
@@ -69,7 +72,7 @@
 - 脱敏。
 - 环境部署记录推断版本（当前按发生时间/HEAD 推断）。
 - 图片/截图处理（当前只处理 `text`）。
-- 独立上下文审计 Agent（证据充分性审查，见 `open-questions.md` OQ-30）。
+- 审计主动检索、并行专项审计（独立审计首版与有界补证已实现，见 `open-questions.md` OQ-30）。
 - 仓库同步器（本地只读镜像由外部更新）。
 - 出站消息映射（已决定暂缓）；上下文跨轮复用待设计（证据跨轮已完成，OQ-38）。
 - 证据已升级为持久化 + 稳定 UID（OQ-38）：工具 commit 时入库、`evidence_uid` 全局唯一、调查内短号续签跨轮可引用；详见 `docs/evidence-uid-design.md`。
@@ -92,7 +95,7 @@ npm run worker           # 只跑 worker
 - 所有提出过的问题、结论与状态，统一记录在 `docs/open-questions.md`（OQ-1 ~ OQ-44）。
 - 本轮已解决（示例）：只读价值定位、并发能力、pi 会话持久化含义、信息爆炸处理、路径压缩、
   工具分层照搬、交互/机械回复、发生时间与版本按输入锚定。
-- 仍待探讨：独立上下文审计 Agent（OQ-30）、图片处理（OQ-27）、上下文跨轮复用（证据跨轮已完成，OQ-38）。
+- 仍待推进：真实搜索与完整审核发布、审计主动检索/并行专项审计、图片处理（OQ-27）、上下文跨轮复用（证据跨轮已完成，OQ-38）。
 
 ## 四、关键决策记录
 
@@ -144,9 +147,12 @@ npm run worker           # 只跑 worker
 - 检索覆盖：工具返回带覆盖信息（总数 / 是否截断 / 是否还有 / 续查 cursor），数量上限不再静默切片；空结果与失败/越权分开（backlog T7）。
 - 独立审计（OQ-30）：同一 Runner 内诊断 → 独立审计会话 → 程序逐结论降级；不主动检索、失败显式降级不阻断；有界补证循环由 `TD_AUDIT_MAX_ROUNDS` 封顶；`AUDIT_POLICY_VERSION` 随结果落库。观测上同一 trace 下诊断/审计分别挂 `diagnosis-attempt` / `audit#n` agent 节点。
 - 离线评测 MVP（E0）：`src/eval/` 复用正式链路，`npm run eval` / `eval:compare` / `eval:review`；只评材料/引用，语义未复核=unscored。后续工作单见 `docs/eval-implementation-plan.md`。
+- Langfuse 原生评测与官方 tracing SDK 迁移已合入主干；工程实验已记录，人工语义复核仍有待办。
+- 自改进：A 材料/准入、B 评测桥梁、冻结基线/配置及 C 的 Python 适配器已实现；真实 GEPA 搜索未运行，D 仅有初步报告生成能力。入口见 `docs/self-improvement-handover.md`，状态见 `docs/status.json#self_improvement`。
+- 迁移：`scripts/migrate-export.sh` / `scripts/migrate-restore.sh` 已入库；脚本支持搬运运行数据、密钥及可用二进制。尚未据此执行本次服务器备份。
 - 评测：旧 v1/v2 harness 已移除、另行立项（历史口径见 `docs/eval-design.md`；冻结基线见 `docs/status.json#eval`）。
 
-**最高优先**：S4 弃用 Host 内直连 → 独立审计 Agent（OQ-30）→ 评测 M2/M3；S3 真机人工验证待有飞书凭据时执行。
+**当前暂停；恢复后的主路径**：安装锁定依赖与重建材料 → 通过本地门禁及适配器测试 → 预算/隔离/恢复保障 → 真实 GEPA 搜索 → 固定候选后的独立验收 → 人工审核与发布/回滚。S4 清理与 S3 真机验证保留为产品待办，不再重复实现审计首版。具体清单见路线图和 backlog。
 
 **暂缓/边界**：脱敏（S1）、出站消息映射；不做权限体系；不复现、不写业务系统、不自动修复；生产只读。
 
@@ -156,7 +162,7 @@ npm run worker           # 只跑 worker
 
 ### 7.1 会话开始（阅读顺序）
 
-0. （新接手的 Agent）先读 `docs/session-handover.md` —— 最新会话概要；
+0. （新接手的 Agent）先读 `docs/README.md` —— 文档总目录；再读 `docs/session-handover.md` —— 最新会话概要；
    再读 `docs/contributor-onboarding.md` —— 十分钟上手 + 任务菜单；
    再读 `docs/handover-technical-plan.md` —— 剩余工作的技术方案与推荐执行顺序。
 1. `docs/handover.md`（本文）—— 目标 / 实现 / 决策 / 进度 / 下一步。
@@ -165,12 +171,13 @@ npm run worker           # 只跑 worker
 4. `docs/open-questions.md` —— 已结论的问题，避免重复讨论。
 5. 改代码前必读 `docs/interface.md`（接口与格式约束）。
 6. 按任务读专项：
-   - 评测 / 规则迭代 → `docs/eval-design.md`、`docs/evolve-protocol.md`
+   - 自改进 → `docs/self-improvement-handover.md`、`docs/self-improvement-implementation-plan.md`、`tools/evolve/README.md`
+   - 评测 → `docs/langfuse-eval-implementation-plan.md`、`docs/eval-implementation-plan.md`；`docs/eval-design.md` / `docs/evolve-protocol.md` 中的旧 harness 与 delta 方案作历史参考
    - 飞书 / 接入 → `docs/feishu-channel.md`、`docs/usage.md`
    - 会话 / 持久化 → `docs/session-log-design.md`、`docs/interface.md §8.7`
    - 并发 / worker → `docs/concurrency.md`
    - 简历 / 面试 → `docs/interview-reliability.md`
-7. **先跑基线**：`npm run typecheck && npm test`，确认全绿再动。
+7. **先恢复并跑基线**：`npm ci` → `npm run typecheck && npm test && npm run docs:check`；环境未恢复时如实记录失败，不把历史全绿当作本轮通过。
 8. 设计参考源码：`/opt/pi`、`/opt/miniclaw`、`/opt/deepseek-harness`；平台参考 `/opt/locatebug/研发Agent平台项目文档`。
 
 ### 7.2 推进规则
@@ -195,6 +202,7 @@ npm run worker           # 只跑 worker
 | 文档 | 角色 | 状态怎么维护 |
 |---|---|---|
 | `docs/status.json` | 易变事实唯一源 | 手改，`npm run docs:check` 校验 |
+| `docs/README.md` | 文档总目录与接手路线 | 增删文档时同步入口和分类 |
 | `session-handover.md` §1–3 | 会话级快照 | 引用 status.json；数字行带 `<!-- status:volatile -->` 可豁免检查 |
 | `handover.md` §2/§六 | 长期叙述 | 不写测试数/版本等数字，链接 status.json |
 | `roadmap.md` / `backlog.md` | 逐项状态 | 状态用词统一，数字引用 status.json |

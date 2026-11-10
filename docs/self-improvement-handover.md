@@ -1,7 +1,8 @@
-# 自改进项目交接（GEPA 起步，C 之前）
+# 自改进项目交接（适配器已实现，真实搜索待执行）
 
 > 给下一个接手会话：**先读本文**，再读原方案与各交付记录。
-> 状态：已执行到「开始使用 GEPA 自进化之前」；环境已备好，适配器（交付 C）尚未实现。
+> 最后同步：2026-11-10；当前暂停开发，状态源见 [开发状态](status.json#development) 与 [自改进状态](status.json#self_improvement)。
+> A/B、冻结基线与搜索配置、C 的 Python 适配器已实现；真实 GEPA 搜索尚未运行，完整审核发布闭环尚未完成。
 
 ---
 
@@ -17,7 +18,7 @@
 - 另一份背景方案：`docs/pre-diagnosis-evaluation-plan.md`（预诊断评测，供参考，路径为早期 `src/evals/` 时点，实施以现码为准）。
 - 冻结案例：`fixtures/research/rsi-bootstrap/`（RootCauseBench 9 例，Apache-2.0，公开模拟材料）。
 
-## 2. 本会话做了什么（都已并入 main）
+## 2. 已入库的实现与历史验证
 
 仓库整理与底座：
 
@@ -46,16 +47,17 @@
 - **交付 C 适配器**：`tools/evolve/`（GEPAAdapter + 反射 LM + optimize 入口）+ `npm run evolve:gepa[:test]`；环境见 `scripts/evolve-env-setup.sh`。
 - Langfuse 数据集 `ticket-doctor-rsi-bootstrap-v1` 已同步 7 条（`evolve:dataset:*`）。
 
-仓库约定：所有改动经分支 + PR 合入 `main`；`main` 是唯一分支。
+仓库约定：所有改动经分支 + PR 合入 `main`；旧实现已由主干与归档标签保留。本地旧工作树或远程跟踪引用不代表 GitHub 仍保留对应开发分支。
 
 ## 3. 剩余需要实现的
 
 ### C：GEPA 搜索
 
-1. **Python `GEPAAdapter`**：✅ 已实现（`tools/evolve/`，见其 `README.md`）：`evaluate` 按 split 分组子进程调桥梁；`make_reflective_dataset` 产出反思样本；holdout 案例直接拒绝；token 累计 + `MaxTokensStopper`。5 项单测通过（`npm run evolve:gepa:test`）。
-   **剩余：用真实反射 LM 跑一次搜索**：`npm run evolve:gepa -- --config evolve/config/search-v1.json`（需 `DEEPSEEK_API_KEY` 与预算；产物在 `data/evolve/gepa/<run>/`）。
+1. **Python `GEPAAdapter`**：✅ 已实现（[适配器说明](../tools/evolve/README.md)）：`evaluate` 按 split 分组子进程调桥梁；`make_reflective_dataset` 产出反思样本；holdout 案例直接拒绝；token 累计 + `MaxTokensStopper`。原交付记录含无模型单测通过；当前 Windows 接手环境未重跑 Python 测试。
+   **剩余：恢复环境并验证后，用真实反射 LM 跑一次搜索**。需要模型凭据、明确调用预算，以及下述预算和隔离条件核验；产物在 `data/evolve/gepa/<run>/`。搜索入口存在不等于已运行搜索。
 2. **请求前预算拦截**（方案 §8）：当前账本 `monitor`，`MaxTokensStopper` 只在 trial 间停止；要请求前硬限需接统一 gateway。
-3. **候选选择/报告（交付 D）**：接受/拒绝、逐例差异、成本、待审制品、发布与回滚入口（`tools/evolve/optimize.py` 已出 `report.json`/`best-rules.md` 与 `adopt/keep` 初步结论）。
+3. **候选选择/报告（交付 D）**：`tools/evolve/optimize.py` 已具备生成 `report.json` / `best-rules.md` 及初步采用/保留判断的能力；尚未形成完整的逐例审核、独立验收、人工批准、生产加载与回滚入口。初步 `adopt-candidate` 不等于批准发布。
+4. **搜索隔离与恢复验收**：运行前核对净化后的 train/validation 制品、优化器对私有答案和 holdout 的访问边界，以及检查点和预算状态恢复。适配器内拒绝 holdout ID 不等于完整的运行环境隔离。
 
 ### 仍缺
 
@@ -64,7 +66,7 @@
 - **F 有限回放**（第二阶段，延后）。
 - **holdout 验收**：`rcb-008/009` 候选固定后由独立流程准入（`evolve:review`）。
 
-## 4. 环境（已备好，可复现）
+## 4. 环境（Linux 安装脚本与历史验证）
 
 `bash scripts/evolve-env-setup.sh`（幂等）安装到独立位置，不改系统默认：
 
@@ -72,19 +74,35 @@
 - **Python 3.13.16 + gepa 0.1.4**：venv `/opt/venvs/ticket-doctor-gepa/bin/python`。
 - GEPA 接口已核验：`gepa.core.adapter.GEPAAdapter.{evaluate, make_reflective_dataset}` 存在。
 
+以上是原 Linux 环境的安装位置与交付记录，不表示当前 Windows 机器已经安装这些组件。恢复时先确认运行位置；`package.json` 中 `evolve:gepa` / `evolve:gepa:test` 使用 Bash 变量语法，Windows 原生命令行不能直接照搬。Python 子进程使用 `TD_NODE_BIN` 指定实际 Node 可执行文件，不依赖交互式 shell 别名。
+
+2026-11-10 当前 Windows 接手核验：
+
+| 检查 | 结果与恢复要求 |
+|---|---|
+| 冻结原始材料 | 文件 hash 全部通过，材料仍在 Git 中 |
+| 类型检查 | 缺少本地 Langfuse / OpenTelemetry 依赖；先按 lockfile 安装 |
+| 搜索配置 | 派生案例未装配，源码 CRLF 字节也与冻结的 LF hash 不同 |
+| 全量 TS / Python 测试 | 本轮尚未取得完整通过结果；历史全绿记录不代表当前环境 |
+
+两个源码指纹在归一为 LF 后与冻结值一致，未发现内容漂移。恢复时使用 LF checkout，并重新验证原件、转换器、rubric 和配置指纹；不要通过改冻结 hash 或跳过校验来掩盖差异。若材料、评分或模型实际变化，仍须按规则重新冻结和跑基线。
+
 ## 5. 接手第一步
 
-1. 读：`docs/self-improvement-implementation-plan.md` → 本文 → `docs/self-improvement-{materials,bridge,baseline,search-config}.md`。
-2. 验证现状（不需要付费模型）：
+1. 读：本文 → [原实施方案](self-improvement-implementation-plan.md) → 材料/桥梁/基线/搜索配置记录 → [适配器说明](../tools/evolve/README.md)。总目录见 [文档索引](README.md)。
+2. 恢复依赖并验证本地状态（不调用付费模型；在确认的运行环境执行）：
    ```bash
+   npm ci
    npm run typecheck && npm test && npm run docs:check
+   npm run evolve:materials:verify
    node --experimental-strip-types scripts/evolve-materials.ts convert --all && node --experimental-strip-types scripts/evolve-materials.ts build
    npm run evolve:review:verify
    npm run evolve:config:verify
-   npm run evolve:dataset:verify
    ```
-3. 从 **C** 起步：写 `tools/evolve/` 的 GEPAAdapter，用 `node24` 与 `/opt/venvs/ticket-doctor-gepa/bin/python`。
-4. 每次改动按 `main` 分支 + PR；收尾按 `docs/handover.md` §七（先改 `docs/status.json` → `npm run docs:check`）。
+3. 在 Linux 环境按安装脚本准备 Node/Python，设置 `TD_NODE_BIN=/opt/node-v24.9.0-linux-x64/bin/node`，用 `/opt/venvs/ticket-doctor-gepa/bin/python -m unittest tools.evolve.tests.test_adapter -v` 复验现有适配器。无需重写交付 C。
+4. 恢复 Langfuse 服务和凭据后，另跑 `npm run evolve:dataset:verify`；它需要访问服务器，并非离线检查。本轮未读回服务端数据。
+5. 先补请求前预算控制、核对隔离与恢复条件，再明确真实搜索预算；搜索后固定候选、独立 holdout 验收，再进入 D 的人工审核与发布。E 可并行制作，F 继续延后。
+6. 每次改动按分支 + PR 合入 `main`；收尾按 [交接规程](handover.md#七交接规程)（先改 `docs/status.json` → `npm run docs:check`）。
 
 ## 6. 边界与禁止事项
 

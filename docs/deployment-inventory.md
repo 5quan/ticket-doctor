@@ -1,6 +1,7 @@
 # 项目资源与服务器迁移清单
 
 > 用途：服务器到期换机时，按本文把 ticket-doctor 完整搬过去并跑起来。
+> 本文的现网拓扑与资源大小来自原部署记录；2026-11-10 仅核对仓库，未连接服务器确认服务存活或执行数据导出。当前恢复入口见 [会话交接](session-handover.md)。
 > 现网服务器 IP 示例 `117.50.121.89`（换机后会变，涉及 `NEXTAUTH_URL` 的地方要同步改）。
 
 ## 1. 用到了什么
@@ -46,14 +47,14 @@
 
 | 资产 | 现网位置 | 说明 |
 |---|---|---|
-| 代码 | `/opt/ticket-doctor`（git，`main`） | 从 GitHub 重新 clone 即可；`node_modules` 与 `adapters/go/adapter` 可重建 |
+| 代码 | `/opt/ticket-doctor`（git，`main`） | 从 GitHub 重新 clone 即可；依赖与 Go 适配器二进制可重建（见 [适配器说明](../adapters/go/README.md)） |
 | 运行数据 | `/opt/ticket-doctor/data/`（gitignore） | SQLite `ticket-doctor.sqlite`、`sessions/`、评测材料（`eval-v2/`、`evolve/`、`lf-eval/` 等）；约 100M+ |
 | Host 密钥 | `/opt/ticket-doctor/.env`（chmod 600） | 飞书、DeepSeek、观测开关；模板见 `.env.example` |
 | 适配器密钥 | `/etc/ticket-doctor-adapter.env`（root:600） | 模板见 `deploy/systemd/ticket-doctor-adapter.env.example` |
 | systemd 单元 | `/etc/systemd/system/ticket-doctor-{host,adapter}.service` | 副本已入库 `deploy/systemd/` |
 | Langfuse 密钥 | `/opt/ticket-doctor/deploy/langfuse/.env`（chmod 600） | 模板 `deploy/langfuse/.env.example`；含 Postgres/MinIO/ClickHouse/Redis 密码与 `LANGFUSE_INIT_*` |
 | Langfuse 数据 | Docker 命名卷 `langfuse_langfuse_{postgres,clickhouse,clickhouse_logs,minio,redis}_data` | 现网在 `/data/docker/volumes/`；约 3.3G（ClickHouse 最大） |
-| Go 适配器二进制 | `/opt/ticket-doctor/adapters/go/adapter` | 迁移包已含预编译二进制（同架构可直接用，**无需装 Go**）；也可 `cd adapters/go && go build -o adapter .` 重建 |
+| Go 适配器二进制 | 服务器仓库的 Go 适配器目录内 `adapter` 文件 | 导出脚本仅在已有可执行二进制时附带，不会自动构建；成功打包且架构一致时，新机无需安装 Go，否则须先构建。源码构建见 [适配器说明](../adapters/go/README.md) |
 
 **不要迁移**：旧 `ticketing-*` 演示栈容器（与本项目无关）、`archive/*` 分支（已在 tag）、`node_modules`（重装）。
 
@@ -77,7 +78,7 @@ scp /tmp/td-migration.tar.gz new-host:/tmp/
 sudo bash scripts/migrate-restore.sh /tmp/td-migration.tar.gz [--with-langfuse]
 ```
 
-脚本只搬运密钥与数据，不含密钥值；细节见脚本头部注释。下面 5.1 是手工版。
+脚本源码不含密钥值；生成的迁移包可能包含真实密钥、运行数据与预编译二进制，不能提交到 GitHub。导出/恢复脚本已入库不表示迁移包已经生成或服务器数据已经备份；细节见脚本头部注释。下面 5.1 是手工版。
 
 ### 5.1 手工步骤
 
